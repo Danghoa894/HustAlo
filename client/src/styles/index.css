@@ -1,0 +1,86 @@
+/* client/src/styles/index.css */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --color-primary: 0 104 255;
+  --color-primary-hover: 0 86 214;
+  --color-on-primary: 255 255 255;
+  --color-surface: 255 255 255;
+  --color-surface-2: 247 248 250;
+  --color-surface-3: 236 239 243;
+  --color-bubble-out: 0 104 255;
+  --color-on-bubble-out: 255 255 255;
+  --color-bubble-in: 241 243 245;
+  --color-text: 17 24 39;
+  --color-text-secondary: 75 85 99;
+  --color-border: 229 231 235;
+  --color-border-strong: 107 114 128;
+  --color-success: 4 120 87;
+  --color-online: 22 163 74;
+  --color-warning: 180 83 9;
+  --color-danger: 220 38 38;
+  --color-on-danger: 255 255 255;
+  --color-overlay: 0 0 0;
+  --color-call-bg: 17 24 39;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  color-scheme: light;
+}
+
+:root[data-theme='dark'] {
+  --color-primary: 76 154 255;
+  --color-primary-hover: 110 174 255;
+  --color-on-primary: 15 23 42;
+  --color-surface: 15 23 42;
+  --color-surface-2: 30 41 59;
+  --color-surface-3: 51 65 85;
+  --color-bubble-out: 29 78 216;
+  --color-on-bubble-out: 255 255 255;
+  --color-bubble-in: 30 41 59;
+  --color-text: 241 245 249;
+  --color-text-secondary: 203 213 225;
+  --color-border: 51 65 85;
+  --color-border-strong: 148 163 184;
+  --color-success: 52 211 153;
+  --color-online: 74 222 128;
+  --color-warning: 251 191 36;
+  --color-danger: 248 113 113;
+  --color-on-danger: 15 23 42;
+  --color-overlay: 0 0 0;
+  --color-call-bg: 2 6 23;
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+body {
+  background: rgb(var(--color-surface));
+  color: rgb(var(--color-text));
+  font-family: theme('fontFamily.sans');
+  -webkit-font-smoothing: antialiased;
+}
+.bubble-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  unicode-bidi: isolate;
+} /* EC-MSG-003 */
+:focus-visible {
+  outline: 2px solid rgb(var(--color-primary));
+  outline-offset: 2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
