@@ -1,0 +1,3719 @@
+# HUSTALO — API Specification (OpenAPI 3.0.3)
+# Version: 1.0.0 | Status: Draft — chờ review (file 5/6) | Ngày: 2026-10-27
+# File liên quan:
+#   - system_architecture.md §4.4 (enum, hằng số, mã lỗi), §4.5 (socket event), §4.6 (danh mục endpoint), §6.3 (cookie, CSRF)
+#   - product_requirements.md (FR/AC/EC — tham chiếu qua x-requirements ở từng operation)
+#   - database_schema.md (nguồn dữ liệu DTO)
+#   - ui_ux_spec.md (query key ứng với endpoint — §3)
+#   - development_guide.md (lint: npx @redocly/cli lint .spec/api_spec.yaml)
+# Quy ước:
+#   - Mọi response có header X-Request-Id; mọi lỗi dùng components/responses → ErrorResponse.
+#   - Ràng buộc độ dài chuỗi tính theo Unicode code point (JSON Schema). Server áp thêm chuẩn hóa NFC + trim (D-17).
+#   - ObjectId: chuỗi hex 24 ký tự thường. UUID: v4 chữ thường.
+#   - x-requirements: ID FR/AC/EC liên quan; x-rate-limit: tên rule trong RATE_LIMITS (constants.ts).
+#   - Ngoại lệ có chủ đích: POST /auth/register và GET /health không có response 401 (không yêu cầu xác thực,
+#     không bao giờ trả 401); GET /health không có 400 (không nhận tham số) và response 503 dùng HealthResponse.
+openapi: 3.0.3
+info:
+  title: HUSTALO API
+  version: 1.0.0
+  description: |
+    REST API của HUSTALO — ứng dụng nhắn tin và gọi điện bảo mật. Realtime (chat, presence, signaling WebRTC)
+    đi qua Socket.IO; hợp đồng event được mô tả trong `x-socket-events` ở gốc file này.
+
+    Xác thực: access token JWT (HS256, 15 phút) trong header `Authorization: Bearer <token>`; refresh token
+    opaque xoay vòng trong cookie `hustalo_rt` (`HttpOnly; Secure; SameSite=Strict; Path=/api/v1/auth`).
+    Endpoint dùng cookie yêu cầu CSRF double-submit: header `X-CSRF-Token` bằng giá trị cookie `hustalo_csrf`.
+
+    Định dạng lỗi: `{ "error": { "code", "message", "details"?, "requestId" } }`.
+  license:
+    name: Proprietary
+    url: https://hustalo.local/license
+  contact:
+    name: HUSTALO Team
+    url: https://hustalo.local
+servers:
+  - url: http://localhost:4000/api/v1
+    description: Local (server Express trực tiếp; trình duyệt đi qua proxy HTTPS của Vite tại https://localhost:5173/api/v1)
+security:
+  - bearerAuth: []
+tags:
+  - name: Auth
+    description: Đăng ký, đăng nhập, refresh token, đăng xuất, đổi mật khẩu (FR-AUTH-*).
+  - name: Users
+    description: Tìm kiếm, hồ sơ, chặn người dùng, quyền riêng tư (FR-USER-*).
+  - name: Conversations
+    description: Hội thoại DIRECT/GROUP/SECRET và thành viên (FR-CHAT-001, FR-CHAT-009, FR-GROUP-*).
+  - name: Messages
+    description: Lịch sử tin nhắn và read cursor (FR-CHAT-003, FR-CHAT-004). Gửi/sửa/thu hồi đi qua Socket.IO.
+  - name: Calls
+    description: Lịch sử cuộc gọi và ICE servers (FR-CALL-007, FR-CALL-008). Signaling đi qua Socket.IO.
+  - name: E2EE
+    description: Khóa công khai Signal, prekey bundle, thiết bị (FR-E2EE-*).
+  - name: Health
+    description: Kiểm tra trạng thái dịch vụ.
+
+paths:
+  /auth/register:
+    post:
+      tags: [Auth]
+      operationId: registerUser
+      summary: Đăng ký tài khoản và đăng nhập ngay
+      description: |
+        Tạo user, hash mật khẩu Argon2id, tạo session family cho `deviceId`, set cookie `hustalo_rt` và `hustalo_csrf`.
+        Hai request đua nhau cùng email/username: đúng một thành công, còn lại 409.
+      security: []
+      x-rate-limit: register
+      x-requirements: [FR-AUTH-001, AC-001, AC-002, EC-AUTH-001]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+            example:
+              email: dave@example.com
+              username: dave
+              password: matkhau123
+              displayName: Dave Phạm
+              deviceId: 6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b
+      responses:
+        '201':
+          description: Đã tạo tài khoản
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/XRequestId'
+            Set-Cookie:
+              $ref: '#/components/headers/SetAuthCookies'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+              example:
+                accessToken: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.example.signature
+                accessTokenExpiresAt: '2026-10-27T10:15:00.000Z'
+                user:
+                  id: 6720a1b2c3d4e5f601234567
+                  email: dave@example.com
+                  username: dave
+                  displayName: Dave Phạm
+                  avatarUrl: null
+                  privacy:
+                    showLastSeen: true
+                  blockedUserIds: []
+                  createdAt: '2026-10-27T10:00:00.000Z'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /auth/login:
+    post:
+      tags: [Auth]
+      operationId: loginUser
+      summary: Đăng nhập
+      description: |
+        Sai email/mật khẩu hoặc tài khoản LOCKED đều trả 401 với cùng message "Email hoặc mật khẩu không đúng".
+        Đăng nhập lại cùng `deviceId` thu hồi family cũ của device đó. Redis down → 503 (fail-closed, D-10).
+      security: []
+      x-rate-limit: login
+      x-requirements: [FR-AUTH-002, AC-003, AC-004, EC-SEC-005]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+            example:
+              email: alice@hustalo.local
+              password: matkhau123
+              deviceId: 6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b
+      responses:
+        '200':
+          description: Đăng nhập thành công
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/XRequestId'
+            Set-Cookie:
+              $ref: '#/components/headers/SetAuthCookies'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+              example:
+                accessToken: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.example.signature
+                accessTokenExpiresAt: '2026-10-27T10:15:00.000Z'
+                user:
+                  id: 6720a1b2c3d4e5f601234561
+                  email: alice@hustalo.local
+                  username: alice
+                  displayName: Alice Nguyễn
+                  avatarUrl: null
+                  privacy:
+                    showLastSeen: true
+                  blockedUserIds: []
+                  createdAt: '2026-10-01T08:00:00.000Z'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /auth/refresh:
+    post:
+      tags: [Auth]
+      operationId: refreshSession
+      summary: Xoay refresh token, cấp access token mới
+      description: |
+        Kiến trúc §7(a) trường hợp A–D:
+        - Token hiện hành → 200, cookie `hustalo_rt` mới.
+        - Token vừa bị xoay trong `REFRESH_REUSE_GRACE_S` (10 s) → 409 CONFLICT, không thu hồi; client đọc lại cookie và thử lại một lần.
+        - Token cũ hơn hoặc ngoài grace → thu hồi cả family (`session:revoked` REFRESH_REUSE) → 401.
+        - Thiếu/sai `X-CSRF-Token` → 403.
+      security:
+        - refreshCookie: []
+      x-rate-limit: refresh
+      x-requirements: [FR-AUTH-003, AC-005, AC-006, AC-007, AC-102, EC-AUTH-003, EC-AUTH-004, EC-SEC-004]
+      parameters:
+        - $ref: '#/components/parameters/CsrfHeader'
+      responses:
+        '200':
+          description: Đã xoay token
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/XRequestId'
+            Set-Cookie:
+              $ref: '#/components/headers/SetRefreshCookie'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+              example:
+                accessToken: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.example.signature
+                accessTokenExpiresAt: '2026-10-27T10:30:00.000Z'
+                user:
+                  id: 6720a1b2c3d4e5f601234561
+                  email: alice@hustalo.local
+                  username: alice
+                  displayName: Alice Nguyễn
+                  avatarUrl: null
+                  privacy:
+                    showLastSeen: true
+                  blockedUserIds: []
+                  createdAt: '2026-10-01T08:00:00.000Z'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /auth/logout:
+    post:
+      tags: [Auth]
+      operationId: logoutSession
+      summary: Đăng xuất phiên hiện tại
+      description: |
+        Thu hồi family hiện tại (reason LOGOUT), phát `session:revoked` tới các tab của session, kết thúc cuộc gọi của
+        các tab đó với `endReason = LOGOUT`, xóa cookie. Gọi khi family đã bị thu hồi vẫn trả 204 (idempotent).
+      security:
+        - refreshCookie: []
+      x-rate-limit: refresh
+      x-requirements: [FR-AUTH-004, AC-008, EC-AUTH-007, EC-SEC-004]
+      parameters:
+        - $ref: '#/components/parameters/CsrfHeader'
+      responses:
+        '204':
+          description: Đã đăng xuất
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/XRequestId'
+            Set-Cookie:
+              $ref: '#/components/headers/ClearAuthCookies'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /auth/me:
+    get:
+      tags: [Auth]
+      operationId: getMe
+      summary: Thông tin người dùng hiện tại
+      x-rate-limit: rest
+      x-requirements: [FR-AUTH-002, FR-USER-003, AC-013, AC-108]
+      responses:
+        '200':
+          description: Người dùng hiện tại
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/XRequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserMe'
+              example:
+                id: 6720a1b2c3d4e5f601234561
+                email: alice@hustalo.local
+                username: alice
+                displayName: Alice Nguyễn
+                avatarUrl: https://cdn.hustalo.local/avatars/alice.png
+                privacy:
+                  showLastSeen: true
+                blockedUserIds: [6720a1b2c3d4e5f601234569]
+                createdAt: '2026-10-01T08:00:00.000Z'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /auth/change-password:
+    post:
+      tags: [Auth]
+      operationId: changePassword
+      summary: Đổi mật khẩu và thu hồi các phiên khác
+      description: |
+        `currentPassword` sai → 401 "Mật khẩu hiện tại không đúng". Thành công: thu hồi mọi family khác (PASSWORD_CHANGED),
+        giữ session hiện tại.
+      x-rate-limit: login
+      x-requirements: [FR-AUTH-005, AC-009, EC-AUTH-006]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangePasswordRequest'
+            example:
+              currentPassword: matkhau123
+              newPassword: matkhauMoi456
+      responses:
+        '204':
+          description: Đã đổi mật khẩu
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/XRequestId'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /users/search:
+    get:
+      tags: [Users]
+      operationId: searchUsers
+      summary: Tìm kiếm người dùng
+      description: |
+        Khớp email chính xác (q chứa @), tiền tố username hoặc tiền tố displayName đã bỏ dấu. Loại chính mình, user LOCKED
+        và user đã chặn mình. User mình đã chặn vẫn trả về với `blockedByMe: true`. Tối đa `USER_SEARCH_LIMIT` (20).
+      x-rate-limit: rest
+      x-requirements: [FR-USER-001, AC-012]
+      parameters:
+        - name: q
+          in: query
+          required: true
+          description: Chuỗi tìm kiếm sau trim, 2..100 ký tự.
+          schema:
+            type: string
+            minLength: 2
+            maxLength: 100
+          example: binh
+      responses:
+        '200':
+          description: Kết quả tìm kiếm
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/XRequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserSearchResponse'
+              example:
+                items:
+                  - id: 6720a1b2c3d4e5f601234562
+                    username: binh.nv
+                    displayName: Nguyễn Văn Bình
+                    avatarUrl: null
+                    blockedByMe: false
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /users/me:
+    patch:
+      tags: [Users]
+      operationId: updateMe
+      summary: Cập nhật hồ sơ và quyền riêng tư
+      x-rate-limit: rest
+      x-requirements: [FR-USER-002, FR-USER-004, AC-013, AC-016, EC-PRES-004]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateMeRequest'
+            example:
+              displayName: Alice Mới
+              privacy:
+                showLastSeen: false
+      responses:
+        '200':
+          description: Đã cập nhật
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/XRequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserMe'
+              example:
+                id: 6720a1b2c3d4e5f601234561
+                email: alice@hustalo.local
+                username: alice
+                displayName: Alice Mới
+                avatarUrl: null
+                privacy:
+                  showLastSeen: false
+                blockedUserIds: []
+                createdAt: '2026-10-01T08:00:00.000Z'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /users/{userId}/block:
+    parameters:
+      - $ref: '#/components/parameters/UserIdPath'
+    post:
+      tags: [Users]
+      operationId: blockUser
+      summary: Chặn người dùng (idempotent)
+      description: Chặn có hiệu lực hai chiều cho DIRECT/SECRET và cuộc gọi (D-21). Chặn chính mình → 400.
+      x-rate-limit: rest
+      x-requirements: [FR-USER-003, AC-014, AC-015, AC-087, EC-MSG-011, EC-CALL-SIG-013]
+      responses:
+        '204':
+          description: Đã chặn (hoặc đã chặn từ trước)
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/XRequestId'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+    delete:
+      tags: [Users]
+      operationId: unblockUser
+      summary: Bỏ chặn người dùng (idempotent)
+      x-rate-limit: rest
+      x-requirements: [FR-USER-003, AC-015]
+      responses:
+        '204':
+          description: Đã bỏ chặn (hoặc chưa từng chặn)
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/XRequestId'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /conversations:
+    get:
+      tags: [Conversations]
+      operationId: listConversations
+      summary: Danh sách hội thoại của tôi (cursor)
+      description: |
+        Sắp theo `(lastMessageAt, id)` giảm dần. DIRECT chỉ hiện với người không tạo khi đã có tin đầu tiên.
+        `unreadCount` đếm tối đa 100 (UI hiển thị "99+").
+      x-rate-limit: rest
+      x-requirements: [FR-CHAT-009, AC-039, EC-MSG-014]
+      parameters:
+        - $ref: '#/components/parameters/ConversationCursor'
+        - $ref: '#/components/parameters/ConversationLimit'
+      responses:
+        '200':
+          description: Một trang hội thoại
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/XRequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConversationPage'
+              example:
+                items:
+                  - id: 6720b1b2c3d4e5f601234501
+                    type: DIRECT
+                    title: null
+                    avatarUrl: null
+                    peer:
+                      id: 6720a1b2c3d4e5f601234563
+                      username: bob
+                      displayName: Bob Trần
+                      avatarUrl: null
+                    memberCount: 2
+                    lastMessage:
+                      id: 6720c1b2c3d4e5f601234601
+                      senderId: 6720a1b2c3d4e5f601234563
+                      type: TEXT
+                      preview: Mai đi cafe không?
+                      createdAt: '2026-10-27T09:12:00.000Z'
+                      deletedAt: null
+                    lastMessageAt: '2026-10-27T09:12:00.000Z'
+                    unreadCount: 3
+                    myLastDeliveredMessageId: 6720c1b2c3d4e5f601234601
+                    myLastReadMessageId: 6720c1b2c3d4e5f601234598
+                    blockedByMe: false
+                    canMessage: true
+                nextCursor: WyIyMDI2LTEwLTI3VDA5OjEyOjAwLjAwMFoiLCI2NzIwYjFiMmMzZDRlNWY2MDEyMzQ1MDEiXQ
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+    post:
+      tags: [Conversations]
+      operationId: createConversation
+      summary: Tạo hội thoại DIRECT / SECRET / GROUP
+      description: |
+        - DIRECT/SECRET: idempotent theo cặp user (một hội thoại mỗi cặp cho mỗi loại, D-11). Đã có → 200; tạo mới → 201.
+        - SECRET: peer không có device E2EE ACTIVE → 422 E2EE_KEYS_UNAVAILABLE.
+        - GROUP: người tạo là OWNER; idempotent theo `Idempotency-Key` trong 24 h (trả 200 với nhóm đã tạo).
+        - Bị chặn (DIRECT/SECRET, khi chưa có hội thoại) → 403 USER_BLOCKED.
+        - GROUP vượt 100 thành viên → 422 CONVERSATION_FULL.
+      x-rate-limit: rest
+      x-requirements: [FR-CHAT-001, FR-GROUP-001, FR-E2EE-004, AC-017, AC-050, AC-112, EC-E2EE-001, EC-GROUP-001, EC-GROUP-002, EC-GROUP-003]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateConversationRequest'
+            examples:
+              direct:
+                summary: Tạo DIRECT
+                value:
+                  type: DIRECT
+                  memberIds: [6720a1b2c3d4e5f601234563]
+              secret:
+                summary: Tạo SECRET
+                value:
+                  type: SECRET
+                  memberIds: [6720a1b2c3d4e5f601234563]
+              group:
+                summary: Tạo GROUP
+                value:
+                  type: GROUP
+                  title: Dự án HUSTALO
+                  memberIds: [6720a1b2c3d4e5f601234563, 6720a1b2c3d4e5f601234564]
+      responses:
+        '200':
+          description: Hội thoại đã tồn tại (DIRECT/SECRET) hoặc trùng Idempotency-Key (GROUP)
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/XRequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateConversationResponse'
+              example:
+                conversation:
+                  id: 6720b1b2c3d4e5f601234501
+                  type: DIRECT
+                  title: null
+                  createdBy: 6720a1b2c3d4e5f601234561
+                  memberCount: 2
+                  members:
+                    - userId: 6720a1b2c3d4e5f601234561
+                      user:
+                        id: 6720a1b2c3d4e5f601234561
+                        username: alice
+                        displayName: Alice Nguyễn
+                        avatarUrl: null
+                      role: MEMBER
+                      joinedAt: '2026-10-20T08:00:00.000Z'
+                      lastDeliveredMessageId: null
+                      lastReadMessageId: null
+                    - userId: 6720a1b2c3d4e5f601234563
+                      user:
+                        id: 6720a1b2c3d4e5f601234563
+                        username: bob
+                        displayName: Bob Trần
+                        avatarUrl: null
+                      role: MEMBER
+                      joinedAt: '2026-10-20T08:00:00.000Z'
+                      lastDeliveredMessageId: null
+                      lastReadMessageId: null
+                  lastMessageAt: '2026-10-20T08:00:00.000Z'
+                  blockedByMe: false
+                  canMessage: true
+                  createdAt: '2026-10-20T08:00:00.000Z'
+                  updatedAt: '2026-10-20T08:00:00.000Z'
+                skipped: []
+        '201':
+          description: Đã tạo hội thoại mới
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/XRequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateConversationResponse'
+              example:
+                conversation:
+                  id: 6720b1b2c3d4e5f601234502
+                  type: GROUP
+                  title: Dự án HUSTALO
+                  createdBy: 6720a1b2c3d4e5f601234561
+                  memberCount: 2
+                  members:
+                    - userId: 6720a1b2c3d4e5f601234561
+                      user:
+                        id: 6720a1b2c3d4e5f601234561
+                        username: alice
+                        displayName: Alice Nguyễn
+                        avatarUrl: null
+                      role: OWNER
+                      joinedAt: '2026-10-27T10:00:00.000Z'
+                      lastDeliveredMessageId: null
+                      lastReadMessageId: null
+                    - userId: 6720a1b2c3d4e5f601234563
+                      user:
+                        id: 6720a1b2c3d4e5f601234563
+                        username: bob
+                        displayName: Bob Trần
+                        avatarUrl: null
+                      role: MEMBER
+                      joinedAt: '2026-10-27T10:00:00.000Z'
+                      lastDeliveredMessageId: null
+                      lastReadMessageId: null
+                  lastMessageAt: '2026-10-27T10:00:00.000Z'
+                  blockedByMe: false
+                  canMessage: true
+                  createdAt: '2026-10-27T10:00:00.000Z'
+                  updatedAt: '2026-10-27T10:00:00.000Z'
+                skipped:
+                  - userId: 6720a1b2c3d4e5f601234564
+                    code: USER_BLOCKED
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /conversations/{conversationId}:
+    parameters:
+      - $ref: '#/components/parameters/ConversationIdPath'
+    get:
+      tags: [Conversations]
+      operationId: getConversation
+      summary: Chi tiết hội thoại kèm thành viên
+      description: |
+        Người chưa từng là thành viên → 404 giống hệt id không tồn tại (EC-SEC-001). Người đã rời/bị xóa → 403 NOT_A_MEMBER.
+      x-rate-limit: rest
+      x-requirements: [FR-CHAT-009, FR-SEC-008, FR-GROUP-003, AC-057, AC-103, EC-SEC-001, EC-GROUP-007]
+      responses:
+        '200':
+          description: Hội thoại
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/XRequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Conversation'
+              example:
+                id: 6720b1b2c3d4e5f601234502
+                type: GROUP
+                title: Dự án HUSTALO
+                createdBy: 6720a1b2c3d4e5f601234561
+                memberCount: 2
+                members:
+                  - userId: 6720a1b2c3d4e5f601234561
+                    user:
+                      id: 6720a1b2c3d4e5f601234561
+                      username: alice
+                      displayName: Alice Nguyễn
+                      avatarUrl: null
+                    role: OWNER
+                    joinedAt: '2026-10-27T10:00:00.000Z'
+                    lastDeliveredMessageId: 6720c1b2c3d4e5f601234610
+                    lastReadMessageId: 6720c1b2c3d4e5f601234610
+                  - userId: 6720a1b2c3d4e5f601234563
+                    user:
+                      id: 6720a1b2c3d4e5f601234563
+                      username: bob
+                      displayName: Bob Trần
+                      avatarUrl: null
+                    role: ADMIN
+                    joinedAt: '2026-10-27T10:00:00.000Z'
+                    lastDeliveredMessageId: 6720c1b2c3d4e5f601234610
+                    lastReadMessageId: 6720c1b2c3d4e5f601234605
+                lastMessageAt: '2026-10-27T11:00:00.000Z'
+                blockedByMe: false
+                canMessage: true
+                createdAt: '2026-10-27T10:00:00.000Z'
+                updatedAt: '2026-10-27T11:00:00.000Z'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+    patch:
+      tags: [Conversations]
+      operationId: updateConversation
+      summary: Đổi tên nhóm (OWNER/ADMIN)
+      description: Chỉ GROUP; DIRECT/SECRET → 400. Tên giống hệt → 200, không tạo SYSTEM message.
+      x-rate-limit: rest
+      x-requirements: [FR-GROUP-005, AC-056, EC-GROUP-006]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateConversationRequest'
+            example:
+              title: Nhóm mới
+      responses:
+        '200':
+          description: Đã cập nhật
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/XRequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Conversation'
+              example:
+                id: 6720b1b2c3d4e5f601234502
+                type: GROUP
+                title: Nhóm mới
+                createdBy: 6720a1b2c3d4e5f601234561
+                memberCount: 1
+                members:
+                  - userId: 6720a1b2c3d4e5f601234561
+                    user:
+                      id: 6720a1b2c3d4e5f601234561
+                      username: alice
+                      displayName: Alice Nguyễn
+                      avatarUrl: null
+                    role: OWNER
+                    joinedAt: '2026-10-27T10:00:00.000Z'
+                    lastDeliveredMessageId: null
+                    lastReadMessageId: null
+                lastMessageAt: '2026-10-27T11:05:00.000Z'
+                blockedByMe: false
+                canMessage: true
+                createdAt: '2026-10-27T10:00:00.000Z'
+                updatedAt: '2026-10-27T11:05:00.000Z'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /conversations/{conversationId}/members:
+    parameters:
+      - $ref: '#/components/parameters/ConversationIdPath'
+    post:
+      tags: [Conversations]
+      operationId: addConversationMembers
+      summary: Thêm thành viên nhóm (OWNER/ADMIN)
+      description: |
+        Khử trùng; người đã là thành viên → skipped CONFLICT; không tồn tại → skipped NOT_FOUND; đã chặn người thêm →
+        skipped USER_BLOCKED. Vượt 100 → 422 CONVERSATION_FULL và không thêm ai (tất cả hoặc không).
+      x-rate-limit: rest
+      x-requirements: [FR-GROUP-002, AC-051, AC-052, AC-058, EC-GROUP-001, EC-GROUP-002, EC-GROUP-003, EC-GROUP-006]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddMembersRequest'
+            example:
+              userIds: [6720a1b2c3d4e5f601234564, 6720a1b2c3d4e5f601234565]
+      responses:
+        '200':
+          description: Kết quả thêm
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/XRequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AddMembersResponse'
+              example:
+                added:
+                  - userId: 6720a1b2c3d4e5f601234565
+                    user:
+                      id: 6720a1b2c3d4e5f601234565
+                      username: frank
+                      displayName: Frank Võ
+                      avatarUrl: null
+                    role: MEMBER
+                    joinedAt: '2026-10-27T11:10:00.000Z'
+                    lastDeliveredMessageId: null
+                    lastReadMessageId: null
+                skipped:
+                  - userId: 6720a1b2c3d4e5f601234564
+                    code: CONFLICT
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /conversations/{conversationId}/members/{userId}:
+    parameters:
+      - $ref: '#/components/parameters/ConversationIdPath'
+      - $ref: '#/components/parameters/UserIdPath'
+    patch:
+      tags: [Conversations]
+      operationId: updateConversationMemberRole
+      summary: Đổi vai trò thành viên hoặc chuyển quyền OWNER (chỉ OWNER)
+      description: |
+        `role: ADMIN | MEMBER` đặt/gỡ quản trị viên; `role: OWNER` chuyển quyền trưởng nhóm (OWNER cũ thành ADMIN, trong một
+        transaction). Target là OWNER → 403. OWNER tự đổi role của mình → 400. Target không còn trong nhóm → 403 NOT_A_MEMBER.
+      x-rate-limit: rest
+      x-requirements: [FR-GROUP-004, FR-GROUP-006, AC-054, AC-055, AC-059, EC-GROUP-005]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateMemberRoleRequest'
+            example:
+              role: ADMIN
+      responses:
+        '200':
+          description: Đã cập nhật (trả hội thoại mới nhất)
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/XRequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Conversation'
+              example:
+                id: 6720b1b2c3d4e5f601234502
+                type: GROUP
+                title: Dự án HUSTALO
+                createdBy: 6720a1b2c3d4e5f601234561
+                memberCount: 2
+                members:
+                  - userId: 6720a1b2c3d4e5f601234561
+                    user:
+                      id: 6720a1b2c3d4e5f601234561
+                      username: alice
+                      displayName: Alice Nguyễn
+                      avatarUrl: null
+                    role: OWNER
+                    joinedAt: '2026-10-27T10:00:00.000Z'
+                    lastDeliveredMessageId: null
+                    lastReadMessageId: null
+                  - userId: 6720a1b2c3d4e5f601234563
+                    user:
+                      id: 6720a1b2c3d4e5f601234563
+                      username: bob
+                      displayName: Bob Trần
+                      avatarUrl: null
+                    role: ADMIN
+                    joinedAt: '2026-10-27T10:00:00.000Z'
+                    lastDeliveredMessageId: null
+                    lastReadMessageId: null
+                lastMessageAt: '2026-10-27T11:20:00.000Z'
+                blockedByMe: false
+                canMessage: true
+                createdAt: '2026-10-27T10:00:00.000Z'
+                updatedAt: '2026-10-27T11:20:00.000Z'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+    delete:
+      tags: [Conversations]
+      operationId: removeConversationMember
+      summary: Xóa thành viên hoặc tự rời nhóm
+      description: |
+        `userId` = mình → rời nhóm; OWNER còn thành viên khác → 409 CONFLICT "Bạn cần chuyển quyền trưởng nhóm trước khi rời nhóm";
+        OWNER là thành viên duy nhất → được rời, nhóm bị soft delete. `userId` khác → xóa theo quyền (ADMIN chỉ xóa MEMBER;
+        xóa OWNER → 403). Người bị xóa nhận `conversation:member-removed` và rời room `conv:{id}`.
+      x-rate-limit: rest
+      x-requirements: [FR-GROUP-003, FR-GROUP-004, AC-034, AC-053, AC-055, AC-057, EC-GROUP-004, EC-GROUP-005, EC-GROUP-007, EC-MSG-010]
+      responses:
+        '204':
+          description: Đã xóa / đã rời
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/XRequestId'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /conversations/{conversationId}/messages:
+    parameters:
+      - $ref: '#/components/parameters/ConversationIdPath'
+    get:
+      tags: [Messages]
+      operationId: listMessages
+      summary: Lịch sử tin nhắn theo cursor
+      description: |
+        `before` và `after` loại trừ nhau (cả hai → 400). Không có cả hai = trang mới nhất. `items` luôn tăng dần theo
+        `(createdAt, id)`. Không dùng skip. SECRET: `ciphertext.recipients` chỉ còn phần tử của device trong token (có thể
+        rỗng — tin gửi trước khi device tham gia, EC-E2EE-007).
+      x-rate-limit: rest
+      x-requirements: [FR-CHAT-003, FR-CHAT-010, FR-E2EE-008, AC-028, AC-037, AC-118, EC-NET-007, EC-SEC-001, EC-E2EE-007]
+      parameters:
+        - $ref: '#/components/parameters/BeforeCursor'
+        - $ref: '#/components/parameters/AfterCursor'
+        - $ref: '#/components/parameters/HistoryLimit'
+      responses:
+        '200':
+          description: Một trang tin nhắn
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/XRequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessagePage'
+              example:
+                items:
+                  - id: 6720c1b2c3d4e5f601234600
+                    conversationId: 6720b1b2c3d4e5f601234501
+                    senderId: 6720a1b2c3d4e5f601234563
+                    senderDeviceId: 0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d
+                    clientMessageId: 5e6f7a8b-9c0d-4e1f-a2b3-c4d5e6f7a8b9
+                    type: TEXT
+                    content: Chào bạn
+                    ciphertext: null
+                    system: null
+                    receipt: null
+                    createdAt: '2026-10-26T21:03:00.000Z'
+                    editedAt: null
+                    deletedAt: null
+                  - id: 6720c1b2c3d4e5f601234601
+                    conversationId: 6720b1b2c3d4e5f601234501
+                    senderId: 6720a1b2c3d4e5f601234561
+                    senderDeviceId: 6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b
+                    clientMessageId: 7a8b9c0d-1e2f-4a3b-9c4d-5e6f7a8b9c0d
+                    type: TEXT
+                    content: Ok, 9h nhé
+                    ciphertext: null
+                    system: null
+                    receipt:
+                      deliveredAt: '2026-10-27T09:12:01.000Z'
+                      readAt: '2026-10-27T09:13:00.000Z'
+                    createdAt: '2026-10-27T09:12:00.000Z'
+                    editedAt: null
+                    deletedAt: null
+                  - id: 6720c1b2c3d4e5f601234602
+                    conversationId: 6720b1b2c3d4e5f601234501
+                    senderId: 6720a1b2c3d4e5f601234563
+                    senderDeviceId: null
+                    clientMessageId: null
+                    type: SYSTEM
+                    content: null
+                    ciphertext: null
+                    system:
+                      kind: CALL_ENDED
+                      actorId: 6720a1b2c3d4e5f601234563
+                      targetUserIds: []
+                      title: null
+                      callId: 6720d1b2c3d4e5f601234701
+                      callType: VIDEO
+                      durationSec: 192
+                    receipt: null
+                    createdAt: '2026-10-27T09:20:00.000Z'
+                    editedAt: null
+                    deletedAt: null
+                nextBefore: WyIyMDI2LTEwLTI2VDIxOjAzOjAwLjAwMFoiLCI2NzIwYzFiMmMzZDRlNWY2MDEyMzQ2MDAiXQ
+                nextAfter: null
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /conversations/{conversationId}/read:
+    parameters:
+      - $ref: '#/components/parameters/ConversationIdPath'
+    post:
+      tags: [Messages]
+      operationId: markConversationRead
+      summary: Tiến read cursor (tương đương socket message:read)
+      description: |
+        Cursor chỉ đi một chiều; cursor cũ hơn → 200 `advanced: false`, không phát event. `upToMessageId` không thuộc hội thoại → 404.
+        Phát `message:status` READ tới người gửi và tới các device khác của người đọc.
+      x-rate-limit: rest
+      x-requirements: [FR-CHAT-004, AC-024, AC-025, AC-043, EC-MSG-009, EC-MSG-014, EC-SEC-003]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReadRequest'
+            example:
+              upToMessageId: 6720c1b2c3d4e5f601234601
+      responses:
+        '200':
+          description: Kết quả tiến cursor
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/XRequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadResponse'
+              example:
+                advanced: true
+                unreadCount: 0
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /calls:
+    get:
+      tags: [Calls]
+      operationId: listCalls
+      summary: Lịch sử cuộc gọi của tôi
+      x-rate-limit: rest
+      x-requirements: [FR-CALL-008, AC-091]
+      parameters:
+        - $ref: '#/components/parameters/CallCursor'
+        - $ref: '#/components/parameters/CallLimit'
+      responses:
+        '200':
+          description: Một trang lịch sử cuộc gọi
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/XRequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CallPage'
+              example:
+                items:
+                  - id: 6720d1b2c3d4e5f601234701
+                    conversationId: 6720b1b2c3d4e5f601234501
+                    callType: VIDEO
+                    direction: INCOMING
+                    peer:
+                      id: 6720a1b2c3d4e5f601234563
+                      username: bob
+                      displayName: Bob Trần
+                      avatarUrl: null
+                    status: ENDED
+                    endReason: HANGUP
+                    createdAt: '2026-10-27T09:16:40.000Z'
+                    connectedAt: '2026-10-27T09:16:48.000Z'
+                    endedAt: '2026-10-27T09:20:00.000Z'
+                    durationSec: 192
+                  - id: 6720d1b2c3d4e5f601234702
+                    conversationId: 6720b1b2c3d4e5f601234501
+                    callType: VOICE
+                    direction: OUTGOING
+                    peer:
+                      id: 6720a1b2c3d4e5f601234563
+                      username: bob
+                      displayName: Bob Trần
+                      avatarUrl: null
+                    status: MISSED
+                    endReason: TIMEOUT
+                    createdAt: '2026-10-26T20:00:00.000Z'
+                    connectedAt: null
+                    endedAt: '2026-10-26T20:00:45.000Z'
+                    durationSec: null
+                nextCursor: null
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /calls/ice-servers:
+    get:
+      tags: [Calls]
+      operationId: getIceServers
+      summary: Lấy ICE servers (STUN + TURN credential ngắn hạn)
+      description: |
+        Server gọi Xirsys (secret chỉ ở server), cache Redis `ICE_SERVERS_CACHE_TTL_S` (5 phút). Xirsys lỗi → fallback
+        `STUN_URLS` + coturn (`source: FALLBACK`). `expiresAt = fetchedAt + TURN_CREDENTIAL_TTL_S`; client làm mới trước
+        5 phút và trước mỗi ICE restart. `iceTransportPolicy` lấy từ `ICE_TRANSPORT_POLICY` (relay để test TURN).
+        Gói miễn phí Xirsys có quota — kiểm tra lại trước production.
+      x-rate-limit: rest
+      x-requirements: [FR-CALL-007, AC-085, AC-090, EC-CALL-NET-003, EC-CALL-NET-004, EC-CALL-NET-005, EC-CALL-NET-006, EC-SEC-006]
+      responses:
+        '200':
+          description: Cấu hình ICE
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/XRequestId'
+            Cache-Control:
+              description: Luôn `no-store` (credential ngắn hạn).
+              schema:
+                type: string
+                enum: [no-store]
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IceServersResponse'
+              example:
+                iceServers:
+                  - urls: ['stun:stun.l.google.com:19302']
+                  - urls:
+                      - 'turn:tr.example.net:3478?transport=udp'
+                      - 'turn:tr.example.net:3478?transport=tcp'
+                      - 'turns:tr.example.net:443?transport=tcp'
+                    username: ephemeral-username
+                    credential: ephemeral-credential
+                iceTransportPolicy: all
+                expiresAt: '2026-10-27T11:00:00.000Z'
+                source: XIRSYS
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /e2ee/devices:
+    get:
+      tags: [E2EE]
+      operationId: listMyDevices
+      summary: Danh sách thiết bị E2EE của tôi
+      x-rate-limit: rest
+      x-requirements: [FR-E2EE-001, FR-E2EE-007, AC-117]
+      responses:
+        '200':
+          description: Danh sách thiết bị
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/XRequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceList'
+              example:
+                items:
+                  - deviceId: 6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b
+                    signalDeviceId: 1
+                    status: ACTIVE
+                    isCurrent: true
+                    userAgent: Chrome trên Windows
+                    oneTimePreKeyCount: 97
+                    createdAt: '2026-10-20T08:00:00.000Z'
+                    revokedAt: null
+                  - deviceId: 1b2c3d4e-5f60-4a7b-8c9d-0e1f2a3b4c5d
+                    signalDeviceId: 2
+                    status: REVOKED
+                    isCurrent: false
+                    userAgent: Safari trên iPhone
+                    oneTimePreKeyCount: 0
+                    createdAt: '2026-10-22T08:00:00.000Z'
+                    revokedAt: '2026-10-25T08:00:00.000Z'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /e2ee/devices/{deviceId}:
+    parameters:
+      - $ref: '#/components/parameters/DeviceIdPath'
+    delete:
+      tags: [E2EE]
+      operationId: revokeDevice
+      summary: Thu hồi thiết bị E2EE của tôi
+      description: |
+        `status = REVOKED`, xóa one-time prekey của device, thu hồi session family của device (`session:revoked` DEVICE_REVOKED).
+        Device không thuộc mình → 404. Đã thu hồi → 204 (idempotent).
+      x-rate-limit: rest
+      x-requirements: [FR-E2EE-007, AC-117, EC-E2EE-005]
+      responses:
+        '204':
+          description: Đã thu hồi
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/XRequestId'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /e2ee/devices/{deviceId}/keys:
+    parameters:
+      - $ref: '#/components/parameters/DeviceIdPath'
+    put:
+      tags: [E2EE]
+      operationId: registerDeviceKeys
+      summary: Đăng ký / cập nhật khóa công khai của device
+      description: |
+        `deviceId` phải bằng claim `did` của token (403). Lần đầu: bắt buộc `oneTimePreKeys` (100 khóa). Đăng ký lại cùng
+        `deviceId` (IndexedDB bị xóa): ghi đè identity, xóa prekey cũ, giữ `signalDeviceId`. Xoay signed prekey: chỉ gửi
+        `signedPreKey` cùng `registrationId`, `identityKey` hiện tại. Đã có 5 device ACTIVE khác → 409 CONFLICT.
+        Request không bao giờ chứa khóa riêng.
+      x-rate-limit: rest
+      x-requirements: [FR-E2EE-001, AC-110, EC-E2EE-006]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterDeviceKeysRequest'
+            example:
+              registrationId: 12345
+              identityKey: BRERERERERERERERERERERERERERERERERERERERERER
+              signedPreKey:
+                keyId: 1
+                publicKey: BSIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIi
+                signature: c2lnbmF0dXJlX2V4YW1wbGVfNjRfYnl0ZXNfZm9yX2RvY3NfMDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYg==
+              oneTimePreKeys:
+                - keyId: 1
+                  publicKey: BTMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMz
+                - keyId: 2
+                  publicKey: BURERERERERERERERERERERERERERERERERERERERERE
+      responses:
+        '200':
+          description: Đã đăng ký
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/XRequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceKeysResponse'
+              example:
+                deviceId: 6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b
+                signalDeviceId: 1
+                oneTimePreKeyCount: 100
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /e2ee/devices/{deviceId}/prekeys:
+    parameters:
+      - $ref: '#/components/parameters/DeviceIdPath'
+    post:
+      tags: [E2EE]
+      operationId: uploadOneTimePreKeys
+      summary: Bổ sung one-time prekey (sau e2ee:prekeys-low)
+      description: '`deviceId` phải bằng `did` của token và ACTIVE (403). Trùng `keyId` đã có → 409 CONFLICT (không thêm khóa nào).'
+      x-rate-limit: rest
+      x-requirements: [FR-E2EE-003, AC-115, EC-E2EE-002]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UploadPreKeysRequest'
+            example:
+              oneTimePreKeys:
+                - keyId: 101
+                  publicKey: BVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV
+                - keyId: 102
+                  publicKey: BWZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZm
+      responses:
+        '200':
+          description: Số prekey còn dùng được sau khi bổ sung
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/XRequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PreKeyCountResponse'
+              example:
+                oneTimePreKeyCount: 119
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /e2ee/users/{userId}/bundles:
+    parameters:
+      - $ref: '#/components/parameters/UserIdPath'
+    get:
+      tags: [E2EE]
+      operationId: getPreKeyBundles
+      summary: Lấy prekey bundle cho mọi device ACTIVE của user
+      description: |
+        Mỗi bundle tiêu thụ đúng một one-time prekey bằng `findOneAndUpdate` (consumedAt), không bao giờ cấp trùng; hết prekey →
+        `oneTimePreKey: null`. Còn < 20 → phát `e2ee:prekeys-low` cho device đó (cooldown 1 h). Được gọi cho chính mình
+        (trả các device khác device hiện tại). Không có chung hội thoại SECRET và không đang tạo SECRET hợp lệ → 404;
+        bị chặn → 403 USER_BLOCKED; user không có device ACTIVE → 422 E2EE_KEYS_UNAVAILABLE.
+      x-rate-limit: e2eeBundle
+      x-requirements: [FR-E2EE-002, FR-E2EE-004, AC-111, AC-116, AC-121, EC-E2EE-001, EC-E2EE-002, EC-E2EE-008]
+      responses:
+        '200':
+          description: Danh sách bundle
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/XRequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PreKeyBundlesResponse'
+              example:
+                userId: 6720a1b2c3d4e5f601234563
+                bundles:
+                  - userId: 6720a1b2c3d4e5f601234563
+                    deviceId: 0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d
+                    signalDeviceId: 1
+                    registrationId: 4321
+                    identityKey: BRERERERERERERERERERERERERERERERERERERERERER
+                    signedPreKey:
+                      keyId: 3
+                      publicKey: BSIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIi
+                      signature: c2lnbmF0dXJlX2V4YW1wbGVfNjRfYnl0ZXNfZm9yX2RvY3NfMDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYg==
+                    oneTimePreKey:
+                      keyId: 17
+                      publicKey: BTMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMz
+                  - userId: 6720a1b2c3d4e5f601234563
+                    deviceId: 2c3d4e5f-6a7b-4c8d-9e0f-1a2b3c4d5e6f
+                    signalDeviceId: 2
+                    registrationId: 8765
+                    identityKey: BXd3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3
+                    signedPreKey:
+                      keyId: 1
+                      publicKey: BYiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiI
+                      signature: c2lnbmF0dXJlX2V4YW1wbGVfNjRfYnl0ZXNfZm9yX2RvY3NfZmVkY2JhOTg3NjU0MzIxMGZlZGNiYTk4NzY1NA==
+                    oneTimePreKey: null
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /health:
+    get:
+      tags: [Health]
+      operationId: getHealth
+      summary: Trạng thái dịch vụ
+      description: 200 khi Mongo up (Redis down → `degraded`); 503 khi Mongo down hoặc server đang draining.
+      security: []
+      x-requirements: [AC-ARCH-009]
+      responses:
+        '200':
+          description: Dịch vụ hoạt động
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/XRequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              example:
+                status: ok
+                mongo: up
+                redis: up
+        '503':
+          description: Dịch vụ không sẵn sàng
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/XRequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              example:
+                status: degraded
+                mongo: down
+                redis: up
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Access token JWT HS256 (TTL 15 phút). Claim `sub`, `sid`, `did`, `iss`, `aud`, `iat`, `exp`, `jti`.
+    refreshCookie:
+      type: apiKey
+      in: cookie
+      name: hustalo_rt
+      description: Refresh token opaque (cookie `HttpOnly; Secure; SameSite=Strict; Path=/api/v1/auth`), kèm CSRF double-submit.
+
+  headers:
+    XRequestId:
+      description: UUID v4 định danh request (nhận từ header request nếu hợp lệ, ngược lại server sinh). Trùng `error.requestId`.
+      schema:
+        type: string
+        format: uuid
+    RetryAfter:
+      description: Số giây cần chờ trước khi thử lại.
+      schema:
+        type: integer
+        minimum: 1
+    SetAuthCookies:
+      description: |
+        `hustalo_rt=<token>; HttpOnly; Secure; SameSite=Strict; Path=/api/v1/auth; Max-Age=2592000` và
+        `hustalo_csrf=<random>; Secure; SameSite=Strict; Path=/; Max-Age=2592000`.
+      schema:
+        type: string
+    SetRefreshCookie:
+      description: '`hustalo_rt=<token mới>; HttpOnly; Secure; SameSite=Strict; Path=/api/v1/auth; Max-Age=2592000`.'
+      schema:
+        type: string
+    ClearAuthCookies:
+      description: Xóa `hustalo_rt` và `hustalo_csrf` (Max-Age=0).
+      schema:
+        type: string
+
+  parameters:
+    ConversationIdPath:
+      name: conversationId
+      in: path
+      required: true
+      description: ObjectId của hội thoại.
+      schema:
+        $ref: '#/components/schemas/ObjectId'
+    UserIdPath:
+      name: userId
+      in: path
+      required: true
+      description: ObjectId của người dùng.
+      schema:
+        $ref: '#/components/schemas/ObjectId'
+    DeviceIdPath:
+      name: deviceId
+      in: path
+      required: true
+      description: UUID v4 của device (`hustalo.deviceId`).
+      schema:
+        $ref: '#/components/schemas/UuidV4'
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: UUID v4 do client sinh một lần cho mỗi ý định tạo hội thoại; giữ 24 h.
+      schema:
+        $ref: '#/components/schemas/UuidV4'
+    CsrfHeader:
+      name: X-CSRF-Token
+      in: header
+      required: true
+      description: Bằng giá trị cookie `hustalo_csrf` (so sánh timing-safe).
+      schema:
+        type: string
+        minLength: 43
+        maxLength: 43
+        pattern: '^[A-Za-z0-9_-]{43}$'
+    ConversationCursor:
+      name: cursor
+      in: query
+      required: false
+      description: Cursor base64url của `(lastMessageAt, id)` từ `nextCursor` trang trước.
+      schema:
+        $ref: '#/components/schemas/Cursor'
+    ConversationLimit:
+      name: limit
+      in: query
+      required: false
+      description: 1..CONVERSATION_PAGE_MAX (50), mặc định CONVERSATION_PAGE_DEFAULT (20).
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 50
+        default: 20
+    BeforeCursor:
+      name: before
+      in: query
+      required: false
+      description: Lấy tin cũ hơn cursor `(createdAt, id)`. Không dùng cùng `after`.
+      schema:
+        $ref: '#/components/schemas/Cursor'
+    AfterCursor:
+      name: after
+      in: query
+      required: false
+      description: Lấy tin mới hơn cursor `(createdAt, id)` (đồng bộ sau reconnect). Không dùng cùng `before`.
+      schema:
+        $ref: '#/components/schemas/Cursor'
+    HistoryLimit:
+      name: limit
+      in: query
+      required: false
+      description: 1..HISTORY_PAGE_MAX (100), mặc định HISTORY_PAGE_DEFAULT (30).
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 30
+    CallCursor:
+      name: cursor
+      in: query
+      required: false
+      description: Cursor base64url của `(createdAt, id)` từ `nextCursor` trang trước.
+      schema:
+        $ref: '#/components/schemas/Cursor'
+    CallLimit:
+      name: limit
+      in: query
+      required: false
+      description: 1..50, mặc định 20.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 50
+        default: 20
+
+  responses:
+    BadRequest:
+      description: Dữ liệu không hợp lệ (VALIDATION_ERROR).
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/XRequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: VALIDATION_ERROR
+              message: Dữ liệu không hợp lệ
+              details:
+                - path: email
+                  message: Email không hợp lệ
+              requestId: 3b9e2f4a-1c5d-4e6f-8a7b-9c0d1e2f3a4b
+    Unauthorized:
+      description: Thiếu/sai token, phiên bị thu hồi, tài khoản bị khóa (UNAUTHENTICATED) hoặc access token hết hạn (TOKEN_EXPIRED).
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/XRequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: TOKEN_EXPIRED
+              message: Phiên đăng nhập đã hết hạn
+              requestId: 3b9e2f4a-1c5d-4e6f-8a7b-9c0d1e2f3a4b
+    Forbidden:
+      description: Không có quyền (FORBIDDEN, NOT_A_MEMBER, USER_BLOCKED).
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/XRequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: NOT_A_MEMBER
+              message: Bạn không còn là thành viên của cuộc trò chuyện này
+              requestId: 3b9e2f4a-1c5d-4e6f-8a7b-9c0d1e2f3a4b
+    NotFound:
+      description: Không tìm thấy (NOT_FOUND). Cũng dùng cho tài nguyên người gọi không được biết tới (chống dò ID).
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/XRequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: NOT_FOUND
+              message: Không tìm thấy cuộc trò chuyện
+              requestId: 3b9e2f4a-1c5d-4e6f-8a7b-9c0d1e2f3a4b
+    Conflict:
+      description: Xung đột (CONFLICT) — trùng email/username, refresh trong grace, OWNER rời nhóm, trùng keyId, quá số device.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/XRequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: CONFLICT
+              message: Email này đã được sử dụng
+              details:
+                field: email
+              requestId: 3b9e2f4a-1c5d-4e6f-8a7b-9c0d1e2f3a4b
+    PayloadTooLarge:
+      description: Body vượt REST_BODY_LIMIT_BYTES (256 KB) — code VALIDATION_ERROR.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/XRequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: VALIDATION_ERROR
+              message: Dữ liệu gửi lên quá lớn
+              requestId: 3b9e2f4a-1c5d-4e6f-8a7b-9c0d1e2f3a4b
+    UnprocessableEntity:
+      description: Hợp lệ về cú pháp nhưng không xử lý được (CONVERSATION_FULL, E2EE_KEYS_UNAVAILABLE).
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/XRequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: CONVERSATION_FULL
+              message: Nhóm đã đạt tối đa 100 thành viên
+              requestId: 3b9e2f4a-1c5d-4e6f-8a7b-9c0d1e2f3a4b
+    TooManyRequests:
+      description: Vượt rate limit (RATE_LIMITED).
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/XRequestId'
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: RATE_LIMITED
+              message: Bạn thao tác quá nhanh, vui lòng thử lại sau
+              requestId: 3b9e2f4a-1c5d-4e6f-8a7b-9c0d1e2f3a4b
+    ServiceUnavailable:
+      description: Phụ thuộc không sẵn sàng (SERVICE_UNAVAILABLE) — Mongo down, transaction hết lượt retry, Redis down với luồng auth.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/XRequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: SERVICE_UNAVAILABLE
+              message: Máy chủ đang bận, vui lòng thử lại
+              requestId: 3b9e2f4a-1c5d-4e6f-8a7b-9c0d1e2f3a4b
+
+  schemas:
+    # ---------------------------------------------------------------- primitives
+    ObjectId:
+      type: string
+      pattern: '^[a-f0-9]{24}$'
+      example: 6720a1b2c3d4e5f601234561
+    UuidV4:
+      type: string
+      format: uuid
+      pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+      example: 6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b
+    Cursor:
+      type: string
+      description: base64url của JSON `[createdAtISO, objectIdHex]`.
+      minLength: 1
+      maxLength: 128
+      pattern: '^[A-Za-z0-9_-]+$'
+      example: WyIyMDI2LTEwLTI3VDA5OjEyOjAwLjAwMFoiLCI2NzIwYjFiMmMzZDRlNWY2MDEyMzQ1MDEiXQ
+    Base64PublicKey:
+      type: string
+      description: Khóa công khai Curve25519 33 byte (tiền tố kiểu 0x05) dạng base64.
+      minLength: 44
+      maxLength: 44
+      pattern: '^[A-Za-z0-9+/]{43}[A-Za-z0-9+/=]$'
+    Base64Signature:
+      type: string
+      description: Chữ ký 64 byte dạng base64.
+      minLength: 88
+      maxLength: 88
+      pattern: '^[A-Za-z0-9+/]{86}==$'
+    MessageText:
+      type: string
+      description: |
+        Nội dung tin nhắn 1..MESSAGE_MAX_LENGTH (4000) code point sau chuẩn hóa NFC và trim (cả ký tự zero-width ở hai đầu).
+        Chuỗi chỉ gồm khoảng trắng/zero-width bị từ chối (VALIDATION_ERROR).
+      minLength: 1
+      maxLength: 4000
+      example: Xin chào
+
+    # ---------------------------------------------------------------- enums
+    ConversationType:
+      type: string
+      enum: [DIRECT, GROUP, SECRET]
+    MemberRole:
+      type: string
+      enum: [OWNER, ADMIN, MEMBER]
+    MessageType:
+      type: string
+      enum: [TEXT, SYSTEM]
+    MessageClientStatus:
+      type: string
+      description: Chỉ phía client (không xuất hiện trong response REST).
+      enum: [PENDING, SENT, DELIVERED, READ, FAILED]
+    CallType:
+      type: string
+      enum: [VOICE, VIDEO]
+    CallStatus:
+      type: string
+      enum: [INITIATED, RINGING, ACCEPTED, CONNECTING, CONNECTED, RECONNECTING, ENDED, REJECTED, CANCELLED, MISSED, BUSY, FAILED]
+    CallEndReason:
+      type: string
+      enum: [HANGUP, REJECTED, CANCELLED, TIMEOUT, BUSY, NETWORK_FAILURE, MEDIA_FAILURE, ANSWERED_ELSEWHERE, PEER_DISCONNECTED, SERVER_RESTART, LOGOUT]
+    ClientCallEndReason:
+      type: string
+      description: Lý do client được phép gửi trong `call:end`.
+      enum: [HANGUP, NETWORK_FAILURE, MEDIA_FAILURE]
+    PresenceStatus:
+      type: string
+      enum: [ONLINE, OFFLINE]
+    DeviceStatus:
+      type: string
+      enum: [ACTIVE, REVOKED]
+    SystemEventKind:
+      type: string
+      enum: [GROUP_CREATED, MEMBER_ADDED, MEMBER_REMOVED, MEMBER_LEFT, ROLE_CHANGED, OWNER_TRANSFERRED, TITLE_CHANGED, CALL_MISSED, CALL_ENDED]
+    SessionRevokeReason:
+      type: string
+      enum: [LOGOUT, PASSWORD_CHANGED, REFRESH_REUSE, ACCOUNT_LOCKED, DEVICE_REVOKED]
+    SignalMessageType:
+      type: integer
+      description: 1 = WHISPER, 3 = PREKEY.
+      enum: [1, 3]
+    ReceiptScope:
+      type: string
+      enum: [MESSAGE, GROUP_AGGREGATE]
+    MediaConnectionReport:
+      type: string
+      enum: [connected, disconnected, failed]
+    ErrorCode:
+      type: string
+      enum:
+        - VALIDATION_ERROR
+        - UNAUTHENTICATED
+        - TOKEN_EXPIRED
+        - FORBIDDEN
+        - NOT_FOUND
+        - CONFLICT
+        - RATE_LIMITED
+        - NOT_A_MEMBER
+        - CONVERSATION_FULL
+        - USER_BLOCKED
+        - DUPLICATE_MESSAGE
+        - CALL_NOT_FOUND
+        - CALL_INVALID_STATE
+        - CALL_BUSY
+        - CALL_TIMEOUT
+        - CALL_ALREADY_ANSWERED
+        - E2EE_KEYS_UNAVAILABLE
+        - E2EE_DECRYPT_FAILED
+        - SERVICE_UNAVAILABLE
+        - INTERNAL_ERROR
+
+    # ---------------------------------------------------------------- error
+    ErrorResponse:
+      type: object
+      required: [error]
+      additionalProperties: false
+      properties:
+        error:
+          type: object
+          required: [code, message, requestId]
+          additionalProperties: false
+          properties:
+            code:
+              $ref: '#/components/schemas/ErrorCode'
+            message:
+              type: string
+              description: Tiếng Việt; client hiển thị theo `code`, không parse `message`.
+            details:
+              description: 'VALIDATION_ERROR: mảng `{ path, message }`; CONFLICT: `{ field }` khi trùng email/username.'
+              oneOf:
+                - type: array
+                  items:
+                    type: object
+                    required: [path, message]
+                    properties:
+                      path:
+                        type: string
+                      message:
+                        type: string
+                - type: object
+                  additionalProperties: true
+            requestId:
+              type: string
+              format: uuid
+
+    # ---------------------------------------------------------------- auth / user
+    RegisterRequest:
+      type: object
+      required: [email, username, password, displayName, deviceId]
+      additionalProperties: false
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        username:
+          type: string
+          minLength: 3
+          maxLength: 30
+          pattern: '^[a-z0-9_.]{3,30}$'
+        password:
+          type: string
+          minLength: 8
+          maxLength: 128
+          pattern: '^(?=.*[A-Za-z])(?=.*[0-9]).{8,128}$'
+          description: Ít nhất 1 chữ cái và 1 chữ số; không trùng email hoặc username.
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 80
+        deviceId:
+          $ref: '#/components/schemas/UuidV4'
+    LoginRequest:
+      type: object
+      required: [email, password, deviceId]
+      additionalProperties: false
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        password:
+          type: string
+          minLength: 1
+          maxLength: 128
+        deviceId:
+          $ref: '#/components/schemas/UuidV4'
+    ChangePasswordRequest:
+      type: object
+      required: [currentPassword, newPassword]
+      additionalProperties: false
+      properties:
+        currentPassword:
+          type: string
+          minLength: 1
+          maxLength: 128
+        newPassword:
+          type: string
+          minLength: 8
+          maxLength: 128
+          pattern: '^(?=.*[A-Za-z])(?=.*[0-9]).{8,128}$'
+    Privacy:
+      type: object
+      required: [showLastSeen]
+      additionalProperties: false
+      properties:
+        showLastSeen:
+          type: boolean
+          description: Tắt → mọi người nhận lastSeenAt null; có đi có lại (FR-USER-004).
+    UserPublic:
+      type: object
+      required: [id, username, displayName, avatarUrl]
+      additionalProperties: false
+      properties:
+        id:
+          $ref: '#/components/schemas/ObjectId'
+        username:
+          type: string
+          pattern: '^[a-z0-9_.]{3,30}$'
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 80
+        avatarUrl:
+          type: string
+          format: uri
+          maxLength: 2048
+          pattern: '^https://'
+          nullable: true
+        blockedByMe:
+          type: boolean
+          description: Chỉ có trong kết quả tìm kiếm.
+    UserMe:
+      type: object
+      required: [id, email, username, displayName, avatarUrl, privacy, blockedUserIds, createdAt]
+      additionalProperties: false
+      properties:
+        id:
+          $ref: '#/components/schemas/ObjectId'
+        email:
+          type: string
+          format: email
+        username:
+          type: string
+          pattern: '^[a-z0-9_.]{3,30}$'
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 80
+        avatarUrl:
+          type: string
+          format: uri
+          pattern: '^https://'
+          nullable: true
+        privacy:
+          $ref: '#/components/schemas/Privacy'
+        blockedUserIds:
+          type: array
+          maxItems: 1000
+          items:
+            $ref: '#/components/schemas/ObjectId'
+        createdAt:
+          type: string
+          format: date-time
+    AuthResponse:
+      type: object
+      required: [accessToken, accessTokenExpiresAt, user]
+      additionalProperties: false
+      properties:
+        accessToken:
+          type: string
+          description: JWT, chỉ lưu trong RAM phía client.
+        accessTokenExpiresAt:
+          type: string
+          format: date-time
+        user:
+          $ref: '#/components/schemas/UserMe'
+    UpdateMeRequest:
+      type: object
+      minProperties: 1
+      additionalProperties: false
+      properties:
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 80
+        avatarUrl:
+          type: string
+          format: uri
+          maxLength: 2048
+          pattern: '^https://'
+          nullable: true
+        privacy:
+          $ref: '#/components/schemas/Privacy'
+    UserSearchResponse:
+      type: object
+      required: [items]
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          maxItems: 20
+          items:
+            $ref: '#/components/schemas/UserPublic'
+
+    # ---------------------------------------------------------------- conversations
+    Member:
+      type: object
+      required: [userId, user, role, joinedAt, lastDeliveredMessageId, lastReadMessageId]
+      additionalProperties: false
+      properties:
+        userId:
+          $ref: '#/components/schemas/ObjectId'
+        user:
+          $ref: '#/components/schemas/UserPublic'
+        role:
+          $ref: '#/components/schemas/MemberRole'
+        joinedAt:
+          type: string
+          format: date-time
+        lastDeliveredMessageId:
+          type: string
+          pattern: '^[a-f0-9]{24}$'
+          nullable: true
+        lastReadMessageId:
+          type: string
+          pattern: '^[a-f0-9]{24}$'
+          nullable: true
+    Conversation:
+      type: object
+      required: [id, type, title, createdBy, memberCount, members, lastMessageAt, blockedByMe, canMessage, createdAt, updatedAt]
+      additionalProperties: false
+      properties:
+        id:
+          $ref: '#/components/schemas/ObjectId'
+        type:
+          $ref: '#/components/schemas/ConversationType'
+        title:
+          type: string
+          minLength: 1
+          maxLength: 100
+          nullable: true
+          description: GROUP có title; DIRECT/SECRET là null.
+        createdBy:
+          $ref: '#/components/schemas/ObjectId'
+        memberCount:
+          type: integer
+          minimum: 1
+          maximum: 100
+        members:
+          type: array
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/Member'
+        lastMessageAt:
+          type: string
+          format: date-time
+        blockedByMe:
+          type: boolean
+          description: DIRECT/SECRET — mình đã chặn người kia. GROUP luôn false.
+        canMessage:
+          type: boolean
+          description: false khi bị chặn bất kỳ chiều (DIRECT/SECRET).
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    LastMessagePreview:
+      type: object
+      required: [id, senderId, type, preview, createdAt, deletedAt]
+      additionalProperties: false
+      properties:
+        id:
+          $ref: '#/components/schemas/ObjectId'
+        senderId:
+          $ref: '#/components/schemas/ObjectId'
+        type:
+          $ref: '#/components/schemas/MessageType'
+        preview:
+          type: string
+          maxLength: 100
+          nullable: true
+          description: |
+            TEXT: 100 code point đầu đã giải mã; SECRET: "Tin nhắn được mã hóa"; thu hồi: null (UI hiển thị
+            "Tin nhắn đã bị thu hồi"); SYSTEM: null (UI dựng chuỗi từ `system` của tin, FR-CHAT-011).
+        systemKind:
+          $ref: '#/components/schemas/SystemEventKind'
+        createdAt:
+          type: string
+          format: date-time
+        deletedAt:
+          type: string
+          format: date-time
+          nullable: true
+    ConversationSummary:
+      type: object
+      required: [id, type, title, avatarUrl, memberCount, lastMessage, lastMessageAt, unreadCount, myLastDeliveredMessageId, myLastReadMessageId, blockedByMe, canMessage]
+      additionalProperties: false
+      properties:
+        id:
+          $ref: '#/components/schemas/ObjectId'
+        type:
+          $ref: '#/components/schemas/ConversationType'
+        title:
+          type: string
+          maxLength: 100
+          nullable: true
+        avatarUrl:
+          type: string
+          format: uri
+          nullable: true
+        peer:
+          $ref: '#/components/schemas/UserPublic'
+        memberCount:
+          type: integer
+          minimum: 1
+          maximum: 100
+        lastMessage:
+          type: object
+          allOf:
+            - $ref: '#/components/schemas/LastMessagePreview'
+          nullable: true
+        lastMessageAt:
+          type: string
+          format: date-time
+        unreadCount:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: Đếm tối đa 100; UI hiển thị "99+" khi > 99.
+        myLastDeliveredMessageId:
+          type: string
+          pattern: '^[a-f0-9]{24}$'
+          nullable: true
+        myLastReadMessageId:
+          type: string
+          pattern: '^[a-f0-9]{24}$'
+          nullable: true
+        blockedByMe:
+          type: boolean
+        canMessage:
+          type: boolean
+    ConversationPage:
+      type: object
+      required: [items, nextCursor]
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          maxItems: 50
+          items:
+            $ref: '#/components/schemas/ConversationSummary'
+        nextCursor:
+          type: string
+          pattern: '^[A-Za-z0-9_-]+$'
+          nullable: true
+    CreateDirectConversationRequest:
+      type: object
+      required: [type, memberIds]
+      additionalProperties: false
+      properties:
+        type:
+          type: string
+          enum: [DIRECT]
+        memberIds:
+          type: array
+          minItems: 1
+          maxItems: 1
+          items:
+            $ref: '#/components/schemas/ObjectId'
+    CreateSecretConversationRequest:
+      type: object
+      required: [type, memberIds]
+      additionalProperties: false
+      properties:
+        type:
+          type: string
+          enum: [SECRET]
+        memberIds:
+          type: array
+          minItems: 1
+          maxItems: 1
+          items:
+            $ref: '#/components/schemas/ObjectId'
+    CreateGroupConversationRequest:
+      type: object
+      required: [type, title, memberIds]
+      additionalProperties: false
+      properties:
+        type:
+          type: string
+          enum: [GROUP]
+        title:
+          type: string
+          minLength: 1
+          maxLength: 100
+        memberIds:
+          type: array
+          minItems: 1
+          maxItems: 99
+          uniqueItems: false
+          description: Server khử trùng và bỏ chính người tạo.
+          items:
+            $ref: '#/components/schemas/ObjectId'
+    CreateConversationRequest:
+      oneOf:
+        - $ref: '#/components/schemas/CreateDirectConversationRequest'
+        - $ref: '#/components/schemas/CreateSecretConversationRequest'
+        - $ref: '#/components/schemas/CreateGroupConversationRequest'
+      discriminator:
+        propertyName: type
+        mapping:
+          DIRECT: '#/components/schemas/CreateDirectConversationRequest'
+          SECRET: '#/components/schemas/CreateSecretConversationRequest'
+          GROUP: '#/components/schemas/CreateGroupConversationRequest'
+    SkippedMember:
+      type: object
+      required: [userId, code]
+      additionalProperties: false
+      properties:
+        userId:
+          $ref: '#/components/schemas/ObjectId'
+        code:
+          type: string
+          enum: [CONFLICT, NOT_FOUND, USER_BLOCKED]
+    CreateConversationResponse:
+      type: object
+      required: [conversation, skipped]
+      additionalProperties: false
+      properties:
+        conversation:
+          $ref: '#/components/schemas/Conversation'
+        skipped:
+          type: array
+          items:
+            $ref: '#/components/schemas/SkippedMember'
+    UpdateConversationRequest:
+      type: object
+      required: [title]
+      additionalProperties: false
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 100
+    AddMembersRequest:
+      type: object
+      required: [userIds]
+      additionalProperties: false
+      properties:
+        userIds:
+          type: array
+          minItems: 1
+          maxItems: 50
+          items:
+            $ref: '#/components/schemas/ObjectId'
+    AddMembersResponse:
+      type: object
+      required: [added, skipped]
+      additionalProperties: false
+      properties:
+        added:
+          type: array
+          items:
+            $ref: '#/components/schemas/Member'
+        skipped:
+          type: array
+          items:
+            $ref: '#/components/schemas/SkippedMember'
+    UpdateMemberRoleRequest:
+      type: object
+      required: [role]
+      additionalProperties: false
+      properties:
+        role:
+          $ref: '#/components/schemas/MemberRole'
+
+    # ---------------------------------------------------------------- messages
+    E2eeRecipient:
+      type: object
+      required: [deviceId, type, body]
+      additionalProperties: false
+      properties:
+        deviceId:
+          $ref: '#/components/schemas/UuidV4'
+        type:
+          $ref: '#/components/schemas/SignalMessageType'
+        body:
+          type: string
+          minLength: 1
+          maxLength: 16384
+          pattern: '^[A-Za-z0-9+/]+={0,2}$'
+    E2eeEnvelope:
+      type: object
+      required: [v, senderDeviceId, recipients]
+      additionalProperties: false
+      properties:
+        v:
+          type: integer
+          enum: [1]
+        senderDeviceId:
+          $ref: '#/components/schemas/UuidV4'
+        recipients:
+          type: array
+          minItems: 0
+          maxItems: 10
+          description: Khi gửi 1..10 phần tử; khi trả về cho một device chỉ còn phần tử của device đó (0 hoặc 1).
+          items:
+            $ref: '#/components/schemas/E2eeRecipient'
+    SystemPayload:
+      type: object
+      required: [kind, actorId, targetUserIds, title, callId, callType, durationSec]
+      additionalProperties: false
+      properties:
+        kind:
+          $ref: '#/components/schemas/SystemEventKind'
+        actorId:
+          $ref: '#/components/schemas/ObjectId'
+        targetUserIds:
+          type: array
+          items:
+            $ref: '#/components/schemas/ObjectId'
+        title:
+          type: string
+          maxLength: 200
+          nullable: true
+        callId:
+          type: string
+          pattern: '^[a-f0-9]{24}$'
+          nullable: true
+        callType:
+          type: string
+          enum: [VOICE, VIDEO, null]
+          nullable: true
+        durationSec:
+          type: integer
+          minimum: 0
+          nullable: true
+    MessageReceiptInfo:
+      type: object
+      required: [deliveredAt, readAt]
+      additionalProperties: false
+      description: Chỉ có cho tin của chính mình trong DIRECT/SECRET.
+      properties:
+        deliveredAt:
+          type: string
+          format: date-time
+          nullable: true
+        readAt:
+          type: string
+          format: date-time
+          nullable: true
+    Message:
+      type: object
+      required: [id, conversationId, senderId, senderDeviceId, clientMessageId, type, content, ciphertext, system, receipt, createdAt, editedAt, deletedAt]
+      additionalProperties: false
+      properties:
+        id:
+          $ref: '#/components/schemas/ObjectId'
+        conversationId:
+          $ref: '#/components/schemas/ObjectId'
+        senderId:
+          $ref: '#/components/schemas/ObjectId'
+        senderDeviceId:
+          type: string
+          format: uuid
+          nullable: true
+        clientMessageId:
+          type: string
+          format: uuid
+          nullable: true
+        type:
+          $ref: '#/components/schemas/MessageType'
+        content:
+          type: string
+          maxLength: 4000
+          nullable: true
+          description: TEXT DIRECT/GROUP đã giải mã; null khi thu hồi, SYSTEM, SECRET, hoặc giải mã AES thất bại.
+        ciphertext:
+          type: object
+          allOf:
+            - $ref: '#/components/schemas/E2eeEnvelope'
+          nullable: true
+        system:
+          type: object
+          allOf:
+            - $ref: '#/components/schemas/SystemPayload'
+          nullable: true
+        receipt:
+          type: object
+          allOf:
+            - $ref: '#/components/schemas/MessageReceiptInfo'
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        editedAt:
+          type: string
+          format: date-time
+          nullable: true
+        deletedAt:
+          type: string
+          format: date-time
+          nullable: true
+    MessagePage:
+      type: object
+      required: [items, nextBefore, nextAfter]
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/Message'
+        nextBefore:
+          type: string
+          pattern: '^[A-Za-z0-9_-]+$'
+          nullable: true
+        nextAfter:
+          type: string
+          pattern: '^[A-Za-z0-9_-]+$'
+          nullable: true
+    ReadRequest:
+      type: object
+      required: [upToMessageId]
+      additionalProperties: false
+      properties:
+        upToMessageId:
+          $ref: '#/components/schemas/ObjectId'
+    ReadResponse:
+      type: object
+      required: [advanced, unreadCount]
+      additionalProperties: false
+      properties:
+        advanced:
+          type: boolean
+        unreadCount:
+          type: integer
+          minimum: 0
+          maximum: 100
+
+    # ---------------------------------------------------------------- calls
+    CallRecord:
+      type: object
+      required: [id, conversationId, callType, direction, peer, status, endReason, createdAt, connectedAt, endedAt, durationSec]
+      additionalProperties: false
+      properties:
+        id:
+          $ref: '#/components/schemas/ObjectId'
+        conversationId:
+          $ref: '#/components/schemas/ObjectId'
+        callType:
+          $ref: '#/components/schemas/CallType'
+        direction:
+          type: string
+          enum: [OUTGOING, INCOMING]
+          description: Tính theo người xem; không phải CallStatus.
+        peer:
+          $ref: '#/components/schemas/UserPublic'
+        status:
+          $ref: '#/components/schemas/CallStatus'
+        endReason:
+          type: string
+          enum: [HANGUP, REJECTED, CANCELLED, TIMEOUT, BUSY, NETWORK_FAILURE, MEDIA_FAILURE, ANSWERED_ELSEWHERE, PEER_DISCONNECTED, SERVER_RESTART, LOGOUT, null]
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        connectedAt:
+          type: string
+          format: date-time
+          nullable: true
+        endedAt:
+          type: string
+          format: date-time
+          nullable: true
+        durationSec:
+          type: integer
+          minimum: 0
+          nullable: true
+    CallPage:
+      type: object
+      required: [items, nextCursor]
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          maxItems: 50
+          items:
+            $ref: '#/components/schemas/CallRecord'
+        nextCursor:
+          type: string
+          pattern: '^[A-Za-z0-9_-]+$'
+          nullable: true
+    IceServer:
+      type: object
+      required: [urls]
+      additionalProperties: false
+      properties:
+        urls:
+          type: array
+          minItems: 1
+          items:
+            type: string
+            pattern: '^(stun|turn|turns):'
+        username:
+          type: string
+        credential:
+          type: string
+    IceServersResponse:
+      type: object
+      required: [iceServers, iceTransportPolicy, expiresAt, source]
+      additionalProperties: false
+      properties:
+        iceServers:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/IceServer'
+        iceTransportPolicy:
+          type: string
+          enum: [all, relay]
+        expiresAt:
+          type: string
+          format: date-time
+        source:
+          type: string
+          enum: [XIRSYS, FALLBACK]
+
+    # ---------------------------------------------------------------- e2ee
+    SignedPreKey:
+      type: object
+      required: [keyId, publicKey, signature]
+      additionalProperties: false
+      properties:
+        keyId:
+          type: integer
+          minimum: 0
+        publicKey:
+          $ref: '#/components/schemas/Base64PublicKey'
+        signature:
+          $ref: '#/components/schemas/Base64Signature'
+    OneTimePreKey:
+      type: object
+      required: [keyId, publicKey]
+      additionalProperties: false
+      properties:
+        keyId:
+          type: integer
+          minimum: 0
+          maximum: 16777215
+        publicKey:
+          $ref: '#/components/schemas/Base64PublicKey'
+    RegisterDeviceKeysRequest:
+      type: object
+      required: [registrationId, identityKey, signedPreKey]
+      additionalProperties: false
+      properties:
+        registrationId:
+          type: integer
+          minimum: 1
+          maximum: 16380
+        identityKey:
+          $ref: '#/components/schemas/Base64PublicKey'
+        signedPreKey:
+          $ref: '#/components/schemas/SignedPreKey'
+        oneTimePreKeys:
+          type: array
+          minItems: 1
+          maxItems: 100
+          description: Bắt buộc ở lần đăng ký đầu tiên (E2EE_ONE_TIME_PREKEY_BATCH = 100).
+          items:
+            $ref: '#/components/schemas/OneTimePreKey'
+    DeviceKeysResponse:
+      type: object
+      required: [deviceId, signalDeviceId, oneTimePreKeyCount]
+      additionalProperties: false
+      properties:
+        deviceId:
+          $ref: '#/components/schemas/UuidV4'
+        signalDeviceId:
+          type: integer
+          minimum: 1
+        oneTimePreKeyCount:
+          type: integer
+          minimum: 0
+    UploadPreKeysRequest:
+      type: object
+      required: [oneTimePreKeys]
+      additionalProperties: false
+      properties:
+        oneTimePreKeys:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/OneTimePreKey'
+    PreKeyCountResponse:
+      type: object
+      required: [oneTimePreKeyCount]
+      additionalProperties: false
+      properties:
+        oneTimePreKeyCount:
+          type: integer
+          minimum: 0
+    Device:
+      type: object
+      required: [deviceId, signalDeviceId, status, isCurrent, userAgent, oneTimePreKeyCount, createdAt, revokedAt]
+      additionalProperties: false
+      properties:
+        deviceId:
+          $ref: '#/components/schemas/UuidV4'
+        signalDeviceId:
+          type: integer
+          minimum: 1
+        status:
+          $ref: '#/components/schemas/DeviceStatus'
+        isCurrent:
+          type: boolean
+        userAgent:
+          type: string
+          maxLength: 512
+          description: Tên hiển thị dựng từ User-Agent của phiên gần nhất trên device.
+        oneTimePreKeyCount:
+          type: integer
+          minimum: 0
+        createdAt:
+          type: string
+          format: date-time
+        revokedAt:
+          type: string
+          format: date-time
+          nullable: true
+    DeviceList:
+      type: object
+      required: [items]
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Device'
+    PreKeyBundle:
+      type: object
+      required: [userId, deviceId, signalDeviceId, registrationId, identityKey, signedPreKey, oneTimePreKey]
+      additionalProperties: false
+      properties:
+        userId:
+          $ref: '#/components/schemas/ObjectId'
+        deviceId:
+          $ref: '#/components/schemas/UuidV4'
+        signalDeviceId:
+          type: integer
+          minimum: 1
+        registrationId:
+          type: integer
+          minimum: 1
+          maximum: 16380
+        identityKey:
+          $ref: '#/components/schemas/Base64PublicKey'
+        signedPreKey:
+          $ref: '#/components/schemas/SignedPreKey'
+        oneTimePreKey:
+          type: object
+          allOf:
+            - $ref: '#/components/schemas/OneTimePreKey'
+          nullable: true
+    PreKeyBundlesResponse:
+      type: object
+      required: [userId, bundles]
+      additionalProperties: false
+      properties:
+        userId:
+          $ref: '#/components/schemas/ObjectId'
+        bundles:
+          type: array
+          minItems: 1
+          maxItems: 5
+          items:
+            $ref: '#/components/schemas/PreKeyBundle'
+
+    # ---------------------------------------------------------------- health
+    HealthResponse:
+      type: object
+      required: [status, mongo, redis]
+      additionalProperties: false
+      properties:
+        status:
+          type: string
+          enum: [ok, degraded, draining]
+        mongo:
+          type: string
+          enum: [up, down]
+        redis:
+          type: string
+          enum: [up, down]
+
+    # ================================================================ socket (dùng bởi x-socket-events)
+    ClientEnvelope:
+      type: object
+      description: Mọi event client→server có dạng `{ requestId, payload }` kèm callback ACK. `payload` theo từng event.
+      required: [requestId, payload]
+      additionalProperties: false
+      properties:
+        requestId:
+          type: string
+          format: uuid
+        payload:
+          type: object
+    AckError:
+      type: object
+      required: [ok, requestId, error]
+      additionalProperties: false
+      properties:
+        ok:
+          type: boolean
+          enum: [false]
+        requestId:
+          type: string
+          format: uuid
+          description: requestId của envelope; envelope không đọc được → 00000000-0000-0000-0000-000000000000.
+        error:
+          type: object
+          required: [code, message]
+          additionalProperties: false
+          properties:
+            code:
+              $ref: '#/components/schemas/ErrorCode'
+            message:
+              type: string
+    AckOkBase:
+      type: object
+      description: 'ACK thành công `{ ok: true, requestId, data }`; `data` theo từng event (schema `*AckData`).'
+      required: [ok, requestId, data]
+      properties:
+        ok:
+          type: boolean
+          enum: [true]
+        requestId:
+          type: string
+          format: uuid
+        data:
+          type: object
+    ServerEventMeta:
+      type: object
+      description: Trường có trong mọi event server→client.
+      required: [eventId, occurredAt]
+      properties:
+        eventId:
+          type: string
+          format: uuid
+        occurredAt:
+          type: string
+          format: date-time
+    EmptyAckData:
+      type: object
+      additionalProperties: false
+      properties: {}
+
+    # ---- session
+    SessionExpiredEvent:
+      allOf:
+        - $ref: '#/components/schemas/ServerEventMeta'
+        - type: object
+          required: [reason, expiredAt]
+          properties:
+            reason:
+              type: string
+              enum: [TOKEN_EXPIRED]
+            expiredAt:
+              type: string
+              format: date-time
+    SessionRevokedEvent:
+      allOf:
+        - $ref: '#/components/schemas/ServerEventMeta'
+        - type: object
+          required: [reason]
+          properties:
+            reason:
+              $ref: '#/components/schemas/SessionRevokeReason'
+
+    # ---- conversation
+    ConversationIdPayload:
+      type: object
+      required: [conversationId]
+      additionalProperties: false
+      properties:
+        conversationId:
+          $ref: '#/components/schemas/ObjectId'
+    ConversationJoinAckData:
+      type: object
+      required: [conversation, unreadCount, typingUserIds]
+      additionalProperties: false
+      properties:
+        conversation:
+          $ref: '#/components/schemas/Conversation'
+        unreadCount:
+          type: integer
+          minimum: 0
+          maximum: 100
+        typingUserIds:
+          type: array
+          items:
+            $ref: '#/components/schemas/ObjectId'
+    ConversationUpdatedEvent:
+      allOf:
+        - $ref: '#/components/schemas/ServerEventMeta'
+        - type: object
+          required: [conversation, change]
+          properties:
+            conversation:
+              $ref: '#/components/schemas/Conversation'
+            change:
+              type: string
+              enum: [CREATED, TITLE, MEMBERS, ROLE, OWNER]
+    ConversationMemberRemovedEvent:
+      allOf:
+        - $ref: '#/components/schemas/ServerEventMeta'
+        - type: object
+          required: [conversationId, userId, removedBy, reason]
+          properties:
+            conversationId:
+              $ref: '#/components/schemas/ObjectId'
+            userId:
+              $ref: '#/components/schemas/ObjectId'
+            removedBy:
+              $ref: '#/components/schemas/ObjectId'
+            reason:
+              type: string
+              enum: [REMOVED, LEFT]
+
+    # ---- message
+    MessageSendPlaintextPayload:
+      type: object
+      required: [kind, conversationId, clientMessageId, content]
+      additionalProperties: false
+      properties:
+        kind:
+          type: string
+          enum: [PLAINTEXT]
+        conversationId:
+          $ref: '#/components/schemas/ObjectId'
+        clientMessageId:
+          $ref: '#/components/schemas/UuidV4'
+        content:
+          $ref: '#/components/schemas/MessageText'
+    MessageSendE2eePayload:
+      type: object
+      required: [kind, conversationId, clientMessageId, ciphertext]
+      additionalProperties: false
+      description: Có trường `content` → VALIDATION_ERROR (additionalProperties false).
+      properties:
+        kind:
+          type: string
+          enum: [E2EE]
+        conversationId:
+          $ref: '#/components/schemas/ObjectId'
+        clientMessageId:
+          $ref: '#/components/schemas/UuidV4'
+        ciphertext:
+          $ref: '#/components/schemas/E2eeEnvelope'
+    MessageSendPayload:
+      oneOf:
+        - $ref: '#/components/schemas/MessageSendPlaintextPayload'
+        - $ref: '#/components/schemas/MessageSendE2eePayload'
+      discriminator:
+        propertyName: kind
+        mapping:
+          PLAINTEXT: '#/components/schemas/MessageSendPlaintextPayload'
+          E2EE: '#/components/schemas/MessageSendE2eePayload'
+    MessageSendAckData:
+      type: object
+      required: [message, duplicate]
+      additionalProperties: false
+      properties:
+        message:
+          $ref: '#/components/schemas/Message'
+        duplicate:
+          type: boolean
+          description: true ⇔ DUPLICATE_MESSAGE (không phải lỗi) — trả bản đã lưu, không fan-out lại.
+    MessageNewEvent:
+      allOf:
+        - $ref: '#/components/schemas/ServerEventMeta'
+        - type: object
+          required: [message]
+          properties:
+            message:
+              $ref: '#/components/schemas/Message'
+    ReceiptCursorPayload:
+      type: object
+      required: [conversationId, upToMessageId]
+      additionalProperties: false
+      properties:
+        conversationId:
+          $ref: '#/components/schemas/ObjectId'
+        upToMessageId:
+          $ref: '#/components/schemas/ObjectId'
+    MessageDeliveredAckData:
+      type: object
+      required: [advanced]
+      additionalProperties: false
+      properties:
+        advanced:
+          type: boolean
+    MessageReadAckData:
+      $ref: '#/components/schemas/ReadResponse'
+    MessageStatusEvent:
+      allOf:
+        - $ref: '#/components/schemas/ServerEventMeta'
+        - oneOf:
+            - type: object
+              required: [conversationId, scope, messageIds, status, byUserId, at]
+              properties:
+                conversationId:
+                  $ref: '#/components/schemas/ObjectId'
+                scope:
+                  type: string
+                  enum: [MESSAGE]
+                messageIds:
+                  type: array
+                  minItems: 1
+                  items:
+                    $ref: '#/components/schemas/ObjectId'
+                status:
+                  type: string
+                  enum: [DELIVERED, READ]
+                byUserId:
+                  $ref: '#/components/schemas/ObjectId'
+                at:
+                  type: string
+                  format: date-time
+            - type: object
+              required: [conversationId, scope, userId, lastDeliveredMessageId, lastReadMessageId]
+              properties:
+                conversationId:
+                  $ref: '#/components/schemas/ObjectId'
+                scope:
+                  type: string
+                  enum: [GROUP_AGGREGATE]
+                userId:
+                  $ref: '#/components/schemas/ObjectId'
+                lastDeliveredMessageId:
+                  type: string
+                  pattern: '^[a-f0-9]{24}$'
+                  nullable: true
+                lastReadMessageId:
+                  type: string
+                  pattern: '^[a-f0-9]{24}$'
+                  nullable: true
+    MessageEditPayload:
+      type: object
+      required: [messageId, content]
+      additionalProperties: false
+      properties:
+        messageId:
+          $ref: '#/components/schemas/ObjectId'
+        content:
+          $ref: '#/components/schemas/MessageText'
+    MessageDeletePayload:
+      type: object
+      required: [messageId]
+      additionalProperties: false
+      properties:
+        messageId:
+          $ref: '#/components/schemas/ObjectId'
+    MessageAckData:
+      type: object
+      required: [message]
+      additionalProperties: false
+      properties:
+        message:
+          $ref: '#/components/schemas/Message'
+    MessageChangedEvent:
+      description: Dùng cho S→C `message:edit` và `message:delete`.
+      allOf:
+        - $ref: '#/components/schemas/ServerEventMeta'
+        - type: object
+          required: [message]
+          properties:
+            message:
+              $ref: '#/components/schemas/Message'
+
+    # ---- typing / presence
+    TypingUpdateEvent:
+      allOf:
+        - $ref: '#/components/schemas/ServerEventMeta'
+        - type: object
+          required: [conversationId, userId, isTyping]
+          properties:
+            conversationId:
+              $ref: '#/components/schemas/ObjectId'
+            userId:
+              $ref: '#/components/schemas/ObjectId'
+            isTyping:
+              type: boolean
+    PresenceSubscribePayload:
+      type: object
+      required: [userIds]
+      additionalProperties: false
+      properties:
+        userIds:
+          type: array
+          minItems: 1
+          maxItems: 200
+          items:
+            $ref: '#/components/schemas/ObjectId'
+    PresenceSubscribeAckData:
+      type: object
+      required: [accepted]
+      additionalProperties: false
+      properties:
+        accepted:
+          type: array
+          items:
+            $ref: '#/components/schemas/ObjectId'
+    PresenceEntry:
+      type: object
+      required: [userId, status, lastSeenAt]
+      additionalProperties: false
+      properties:
+        userId:
+          $ref: '#/components/schemas/ObjectId'
+        status:
+          $ref: '#/components/schemas/PresenceStatus'
+        lastSeenAt:
+          type: string
+          format: date-time
+          nullable: true
+    PresenceSnapshotEvent:
+      allOf:
+        - $ref: '#/components/schemas/ServerEventMeta'
+        - type: object
+          required: [users, degraded]
+          properties:
+            users:
+              type: array
+              items:
+                $ref: '#/components/schemas/PresenceEntry'
+            degraded:
+              type: boolean
+    PresenceUpdateEvent:
+      allOf:
+        - $ref: '#/components/schemas/ServerEventMeta'
+        - $ref: '#/components/schemas/PresenceEntry'
+
+    # ---- call
+    CallInvitePayload:
+      type: object
+      required: [conversationId, callType]
+      additionalProperties: false
+      properties:
+        conversationId:
+          $ref: '#/components/schemas/ObjectId'
+        callType:
+          $ref: '#/components/schemas/CallType'
+    CallInviteAckData:
+      type: object
+      required: [callId, status, merged, callType]
+      additionalProperties: false
+      properties:
+        callId:
+          $ref: '#/components/schemas/ObjectId'
+        status:
+          $ref: '#/components/schemas/CallStatus'
+        merged:
+          type: boolean
+          description: true khi glare — lời mời được gộp vào cuộc gọi ngược chiều đang đổ chuông (D-03).
+        callType:
+          $ref: '#/components/schemas/CallType'
+    CallIdPayload:
+      type: object
+      required: [callId]
+      additionalProperties: false
+      properties:
+        callId:
+          $ref: '#/components/schemas/ObjectId'
+    CallStatusAckData:
+      type: object
+      required: [callId, status]
+      additionalProperties: false
+      properties:
+        callId:
+          $ref: '#/components/schemas/ObjectId'
+        status:
+          $ref: '#/components/schemas/CallStatus'
+    CallEndAckData:
+      type: object
+      required: [callId, status, endReason]
+      additionalProperties: false
+      properties:
+        callId:
+          $ref: '#/components/schemas/ObjectId'
+        status:
+          $ref: '#/components/schemas/CallStatus'
+        endReason:
+          $ref: '#/components/schemas/CallEndReason'
+    CallIncomingEvent:
+      allOf:
+        - $ref: '#/components/schemas/ServerEventMeta'
+        - type: object
+          required: [callId, conversationId, callType, caller, expiresAt]
+          properties:
+            callId:
+              $ref: '#/components/schemas/ObjectId'
+            conversationId:
+              $ref: '#/components/schemas/ObjectId'
+            callType:
+              $ref: '#/components/schemas/CallType'
+            caller:
+              $ref: '#/components/schemas/UserPublic'
+            expiresAt:
+              type: string
+              format: date-time
+    CallIncomingClientAck:
+      type: object
+      description: Client trả qua callback của `call:incoming` (server emit có timeout CALL_INCOMING_ACK_TIMEOUT_MS = 5 s).
+      required: [ok]
+      additionalProperties: false
+      properties:
+        ok:
+          type: boolean
+          enum: [true]
+    CallIdEvent:
+      description: Dùng cho `call:ringing`.
+      allOf:
+        - $ref: '#/components/schemas/ServerEventMeta'
+        - type: object
+          required: [callId]
+          properties:
+            callId:
+              $ref: '#/components/schemas/ObjectId'
+    CallAcceptedEvent:
+      allOf:
+        - $ref: '#/components/schemas/ServerEventMeta'
+        - type: object
+          required: [callId, acceptedDeviceId, acceptedTabId]
+          properties:
+            callId:
+              $ref: '#/components/schemas/ObjectId'
+            acceptedDeviceId:
+              $ref: '#/components/schemas/UuidV4'
+            acceptedTabId:
+              $ref: '#/components/schemas/UuidV4'
+    CallAnsweredElsewhereEvent:
+      allOf:
+        - $ref: '#/components/schemas/ServerEventMeta'
+        - type: object
+          required: [callId, reason]
+          properties:
+            callId:
+              $ref: '#/components/schemas/ObjectId'
+            reason:
+              type: string
+              enum: [ANSWERED_ELSEWHERE]
+    CallBusyEvent:
+      allOf:
+        - $ref: '#/components/schemas/ServerEventMeta'
+        - type: object
+          required: [callId, caller, callType]
+          properties:
+            callId:
+              $ref: '#/components/schemas/ObjectId'
+            caller:
+              $ref: '#/components/schemas/UserPublic'
+            callType:
+              $ref: '#/components/schemas/CallType'
+    CallSdpPayload:
+      type: object
+      required: [callId, revision, sdp]
+      additionalProperties: false
+      description: Dùng cho `call:offer` và `call:answer` (C→S và relay S→C kèm ServerEventMeta). Không bao giờ log `sdp`.
+      properties:
+        callId:
+          $ref: '#/components/schemas/ObjectId'
+        revision:
+          type: integer
+          minimum: 1
+        sdp:
+          type: string
+          minLength: 1
+          maxLength: 20000
+    CallSdpEvent:
+      allOf:
+        - $ref: '#/components/schemas/ServerEventMeta'
+        - $ref: '#/components/schemas/CallSdpPayload'
+    CallRevisionAckData:
+      type: object
+      required: [revision]
+      additionalProperties: false
+      properties:
+        revision:
+          type: integer
+          minimum: 1
+    IceCandidate:
+      type: object
+      required: [candidate, sdpMid, sdpMLineIndex, usernameFragment]
+      additionalProperties: false
+      properties:
+        candidate:
+          type: string
+          maxLength: 1024
+          description: Chuỗi rỗng = end-of-candidates. Không bao giờ log.
+        sdpMid:
+          type: string
+          maxLength: 64
+          nullable: true
+        sdpMLineIndex:
+          type: integer
+          minimum: 0
+          maximum: 16
+          nullable: true
+        usernameFragment:
+          type: string
+          maxLength: 256
+          nullable: true
+    CallIcePayload:
+      type: object
+      required: [callId, revision, candidate]
+      additionalProperties: false
+      properties:
+        callId:
+          $ref: '#/components/schemas/ObjectId'
+        revision:
+          type: integer
+          minimum: 1
+        candidate:
+          $ref: '#/components/schemas/IceCandidate'
+    CallIceEvent:
+      allOf:
+        - $ref: '#/components/schemas/ServerEventMeta'
+        - $ref: '#/components/schemas/CallIcePayload'
+    CallIceRestartPayload:
+      type: object
+      required: [callId, attempt]
+      additionalProperties: false
+      properties:
+        callId:
+          $ref: '#/components/schemas/ObjectId'
+        attempt:
+          type: integer
+          minimum: 1
+          maximum: 2
+    CallIceRestartEvent:
+      allOf:
+        - $ref: '#/components/schemas/ServerEventMeta'
+        - $ref: '#/components/schemas/CallIceRestartPayload'
+    CallIceRestartAckData:
+      type: object
+      required: [attempt]
+      additionalProperties: false
+      properties:
+        attempt:
+          type: integer
+          minimum: 1
+          maximum: 2
+    CallEndPayload:
+      type: object
+      required: [callId, reason]
+      additionalProperties: false
+      properties:
+        callId:
+          $ref: '#/components/schemas/ObjectId'
+        reason:
+          $ref: '#/components/schemas/ClientCallEndReason'
+    CallStateReportPayload:
+      type: object
+      required: [callId, connectionState]
+      additionalProperties: false
+      properties:
+        callId:
+          $ref: '#/components/schemas/ObjectId'
+        connectionState:
+          $ref: '#/components/schemas/MediaConnectionReport'
+    CallStateAckData:
+      type: object
+      required: [status, version]
+      additionalProperties: false
+      properties:
+        status:
+          $ref: '#/components/schemas/CallStatus'
+        version:
+          type: integer
+          minimum: 1
+    CallStateEvent:
+      allOf:
+        - $ref: '#/components/schemas/ServerEventMeta'
+        - type: object
+          required: [callId, conversationId, status, endReason, callType, callerId, calleeId, acceptedDeviceId, acceptedTabId, connectedAt, endedAt, version]
+          properties:
+            callId:
+              $ref: '#/components/schemas/ObjectId'
+            conversationId:
+              $ref: '#/components/schemas/ObjectId'
+            status:
+              $ref: '#/components/schemas/CallStatus'
+            endReason:
+              type: string
+              enum: [HANGUP, REJECTED, CANCELLED, TIMEOUT, BUSY, NETWORK_FAILURE, MEDIA_FAILURE, ANSWERED_ELSEWHERE, PEER_DISCONNECTED, SERVER_RESTART, LOGOUT, null]
+              nullable: true
+            callType:
+              $ref: '#/components/schemas/CallType'
+            callerId:
+              $ref: '#/components/schemas/ObjectId'
+            calleeId:
+              $ref: '#/components/schemas/ObjectId'
+            acceptedDeviceId:
+              type: string
+              format: uuid
+              nullable: true
+            acceptedTabId:
+              type: string
+              format: uuid
+              nullable: true
+            connectedAt:
+              type: string
+              format: date-time
+              nullable: true
+            endedAt:
+              type: string
+              format: date-time
+              nullable: true
+            version:
+              type: integer
+              minimum: 1
+
+    # ---- e2ee
+    E2eePrekeysLowEvent:
+      allOf:
+        - $ref: '#/components/schemas/ServerEventMeta'
+        - type: object
+          required: [deviceId, remaining]
+          properties:
+            deviceId:
+              $ref: '#/components/schemas/UuidV4'
+            remaining:
+              type: integer
+              minimum: 0
+              maximum: 19
+
+# ==================================================================== Socket.IO
+# Hợp đồng event (system_architecture.md §4.5). Agent sinh `ClientToServerEvents` / `ServerToClientEvents`
+# (packages/shared/src/events/socket-types.ts) từ khối này. Socket path `/socket.io`, namespace `/`.
+# Handshake `auth: { token, deviceId, tabId }`. C→S luôn là ClientEnvelope với `payload` theo bảng; ACK là
+# AckOkBase (data = `ack`) hoặc AckError. `rateLimit` là tên rule trong RATE_LIMITS.
+x-socket-events:
+  handshake:
+    auth:
+      token: Access token JWT (bắt buộc)
+      deviceId: UUID v4, phải bằng claim did
+      tabId: UUID v4 trong sessionStorage (định tuyến signaling cuộc gọi)
+    connectErrors: [UNAUTHENTICATED, TOKEN_EXPIRED]
+    rooms: ['user:{userId}', 'device:{deviceId}', 'tab:{tabId}', 'session:{sid}']
+  envelope:
+    $ref: '#/components/schemas/ClientEnvelope'
+  ackOk:
+    $ref: '#/components/schemas/AckOkBase'
+  ackError:
+    $ref: '#/components/schemas/AckError'
+  serverEventMeta:
+    $ref: '#/components/schemas/ServerEventMeta'
+  events:
+    session:expired:
+      direction: server-to-client
+      target: 'session:{sid}'
+      payload:
+        $ref: '#/components/schemas/SessionExpiredEvent'
+      requirements: [FR-AUTH-007, AC-011, EC-AUTH-002]
+    session:revoked:
+      direction: server-to-client
+      target: 'session:{sid}'
+      payload:
+        $ref: '#/components/schemas/SessionRevokedEvent'
+      requirements: [FR-AUTH-003, FR-AUTH-005, FR-AUTH-006, FR-E2EE-007, AC-006, AC-009, AC-010, AC-117, EC-AUTH-004, EC-AUTH-005, EC-AUTH-006]
+    conversation:join:
+      direction: client-to-server
+      payload:
+        $ref: '#/components/schemas/ConversationIdPayload'
+      ack:
+        $ref: '#/components/schemas/ConversationJoinAckData'
+      authorization: Là thành viên hiện tại (AUTHZ-2)
+      rateLimit: socketGeneric
+      errors: [VALIDATION_ERROR, NOT_FOUND, NOT_A_MEMBER, RATE_LIMITED, SERVICE_UNAVAILABLE]
+      requirements: [FR-SEC-008, AC-057, EC-SEC-002]
+    conversation:leave:
+      direction: client-to-server
+      payload:
+        $ref: '#/components/schemas/ConversationIdPayload'
+      ack:
+        $ref: '#/components/schemas/EmptyAckData'
+      authorization: Bất kỳ (chỉ rời room conv:{id})
+      rateLimit: socketGeneric
+      errors: [VALIDATION_ERROR, RATE_LIMITED]
+    conversation:updated:
+      direction: server-to-client
+      target: 'user:{memberId} của mọi thành viên'
+      payload:
+        $ref: '#/components/schemas/ConversationUpdatedEvent'
+      requirements: [FR-GROUP-001, FR-GROUP-002, FR-GROUP-004, FR-GROUP-005, FR-GROUP-006, EC-GROUP-006]
+    conversation:member-removed:
+      direction: server-to-client
+      target: 'user:{memberId} của thành viên còn lại và người bị xóa'
+      payload:
+        $ref: '#/components/schemas/ConversationMemberRemovedEvent'
+      requirements: [FR-GROUP-003, FR-GROUP-004, AC-034, EC-GROUP-007]
+    message:send:
+      direction: client-to-server
+      payload:
+        $ref: '#/components/schemas/MessageSendPayload'
+      ack:
+        $ref: '#/components/schemas/MessageSendAckData'
+      authorization: Thành viên; DIRECT/SECRET không bị chặn hai chiều; kind khớp loại hội thoại; SECRET — device ACTIVE và recipients khớp tập device ACTIVE
+      rateLimit: messageSend
+      ackAfter: Transaction MongoDB commit
+      errors: [VALIDATION_ERROR, NOT_FOUND, NOT_A_MEMBER, USER_BLOCKED, FORBIDDEN, CONFLICT, E2EE_KEYS_UNAVAILABLE, RATE_LIMITED, SERVICE_UNAVAILABLE]
+      requirements: [FR-CHAT-002, FR-CHAT-006, FR-E2EE-004, AC-020, AC-021, AC-029, AC-033, AC-035, AC-036, AC-041, AC-119, AC-121, EC-MSG-001, EC-MSG-002, EC-MSG-005, EC-MSG-006, EC-MSG-010, EC-MSG-011, EC-MSG-016, EC-NET-004, EC-INFRA-001, EC-E2EE-005, EC-E2EE-008]
+    message:new:
+      direction: server-to-client
+      target: 'user:{memberId} (DIRECT/GROUP); device:{deviceId} (SECRET, mỗi device chỉ nhận recipient của mình)'
+      payload:
+        $ref: '#/components/schemas/MessageNewEvent'
+      requirements: [FR-CHAT-002, AC-020, EC-NET-005, EC-NET-006]
+    message:delivered:
+      direction: client-to-server
+      payload:
+        $ref: '#/components/schemas/ReceiptCursorPayload'
+      ack:
+        $ref: '#/components/schemas/MessageDeliveredAckData'
+      authorization: Thành viên; message thuộc hội thoại; userId lấy từ token
+      rateLimit: socketGeneric
+      errors: [VALIDATION_ERROR, NOT_FOUND, NOT_A_MEMBER, RATE_LIMITED, SERVICE_UNAVAILABLE]
+      requirements: [FR-CHAT-004, AC-022, AC-023, AC-025, EC-SEC-003]
+    message:read:
+      direction: client-to-server
+      payload:
+        $ref: '#/components/schemas/ReceiptCursorPayload'
+      ack:
+        $ref: '#/components/schemas/MessageReadAckData'
+      authorization: Thành viên; message thuộc hội thoại; userId lấy từ token
+      rateLimit: socketGeneric
+      errors: [VALIDATION_ERROR, NOT_FOUND, NOT_A_MEMBER, RATE_LIMITED, SERVICE_UNAVAILABLE]
+      requirements: [FR-CHAT-004, AC-024, AC-042, AC-043, EC-MSG-009, EC-MSG-014, EC-SEC-003]
+    message:status:
+      direction: server-to-client
+      target: 'MESSAGE: user:{senderId} và user:{byUserId}; GROUP_AGGREGATE: conv:{conversationId} và user:{userId}'
+      payload:
+        $ref: '#/components/schemas/MessageStatusEvent'
+      requirements: [FR-CHAT-004, AC-022, AC-023, AC-024, AC-043, EC-MSG-008]
+    message:edit:
+      direction: bidirectional
+      payload:
+        $ref: '#/components/schemas/MessageEditPayload'
+      ack:
+        $ref: '#/components/schemas/MessageAckData'
+      serverPayload:
+        $ref: '#/components/schemas/MessageChangedEvent'
+      target: 'user:{memberId} của mọi thành viên'
+      authorization: Người gửi; trong MESSAGE_EDIT_WINDOW_MS (15 phút); không SECRET; không SYSTEM; chưa thu hồi
+      rateLimit: socketGeneric
+      errors: [VALIDATION_ERROR, NOT_FOUND, NOT_A_MEMBER, FORBIDDEN, RATE_LIMITED, SERVICE_UNAVAILABLE]
+      requirements: [FR-CHAT-007, AC-030, AC-031, EC-MSG-015, EC-MSG-017]
+    message:delete:
+      direction: bidirectional
+      payload:
+        $ref: '#/components/schemas/MessageDeletePayload'
+      ack:
+        $ref: '#/components/schemas/MessageAckData'
+      serverPayload:
+        $ref: '#/components/schemas/MessageChangedEvent'
+      target: 'user:{memberId} của mọi thành viên'
+      authorization: Người gửi; trong 15 phút; không SYSTEM; đã thu hồi → ACK ok trả bản hiện tại (idempotent)
+      rateLimit: socketGeneric
+      errors: [VALIDATION_ERROR, NOT_FOUND, NOT_A_MEMBER, FORBIDDEN, RATE_LIMITED, SERVICE_UNAVAILABLE]
+      requirements: [FR-CHAT-008, AC-031, AC-032, EC-MSG-015]
+    typing:start:
+      direction: client-to-server
+      payload:
+        $ref: '#/components/schemas/ConversationIdPayload'
+      ack:
+        $ref: '#/components/schemas/EmptyAckData'
+      authorization: Thành viên; DIRECT/SECRET không bị chặn
+      rateLimit: typing
+      clientThrottle: TYPING_CLIENT_THROTTLE_MS (3 s)
+      errors: [VALIDATION_ERROR, NOT_A_MEMBER, USER_BLOCKED, RATE_LIMITED, SERVICE_UNAVAILABLE]
+      requirements: [FR-CHAT-005, AC-026]
+    typing:stop:
+      direction: client-to-server
+      payload:
+        $ref: '#/components/schemas/ConversationIdPayload'
+      ack:
+        $ref: '#/components/schemas/EmptyAckData'
+      authorization: Thành viên
+      rateLimit: typing
+      errors: [VALIDATION_ERROR, NOT_A_MEMBER, RATE_LIMITED, SERVICE_UNAVAILABLE]
+      requirements: [FR-CHAT-005, AC-026]
+    typing:update:
+      direction: server-to-client
+      target: 'user:{memberId} của thành viên trừ người gõ'
+      payload:
+        $ref: '#/components/schemas/TypingUpdateEvent'
+      requirements: [FR-CHAT-005, AC-026]
+    presence:subscribe:
+      direction: client-to-server
+      payload:
+        $ref: '#/components/schemas/PresenceSubscribePayload'
+      ack:
+        $ref: '#/components/schemas/PresenceSubscribeAckData'
+      authorization: Chỉ chấp nhận user có chung ≥ 1 hội thoại và không bị chặn hai chiều; còn lại lọc im lặng
+      rateLimit: presenceSubscribe
+      errors: [VALIDATION_ERROR, RATE_LIMITED]
+      requirements: [FR-PRES-003, AC-063, EC-SEC-002]
+    presence:snapshot:
+      direction: server-to-client
+      target: socket vừa subscribe
+      payload:
+        $ref: '#/components/schemas/PresenceSnapshotEvent'
+      requirements: [FR-PRES-001, FR-PRES-002, AC-016, EC-PRES-005]
+    presence:update:
+      direction: server-to-client
+      target: 'presence:{userId}'
+      payload:
+        $ref: '#/components/schemas/PresenceUpdateEvent'
+      requirements: [FR-PRES-001, FR-PRES-002, AC-027, AC-060, AC-061, AC-062, EC-PRES-001, EC-PRES-002, EC-PRES-003, EC-PRES-004]
+    call:invite:
+      direction: client-to-server
+      payload:
+        $ref: '#/components/schemas/CallInvitePayload'
+      ack:
+        $ref: '#/components/schemas/CallInviteAckData'
+      authorization: Thành viên DIRECT/SECRET; không bị chặn hai chiều; caller không trong cuộc gọi khác; GROUP → VALIDATION_ERROR
+      rateLimit: callInvite
+      errors: [VALIDATION_ERROR, NOT_FOUND, NOT_A_MEMBER, USER_BLOCKED, CALL_BUSY, CALL_INVALID_STATE, RATE_LIMITED, SERVICE_UNAVAILABLE]
+      requirements: [FR-CALL-001, FR-CALL-002, FR-CALL-004, FR-CALL-005, FR-CALL-010, AC-070, AC-071, AC-074, AC-077, AC-086, AC-087, EC-CALL-SIG-002, EC-CALL-SIG-003, EC-CALL-SIG-012, EC-CALL-SIG-013, EC-CALL-SIG-014, EC-SEC-008]
+    call:incoming:
+      direction: server-to-client
+      target: 'user:{calleeId} (mọi tab online)'
+      payload:
+        $ref: '#/components/schemas/CallIncomingEvent'
+      clientAck:
+        $ref: '#/components/schemas/CallIncomingClientAck'
+      requirements: [FR-CALL-003, AC-076, AC-088, EC-CALL-SIG-001, EC-CALL-SIG-004]
+    call:ringing:
+      direction: server-to-client
+      target: 'tab:{callerTabId}'
+      payload:
+        $ref: '#/components/schemas/CallIdEvent'
+      requirements: [FR-CALL-001, AC-070]
+    call:accept:
+      direction: client-to-server
+      payload:
+        $ref: '#/components/schemas/CallIdPayload'
+      ack:
+        $ref: '#/components/schemas/CallStatusAckData'
+      authorization: Là callee; status ∈ {INITIATED, RINGING}
+      rateLimit: socketGeneric
+      errors: [VALIDATION_ERROR, CALL_NOT_FOUND, FORBIDDEN, CALL_ALREADY_ANSWERED, CALL_TIMEOUT, CALL_INVALID_STATE, RATE_LIMITED, SERVICE_UNAVAILABLE]
+      requirements: [FR-CALL-003, FR-CALL-004, AC-076, AC-089, EC-CALL-SIG-005, EC-CALL-SIG-006, EC-CALL-SIG-016]
+    call:accepted:
+      direction: server-to-client
+      target: 'tab:{callerTabId} và tab:{acceptedTabId}'
+      payload:
+        $ref: '#/components/schemas/CallAcceptedEvent'
+      requirements: [FR-CALL-003, AC-070]
+    call:answered-elsewhere:
+      direction: server-to-client
+      target: Mọi tab khác của callee
+      payload:
+        $ref: '#/components/schemas/CallAnsweredElsewhereEvent'
+      requirements: [FR-CALL-003, AC-076, EC-CALL-SIG-004]
+    call:reject:
+      direction: client-to-server
+      payload:
+        $ref: '#/components/schemas/CallIdPayload'
+      ack:
+        $ref: '#/components/schemas/CallStatusAckData'
+      authorization: Là callee; status ∈ {INITIATED, RINGING}; từ chối ở một tab là từ chối cho mọi tab (D-07)
+      rateLimit: socketGeneric
+      errors: [VALIDATION_ERROR, CALL_NOT_FOUND, FORBIDDEN, CALL_INVALID_STATE, RATE_LIMITED]
+      requirements: [FR-CALL-004, AC-072]
+    call:cancel:
+      direction: client-to-server
+      payload:
+        $ref: '#/components/schemas/CallIdPayload'
+      ack:
+        $ref: '#/components/schemas/CallStatusAckData'
+      authorization: Tab caller; INITIATED/RINGING → CANCELLED; ACCEPTED..RECONNECTING → như call:end HANGUP; terminal → ACK trạng thái hiện tại
+      rateLimit: socketGeneric
+      errors: [VALIDATION_ERROR, CALL_NOT_FOUND, FORBIDDEN, RATE_LIMITED]
+      requirements: [FR-CALL-004, AC-075, EC-CALL-SIG-005]
+    call:busy:
+      direction: server-to-client
+      target: 'user:{calleeId}'
+      payload:
+        $ref: '#/components/schemas/CallBusyEvent'
+      requirements: [FR-CALL-004, AC-074, EC-CALL-SIG-002]
+    call:offer:
+      direction: bidirectional
+      payload:
+        $ref: '#/components/schemas/CallSdpPayload'
+      ack:
+        $ref: '#/components/schemas/CallRevisionAckData'
+      serverPayload:
+        $ref: '#/components/schemas/CallSdpEvent'
+      target: 'tab:{acceptedTabId}'
+      authorization: Chỉ tab caller (D-04); status ∈ {ACCEPTED, CONNECTING, CONNECTED, RECONNECTING}; revision = offerRevision + 1
+      rateLimit: callSignal
+      errors: [VALIDATION_ERROR, CALL_NOT_FOUND, FORBIDDEN, CALL_INVALID_STATE, RATE_LIMITED]
+      requirements: [FR-CALL-001, FR-CALL-006, AC-070, AC-081, AC-083, EC-CALL-SIG-007, EC-CALL-SIG-010, EC-CALL-SIG-011]
+    call:answer:
+      direction: bidirectional
+      payload:
+        $ref: '#/components/schemas/CallSdpPayload'
+      ack:
+        $ref: '#/components/schemas/CallRevisionAckData'
+      serverPayload:
+        $ref: '#/components/schemas/CallSdpEvent'
+      target: 'tab:{callerTabId}'
+      authorization: Chỉ tab đã accept; revision == offerRevision; chưa có answer cho revision đó
+      rateLimit: callSignal
+      errors: [VALIDATION_ERROR, CALL_NOT_FOUND, FORBIDDEN, CALL_INVALID_STATE, RATE_LIMITED]
+      requirements: [FR-CALL-001, FR-CALL-006, AC-070, AC-083, EC-CALL-SIG-007, EC-CALL-SIG-011]
+    call:ice-candidate:
+      direction: bidirectional
+      payload:
+        $ref: '#/components/schemas/CallIcePayload'
+      ack:
+        $ref: '#/components/schemas/EmptyAckData'
+      serverPayload:
+        $ref: '#/components/schemas/CallIceEvent'
+      target: Tab bên kia
+      authorization: Chỉ 2 tab tham gia; status không terminal; revision == offerRevision
+      rateLimit: callSignal
+      errors: [VALIDATION_ERROR, CALL_NOT_FOUND, FORBIDDEN, CALL_INVALID_STATE, RATE_LIMITED]
+      requirements: [FR-CALL-001, AC-083, EC-CALL-SIG-008, EC-CALL-SIG-009, EC-CALL-SIG-010, EC-CALL-SIG-011]
+    call:ice-restart:
+      direction: bidirectional
+      payload:
+        $ref: '#/components/schemas/CallIceRestartPayload'
+      ack:
+        $ref: '#/components/schemas/CallIceRestartAckData'
+      serverPayload:
+        $ref: '#/components/schemas/CallIceRestartEvent'
+      target: Tab bên kia
+      authorization: 2 tab tham gia; status ∈ {CONNECTING, CONNECTED, RECONNECTING}; attempt = iceRestarts + 1 ≤ CALL_MAX_ICE_RESTARTS (2)
+      rateLimit: callSignal
+      errors: [VALIDATION_ERROR, CALL_NOT_FOUND, FORBIDDEN, CALL_INVALID_STATE, RATE_LIMITED]
+      requirements: [FR-CALL-006, AC-081, EC-CALL-NET-001, EC-CALL-NET-005, EC-CALL-NET-010]
+    call:end:
+      direction: client-to-server
+      payload:
+        $ref: '#/components/schemas/CallEndPayload'
+      ack:
+        $ref: '#/components/schemas/CallEndAckData'
+      authorization: 2 tab tham gia sau ACCEPTED; tab caller trước ACCEPTED; tab bất kỳ của callee ở INITIATED/RINGING chỉ với MEDIA_FAILURE; terminal → idempotent
+      rateLimit: socketGeneric
+      errors: [VALIDATION_ERROR, CALL_NOT_FOUND, FORBIDDEN, RATE_LIMITED]
+      requirements: [FR-CALL-004, FR-CALL-006, FR-CALL-009, AC-080, AC-082, AC-084, EC-CALL-SIG-015, EC-CALL-MEDIA-001, EC-CALL-MEDIA-007, EC-CALL-NET-008]
+    call:state:
+      direction: bidirectional
+      payload:
+        $ref: '#/components/schemas/CallStateReportPayload'
+      ack:
+        $ref: '#/components/schemas/CallStateAckData'
+      serverPayload:
+        $ref: '#/components/schemas/CallStateEvent'
+      target: 'user:{callerId} và user:{calleeId}'
+      authorization: C→S chỉ 2 tab tham gia; callId không còn live → ACK trạng thái cuối (chốt FAILED/ENDED SERVER_RESTART nếu cần)
+      rateLimit: callSignal
+      errors: [VALIDATION_ERROR, CALL_NOT_FOUND, FORBIDDEN, RATE_LIMITED]
+      requirements: [FR-CALL-006, AC-081, AC-082, AC-092, EC-CALL-NET-002, EC-CALL-NET-007, EC-CALL-NET-009, EC-NET-005]
+    e2ee:prekeys-low:
+      direction: server-to-client
+      target: 'device:{deviceId}'
+      payload:
+        $ref: '#/components/schemas/E2eePrekeysLowEvent'
+      requirements: [FR-E2EE-003, AC-115, EC-E2EE-002]
+
+# ==================================================================== Consistency Check
+# - [x] Enum, event, mã lỗi, hằng số khớp mục 2 và 3:
+#       components/schemas định nghĩa đủ ConversationType, MemberRole, MessageType, MessageClientStatus, CallType,
+#       CallStatus (12), CallEndReason (11), PresenceStatus, ErrorCode (20) và enum [NEW] của kiến trúc §4.4.2
+#       (DeviceStatus, SystemEventKind, SessionRevokeReason, SignalMessageType, ReceiptScope, MediaConnectionReport,
+#       ClientCallEndReason). x-socket-events có đúng 35 event của §4.5, không có message:ack / call:initiate.
+#       Ràng buộc số: MessageText 4000, title 100, displayName 80, username ^[a-z0-9_.]{3,30}$, password 8..128,
+#       history limit 1..100 (mặc định 30), conversation limit 1..50 (mặc định 20), GROUP memberIds ≤ 99, add ≤ 50,
+#       memberCount ≤ 100, unreadCount ≤ 100, presence subscribe ≤ 200, sdp ≤ 20000, candidate ≤ 1024,
+#       ice-restart attempt ≤ 2, recipients ≤ 10, prekeys ≤ 100, prekeys-low remaining ≤ 19, bundles ≤ 5 device.
+# - [x] FR/AC tham chiếu bằng ID: mọi operation và event có x-requirements / requirements.
+# - [x] Edge case có ID: EC liên quan REST/socket gắn ở x-requirements (AUTH, NET, MSG, GROUP, PRES, CALL-SIG,
+#       CALL-MEDIA, CALL-NET, INFRA, SEC, E2EE).
+# - [x] Không có secret thật: token/credential/khóa trong example là chuỗi minh họa không hợp lệ; domain tr.example.net.
+# - [x] Không mâu thuẫn với file trước — điểm đã đối chiếu:
+#       * Kiến trúc §4.6: đủ 27 endpoint gồm 4 endpoint [NEW] (/auth/change-password, PATCH members/{userId},
+#         GET /e2ee/devices, DELETE /e2ee/devices/{deviceId}); cookie/CSRF theo §6.3; ICE servers theo §9.5.
+#       * PRD: blockedUserIds trong UserMe, blockedByMe/canMessage/myLast*MessageId trong ConversationSummary,
+#         direction trong CallRecord, skipped với CONFLICT/NOT_FOUND/USER_BLOCKED, OWNER rời nhóm → 409,
+#         GROUP call → VALIDATION_ERROR, SECRET chỉ ciphertext.
+#       * DB: Message DTO phản ánh contentEnc (giải mã thành content), ciphertext, system (senderId = actor), editedAt,
+#         deletedAt; cursor base64url [createdAtISO, id] theo database_schema.md §4; consumedAt cho one-time prekey.
+#       * UI: query key ui_ux_spec.md §3 ánh xạ trực tiếp các operationId ở đây.
+#       * Ngoại lệ có chủ đích (ghi ở đầu file): /auth/register và /health không có 401; /health không có 400 và
+#         response 503 dùng HealthResponse thay vì ErrorResponse (để probe đọc trạng thái từng phụ thuộc).
