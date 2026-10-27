@@ -713,7 +713,7 @@ features/calls/IncomingCallScreen.tsx (role="alertdialog", aria-modal="true", ar
 hook: features/calls/useRingtone.ts — phát /sounds/ringtone.mp3 lặp
 ```
 
-- **Nguồn dữ liệu:** `E:call:incoming` (ACK `{ ok: true }` ngay khi nhận) → `S.call.incoming = { callId, conversationId, callType, caller, expiresAt }`; `E:call:state`, `E:call:answered-elsewhere`, `E:call:accepted`.
+- **Nguồn dữ liệu:** `E:call:incoming` (ACK `{ ok: true }` ngay khi nhận) → `S.call.incoming = { callId, conversationId, callType, caller, ringExpiresAt }` (thời gian đổ chuông còn lại tính từ `ringExpiresAt` theo `server-clock.ts`, không đọc `CALL_RING_TIMEOUT_MS`; caller dùng `ringExpiresAt` của `call:ringing`); `E:call:state`, `E:call:answered-elsewhere`, `E:call:accepted`.
 - **Hiển thị khi đang có cuộc gọi khác ở tab này:** không xảy ra (server trả `CALL_BUSY` cho caller — D-06).
 - **Tương tác:**
   - "Trả lời" → `localPhase = PREPARING_MEDIA` (nút chuyển `Spinner`, chữ "Đang chuẩn bị micro/camera…") → `getUserMedia` (fallback theo FR-CALL-009) → `E:call:accept` → điều hướng `/call/:callId` → `InCallScreen`.
@@ -851,7 +851,7 @@ features/settings/SettingsPage.tsx
 
 - **Thiết bị:** mỗi dòng: tên dựng từ `userAgent` ("Chrome trên Windows"), "Đang dùng" cho device hiện tại, trạng thái E2EE ("Sẵn sàng trò chuyện bí mật" / "Đã thu hồi"), thời điểm đăng ký. Thu hồi → modal "Thu hồi thiết bị này? Thiết bị sẽ bị đăng xuất và không đọc được tin nhắn bí mật mới." [Hủy] [Thu hồi]. Device hiện tại không đăng ký được do đủ 5 → banner "Thiết bị này chưa thể dùng trò chuyện bí mật. Hãy thu hồi một thiết bị khác (tối đa 5)." (FR-E2EE-001).
 - **Safety number (`SafetyNumberDialog`):** tiêu đề "Xác minh mã an toàn với {tên}"; với mỗi device của peer: 60 chữ số chia 12 nhóm 5 số, font `tabular-nums`, 3 hàng × 4 nhóm; mô tả "So sánh dãy số này với {tên} qua gặp mặt hoặc kênh tin cậy khác. Nếu trùng khớp, cuộc trò chuyện được mã hóa đầu-cuối an toàn."; nút "Đánh dấu đã xác minh" → `ShieldCheck` + "Đã xác minh"; nút "Sao chép".
-- **Đổi mật khẩu:** trường "Mật khẩu hiện tại", "Mật khẩu mới", "Nhập lại mật khẩu mới"; `401` → "Mật khẩu hiện tại không đúng"; thành công → toast "Đã đổi mật khẩu" + "Các thiết bị khác đã được đăng xuất." (EC-AUTH-006).
+- **Đổi mật khẩu:** trường "Mật khẩu hiện tại", "Mật khẩu mới", "Nhập lại mật khẩu mới"; `422 VALIDATION_ERROR` với `details[].field = 'currentPassword'` → lỗi inline tại trường "Mật khẩu hiện tại": "Mật khẩu hiện tại không đúng" (không chạy luồng refresh/đăng xuất, EC-AUTH-008); `429` → "Bạn đã thử quá nhiều lần. Vui lòng thử lại sau {n} giây." với `n` = `Retry-After`, nút disabled tới hết; thành công → toast "Đã đổi mật khẩu" + "Các thiết bị khác đã được đăng xuất." (EC-AUTH-006).
 - **Đăng xuất:** đang trong cuộc gọi → modal "Đăng xuất sẽ kết thúc cuộc gọi hiện tại. Tiếp tục?" [Hủy] [Đăng xuất] (EC-AUTH-007).
 - **Trạng thái:** mỗi section có loading skeleton; lưu → nút "Lưu" loading, thành công toast "Đã lưu thay đổi", lỗi `VALIDATION_ERROR` hiển thị dưới trường.
 
@@ -1013,6 +1013,31 @@ export function mapMediaError(err: unknown, requested: 'audio' | 'video'): Media
 | Banner | Trạng thái kéo dài ảnh hưởng toàn trang hoặc toàn phòng | "Đang kết nối lại…", "Không có kết nối mạng", "Mã an toàn với {tên} đã thay đổi" | Tồn tại tới khi điều kiện hết; không tự ẩn |
 | Modal | Cần xác nhận hành động không hoàn tác được hoặc chặn tiếp tục | Thu hồi tin, xóa thành viên, rời nhóm, thu hồi thiết bị, `SessionModal` | Focus trap; Esc = hủy (trừ `SessionModal`); nút nguy hiểm màu `danger` đặt bên phải |
 | Màn hình toàn phần | Cuộc gọi | `IncomingCallScreen`, `CallOverlay` | Khóa cuộn trang nền |
+
+### 5.3 Chuỗi SYSTEM message và lastSeen `[NEW]`
+
+`SystemMessage` (FR-CHAT-011) dựng chuỗi ở client từ `message.system`; `{actor}`, `{target}`, `{targets}` là `displayName` lấy từ `Conversation.members`; `{targets}` nối bằng ", ". Chuỗi chính thức (nguyên văn PRD FR-CHAT-011):
+
+| `system.kind` | Chuỗi hiển thị |
+|---|---|
+| `GROUP_CREATED` | "{actor} đã tạo nhóm" |
+| `MEMBER_ADDED` | "{actor} đã thêm {targets}" |
+| `MEMBER_REMOVED` | "{actor} đã xóa {target} khỏi nhóm" |
+| `MEMBER_LEFT` | "{actor} đã rời nhóm" |
+| `ROLE_CHANGED` | "{actor} đã đặt {target} làm quản trị viên" (target thành ADMIN) / "{actor} đã gỡ quyền quản trị viên của {target}" (target thành MEMBER) |
+| `OWNER_TRANSFERRED` | "{actor} đã chuyển quyền trưởng nhóm cho {target}" |
+| `TITLE_CHANGED` | "{actor} đã đổi tên nhóm thành “{title}”" |
+| `CALL_MISSED` | "Cuộc gọi thoại nhỡ" / "Cuộc gọi video nhỡ" (theo `callType`) |
+| `CALL_ENDED` | "Cuộc gọi thoại · {mm:ss}" / "Cuộc gọi video · {mm:ss}" (`durationSec`) |
+
+Dòng lastSeen (FR-PRES-002) trong `ChatHeader` và `ConversationItem` khi OFFLINE; `lastSeenAt = null` → không hiển thị dòng:
+
+| Khoảng cách tới hiện tại (theo `server-clock.ts`) | Chuỗi |
+|---|---|
+| < 1 phút | "Vừa mới truy cập" |
+| < 60 phút | "Truy cập {n} phút trước" |
+| < 24 giờ | "Truy cập {n} giờ trước" |
+| Còn lại | "Truy cập lúc HH:mm DD/MM" |
 
 ---
 

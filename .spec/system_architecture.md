@@ -65,8 +65,8 @@ Các con số dưới đây là mục tiêu đo được; `product_requirements.
 | NFR-ARCH-01 | Độ trễ ACK `message:send` | p95 ≤ 300 ms (môi trường test: 1 instance, Mongo/Redis local, 50 user đồng thời, 5 msg/s tổng) | Histogram `hustalo_message_send_ack_seconds` |
 | NFR-ARCH-02 | Độ trễ fan-out `message:new` | p95 ≤ 500 ms từ lúc commit tới lúc socket người nhận nhận event | Playwright đo `occurredAt` vs thời điểm nhận (cùng máy) |
 | NFR-ARCH-03 | Thiết lập cuộc gọi | p95 ≤ 5 s từ `call:accept` tới `CONNECTED` khi có đường direct (host/srflx) | Histogram `hustalo_call_setup_seconds` |
-| NFR-ARCH-04 | Phát hiện offline | ≤ `PRESENCE_LEASE_TTL` (60 s) khi crash; ≤ `PRESENCE_OFFLINE_GRACE` (10 s) + 1 s khi disconnect sạch | Integration test presence |
-| NFR-ARCH-05 | Khả dụng MVP | 1 instance; restart không làm mất tin đã ACK, không làm treo trạng thái cuộc gọi quá `CALL_RECONNECT_GRACE` + 5 s | Test EC-NET-003, EC-CALL-NET-009 |
+| NFR-ARCH-04 | Phát hiện offline | ≤ `PRESENCE_LEASE_TTL_MS` (60 s) khi crash; ≤ `PRESENCE_OFFLINE_GRACE_MS` (10 s) + 1 s khi disconnect sạch | Integration test presence |
+| NFR-ARCH-05 | Khả dụng MVP | 1 instance; restart không làm mất tin đã ACK, không làm treo trạng thái cuộc gọi quá `CALL_RECONNECT_GRACE_MS` + 5 s | Test EC-NET-003, EC-CALL-NET-009 |
 | NFR-ARCH-06 | Tải MVP | 1.000 socket đồng thời / instance, 200 cuộc gọi signaling đồng thời | Load test k6 (M6) |
 | NFR-ARCH-07 | Trình duyệt | Chrome/Edge/Firefox 2 phiên bản gần nhất, Safari 17+ | Ma trận Playwright (Chromium, Firefox, WebKit) |
 | NFR-ARCH-08 | Bảo mật | 0 secret trong bundle client; 0 log chứa token/nội dung/SDP/ICE | Test SEC: quét `dist/` và log capture |
@@ -116,10 +116,10 @@ Các con số dưới đây là mục tiêu đo được; `product_requirements.
 | D-02 | JWT ký **HS256** với `JWT_ACCESS_SECRET` ≥ 32 byte. EdDSA để dành khi tách service. | Một service duy nhất ký và verify; đơn giản. |
 | D-03 | **Glare: server gộp hai lời mời thành một cuộc gọi** (không dùng luật userId nhỏ thắng). | Redis Lua serialize mọi `call:invite`; lời mời thứ hai từ chính người được gọi được hiểu là "nghe máy". Xem mục 7(g). |
 | D-04 | Người gọi (`callerDeviceId`) **luôn là bên tạo offer**, kể cả khi ICE restart. Người nghe chỉ answer; muốn restart thì gửi `call:ice-restart` để yêu cầu. | Loại bỏ glare SDP, không cần perfect negotiation. |
-| D-05 | Timeout cuộc gọi lưu dạng **deadline trong Redis ZSET `call:deadlines`**, sweeper mỗi `CALL_DEADLINE_SWEEP_INTERVAL` (1 s). Không dùng `setTimeout` trong RAM làm nguồn sự thật. | Sống sót qua restart, đúng khi nhiều instance. |
+| D-05 | Timeout cuộc gọi lưu dạng **deadline trong Redis ZSET `call:deadlines`**, sweeper mỗi `CALL_DEADLINE_SWEEP_INTERVAL_MS` (1 s). Không dùng `setTimeout` trong RAM làm nguồn sự thật. | Sống sót qua restart, đúng khi nhiều instance. |
 | D-06 | Đang đổ chuông cũng tính là bận: `user:incall:{userId}` được set cho cả caller và callee ngay khi `call:invite` thành công. | Tránh một người đổ chuông 2 cuộc gọi; điều kiện cần cho D-03. |
 | D-07 | Từ chối trên **một** thiết bị bất kỳ của callee → cuộc gọi `REJECTED` cho mọi thiết bị. | Hành vi giống Zalo/Telegram. |
-| D-08 | Gọi người đang offline: cuộc gọi ở `INITIATED` tối đa `CALL_RING_TIMEOUT`; nếu callee online trong khoảng đó, server đẩy `call:incoming` ngay khi socket kết nối; hết giờ → `MISSED`. | Không có push notification ở MVP nhưng vẫn bắt được trường hợp reconnect nhanh. |
+| D-08 | Gọi người đang offline: cuộc gọi ở `INITIATED` tối đa `CALL_RING_TIMEOUT_MS`; nếu callee online trong khoảng đó, server đẩy `call:incoming` ngay khi socket kết nối; hết giờ → `MISSED`. | Không có push notification ở MVP nhưng vẫn bắt được trường hợp reconnect nhanh. |
 | D-09 | Fan-out `message:new`, `message:edit`, `message:delete`, `typing:update`, `conversation:*` gửi tới room `user:{memberId}` của **thành viên hiện tại đọc từ DB**, không dựa vào room hội thoại. Room `conv:{conversationId}` chỉ dùng cho cập nhật receipt nhóm tần suất cao (`message:status` loại GROUP_AGGREGATE). | Thành viên bị xóa không nhận gì dù còn kẹt trong room (EC-GROUP-007); preview typing ở danh sách chat vẫn hoạt động. |
 | D-10 | Rate limit khi Redis down: **auth (login/register/refresh) fail-closed** (503 `SERVICE_UNAVAILABLE`); mọi rule khác **fail-open có kiểm soát** sang limiter bộ nhớ per-instance cùng hạn mức. | Chống brute-force tuyệt đối; không làm sập chat vì Redis. |
 | D-11 | Một conversation SECRET duy nhất cho mỗi cặp user (idempotent như DIRECT). | Đơn giản hóa UI và key routing. |
@@ -129,8 +129,8 @@ Các con số dưới đây là mục tiêu đo được; `product_requirements.
 | D-15 | Delivered và read đều gửi lên dạng **cursor** `{ conversationId, upToMessageId }` cho mọi loại hội thoại. Lưu trữ: DIRECT/SECRET → `messageReceipts` từng tin; GROUP → cursor trên `conversationMembers`. | Một API cho client, hai mô hình lưu trữ theo yêu cầu. |
 | D-16 | Tin SECRET hỗ trợ **thu hồi** (`message:delete`) nhưng **không hỗ trợ sửa** ở MVP (`message:edit` → `FORBIDDEN`). | Sửa ciphertext đa thiết bị phức tạp; ngoài phạm vi. |
 | D-17 | Độ dài tin nhắn đếm theo **Unicode code point** (`Array.from(s).length`) sau khi chuẩn hóa NFC và trim (trim cả khoảng trắng Unicode và ký tự zero-width U+200B–U+200D, U+2060, U+FEFF ở hai đầu). | Nhất quán client/server; emoji không bị đếm đôi theo UTF-16. |
-| D-18 | Session socket hết hạn: server hẹn giờ theo `exp` của access token → phát `session:expired`, sau `SESSION_EXPIRED_DISCONNECT_DELAY` (5 s) thì `disconnect(true)`. Client chủ động refresh trước `exp` `ACCESS_TOKEN_REFRESH_SKEW` (60 s) và reconnect với token mới. | Giữ đúng hợp đồng `session:expired` + reconnect. |
-| D-19 | Refresh đồng thời nhiều tab: client dùng **Web Locks API** (`navigator.locks.request('hustalo-refresh', …)`); server có cửa sổ ân hạn `REFRESH_REUSE_GRACE` (10 s): token **vừa bị xoay** được dùng lại trong 10 s trả `409 CONFLICT` (không thu hồi); ngoài cửa sổ hoặc token cũ hơn → thu hồi cả family. | Tránh báo động giả reuse (EC-AUTH-003) mà vẫn bắt token bị đánh cắp (EC-AUTH-004). |
+| D-18 | Session socket hết hạn: server hẹn giờ theo `exp` của access token → phát `session:expired`, sau `SESSION_EXPIRED_DISCONNECT_DELAY_MS` (5 s) thì `disconnect(true)`. Client chủ động refresh trước `exp` `ACCESS_TOKEN_REFRESH_SKEW_S` (60 s) và reconnect với token mới. | Giữ đúng hợp đồng `session:expired` + reconnect. |
+| D-19 | Refresh đồng thời nhiều tab: client dùng **Web Locks API** (`navigator.locks.request('hustalo-refresh', …)`); server có cửa sổ ân hạn `REFRESH_REUSE_GRACE_S` (10 s): token **vừa bị xoay** được dùng lại trong 10 s trả `409 CONFLICT` (không thu hồi); ngoài cửa sổ hoặc token cũ hơn → thu hồi cả family. | Tránh báo động giả reuse (EC-AUTH-003) mà vẫn bắt token bị đánh cắp (EC-AUTH-004). |
 | D-20 | Thứ tự hiển thị, phân trang và so sánh cursor luôn theo cặp `(createdAt, _id)` do server sinh. | Không phụ thuộc đồng hồ client (EC-MSG-012). |
 | D-21 | Chặn người dùng (`userBlocks`) có hiệu lực **hai chiều** cho DIRECT/SECRET và cuộc gọi: nếu A chặn B **hoặc** B chặn A thì không ai gửi tin/gọi được trong hội thoại 1-1 → `USER_BLOCKED`. Trong GROUP, chặn không ngăn gửi tin nhóm; nhưng không thể thêm vào nhóm người đã chặn mình. | Giống Zalo; tránh rò rỉ "ai chặn ai" qua mã lỗi (cùng một mã). |
 | D-22 | Gọi trong conversation `GROUP` bị từ chối bằng `VALIDATION_ERROR` với message `"Cuộc gọi nhóm chưa được hỗ trợ"`. UI ẩn nút gọi trong nhóm. | Sửa thiếu sót #8. |
@@ -235,8 +235,10 @@ hustalo/
 ├── eslint.config.js                  # flat config: typescript-eslint, react-hooks, import, no-restricted-syntax
 ├── .prettierrc.json
 ├── .editorconfig
-├── .gitignore                        # .env*, !.env.example, infra/certs/, **/dist, coverage
+├── .gitignore                        # node_modules/, .env*, !.env.example, infra/certs/, **/dist, coverage
 ├── .nvmrc                            # 22
+├── .redocly.yaml                     # [NEW] cấu hình redocly lint cho .spec/api_spec.yaml
+├── .redocly.lint-ignore.yaml         # [NEW] ngoại lệ có chủ đích (GET /health không có 4xx)
 ├── CLAUDE.md
 ├── .spec/
 │   ├── system_architecture.md
@@ -254,7 +256,8 @@ hustalo/
 │   └── certs/                        # mkcert output (gitignored): localhost+lan.pem, localhost+lan-key.pem
 ├── scripts/
 │   ├── gen-secrets.mjs               # in ra JWT_ACCESS_SECRET, REFRESH_TOKEN_PEPPER, DATA_ENCRYPTION_KEYS
-│   └── check-bundle-secrets.mjs      # quét client/dist tìm chuỗi XIRSYS_/SECRET/PEPPER (EC-SEC-006)
+│   ├── check-bundle-secrets.mjs      # quét client/dist tìm chuỗi XIRSYS_/SECRET/PEPPER (EC-SEC-006)
+│   └── spec-check.mjs                # [NEW] đối chiếu chéo .spec/ (npm run spec:check)
 ├── packages/
 │   └── shared/
 │       ├── package.json              # name "@hustalo/shared", exports trỏ tới src/index.ts (TS source)
@@ -637,6 +640,8 @@ export const PASSWORD_MIN = 8;                         // [NEW]
 export const PASSWORD_MAX = 128;                       // [NEW]
 export const USER_SEARCH_MIN_QUERY = 2;                // [NEW]
 export const USER_SEARCH_LIMIT = 20;                   // [NEW]
+export const USER_SEARCH_MAX_QUERY = 100;              // [NEW] độ dài tối đa q sau trim
+export const BLOCKED_LIST_MAX = 1000;                  // [NEW] số blockedUserIds tối đa trả trong GET /auth/me
 export const GROUP_ADD_BATCH_MAX = 50;                 // [NEW] số userId tối đa mỗi lần POST members
 
 // ---- Auth ----
@@ -659,7 +664,7 @@ export const TYPING_CLIENT_THROTTLE_MS = 3 * SECOND;
 export const CALL_RING_TIMEOUT_MS = 45 * SECOND;
 export const CALL_CONNECT_TIMEOUT_MS = 30 * SECOND;    // ACCEPTED → CONNECTED
 export const CALL_RECONNECT_GRACE_MS = 20 * SECOND;
-export const CALL_MAX_ICE_RESTARTS = 2;
+export const CALL_MAX_ICE_RESTARTS = 2;               // kiểm trong state machine (T30), KHÔNG ở Zod
 export const CALL_INCOMING_ACK_TIMEOUT_MS = 5 * SECOND; // [NEW] chờ device ack call:incoming
 export const ICE_DISCONNECTED_GRACE_MS = 3 * SECOND;   // [NEW] 'disconnected' kéo dài > 3s mới coi là mất
 export const CALL_STATE_TTL_S = 6 * 60 * 60;           // [NEW] TTL tối đa call:active / user:incall
@@ -671,6 +676,8 @@ export const TURN_CREDENTIAL_TTL_S = 60 * 60;          // 1h
 export const TURN_REFRESH_BEFORE_S = 5 * 60;           // làm mới trước hết hạn 5 phút
 export const ICE_SERVERS_CACHE_TTL_S = 5 * 60;         // [NEW] cache Xirsys trong Redis
 export const XIRSYS_TIMEOUT_MS = 3 * SECOND;           // [NEW]
+export const CALL_PAGE_DEFAULT = 20;                   // [NEW] GET /calls
+export const CALL_PAGE_MAX = 50;                       // [NEW]
 
 // ---- Client outbox / socket ----
 export const CLIENT_OUTBOX_MAX = 200;
@@ -712,6 +719,7 @@ export const RATE_LIMITS = {
   socketGeneric:     { points: 60,  windowSec: 10, key: 'socket' },      // [NEW] join/leave/delivered/read/edit/delete/accept/reject/cancel/end
   presenceSubscribe: { points: 10,  windowSec: 60, key: 'user' },        // [NEW]
   e2eeBundle:        { points: 10,  windowSec: 60, key: 'user+target' }, // [NEW] chống rút cạn one-time prekey
+  changePassword:    { points: 5,   windowSec: 15 * 60, key: 'user' }, // [NEW] POST /auth/change-password, Redis down → fail-closed như auth
 } as const;
 ```
 
@@ -816,7 +824,7 @@ export const ErrorCode = {
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode];
 
 export const ERROR_HTTP_STATUS: Record<ErrorCode, number> = {
-  VALIDATION_ERROR: 400,        // 413 khi body > REST_BODY_LIMIT_BYTES (cùng code)
+  VALIDATION_ERROR: 400,        // ngoại lệ cùng code: 413 khi body > REST_BODY_LIMIT_BYTES; 422 khi currentPassword sai (POST /auth/change-password)
   UNAUTHENTICATED: 401,
   TOKEN_EXPIRED: 401,
   FORBIDDEN: 403,
@@ -849,6 +857,7 @@ Quy tắc ánh xạ lỗi hệ thống:
 |---|---|
 | `ZodError` | `VALIDATION_ERROR` (REST: `details` = mảng `{ path, message }`) |
 | Body vượt `REST_BODY_LIMIT_BYTES` | `VALIDATION_ERROR`, HTTP 413 |
+| `currentPassword` sai ở `POST /auth/change-password` | `VALIDATION_ERROR`, HTTP 422, `details: [{ field: 'currentPassword', reason: 'INVALID' }]` (không dùng 401 để client không nhầm với lỗi phiên) |
 | JWT hết hạn (`exp`) | `TOKEN_EXPIRED` |
 | JWT sai chữ ký / thiếu / `iss`,`aud` sai / `sid` bị thu hồi / user `LOCKED` | `UNAUTHENTICATED` |
 | Mongo `E11000` ngoài các luồng idempotent | `CONFLICT` |
@@ -903,7 +912,7 @@ Quy tắc:
 ```ts
 import { z } from 'zod';
 import {
-  CALL_ICE_CANDIDATE_MAX_LENGTH, CALL_MAX_ICE_RESTARTS, CALL_SDP_MAX_LENGTH,
+  CALL_ICE_CANDIDATE_MAX_LENGTH, CALL_SDP_MAX_LENGTH,
   E2EE_MAX_DEVICES_PER_USER, PRESENCE_SUBSCRIBE_MAX,
 } from '../constants';
 import { CLIENT_CALL_END_REASONS } from '../enums';
@@ -971,7 +980,7 @@ export const CallIcePayload = z.object({
 }).strict();
 export const CallIceRestartPayload = z.object({
   callId: objectId,
-  attempt: z.number().int().min(1).max(CALL_MAX_ICE_RESTARTS),
+  attempt: z.number().int().min(1), // giới hạn CALL_MAX_ICE_RESTARTS kiểm ở state machine (T30) → CALL_INVALID_STATE
 }).strict();
 export const CallEndPayload = z.object({ callId: objectId, reason: z.enum(CLIENT_CALL_END_REASONS) }).strict();
 export const CallStateReportPayload = z.object({
@@ -997,15 +1006,15 @@ export const CallStateReportPayload = z.object({
 | `message:status` | S→C | Scope `MESSAGE` (DIRECT/SECRET): `{ conversationId, scope: 'MESSAGE', messageIds: string[], status: 'DELIVERED' \| 'READ', byUserId, at }` tới user room người gửi và user room `byUserId`. Scope `GROUP_AGGREGATE` (GROUP): `{ conversationId, scope: 'GROUP_AGGREGATE', userId, lastDeliveredMessageId: string \| null, lastReadMessageId: string \| null }` tới room `conv:{id}` và user room `userId` | — | — | — | — |
 | `message:edit` | C→S và S→C | C→S `MessageEditPayload`; S→C `{ message: Message }` tới user rooms thành viên | Người gửi; trong `MESSAGE_EDIT_WINDOW_MS`; không phải SECRET (D-16); không phải SYSTEM; chưa thu hồi | socketGeneric | `{ message: Message }` | VALIDATION_ERROR, NOT_FOUND, NOT_A_MEMBER, FORBIDDEN, RATE_LIMITED, SERVICE_UNAVAILABLE |
 | `message:delete` | C→S và S→C | C→S `MessageDeletePayload`; S→C `{ message: Message }` (có `deletedAt`, không nội dung) | Người gửi; trong `MESSAGE_EDIT_WINDOW_MS`; đã thu hồi → ACK ok trả bản hiện tại (idempotent) | socketGeneric | `{ message: Message }` | VALIDATION_ERROR, NOT_FOUND, NOT_A_MEMBER, FORBIDDEN, RATE_LIMITED, SERVICE_UNAVAILABLE |
-| `typing:start` | C→S | `TypingPayload` | Thành viên; DIRECT/SECRET không bị chặn | typing | `{}` | VALIDATION_ERROR, NOT_A_MEMBER, USER_BLOCKED, RATE_LIMITED |
-| `typing:stop` | C→S | `TypingPayload` | Thành viên | typing | `{}` | VALIDATION_ERROR, NOT_A_MEMBER, RATE_LIMITED |
+| `typing:start` | C→S | `TypingPayload` | Thành viên; DIRECT/SECRET không bị chặn | typing | `{}` | VALIDATION_ERROR, NOT_FOUND, NOT_A_MEMBER, USER_BLOCKED, RATE_LIMITED |
+| `typing:stop` | C→S | `TypingPayload` | Thành viên | typing | `{}` | VALIDATION_ERROR, NOT_FOUND, NOT_A_MEMBER, RATE_LIMITED |
 | `typing:update` | S→C (user rooms thành viên trừ người gõ) | `{ conversationId, userId, isTyping: boolean }` | — | — | — | — |
 | `presence:subscribe` | C→S | `PresenceSubscribePayload` | Chỉ userId có chung ≥ 1 hội thoại và không bị chặn hai chiều; userId khác bị lọc im lặng (không lộ tồn tại) | presenceSubscribe | `{ accepted: string[] }` | VALIDATION_ERROR, RATE_LIMITED |
 | `presence:snapshot` | S→C (socket vừa subscribe) | `{ users: [{ userId, status: PresenceStatus, lastSeenAt: string \| null }], degraded: boolean }` | — | — | — | — |
 | `presence:update` | S→C (room `presence:{userId}`) | `{ userId, status: PresenceStatus, lastSeenAt: string \| null }` | — | — | — | — |
 | `call:invite` | C→S | `CallInvitePayload` | Thành viên DIRECT/SECRET; không bị chặn hai chiều; caller không trong cuộc gọi khác; GROUP → VALIDATION_ERROR (D-22) | callInvite | `{ callId, status: CallStatus, merged: boolean, callType: CallType }` | VALIDATION_ERROR, NOT_FOUND, NOT_A_MEMBER, USER_BLOCKED, CALL_BUSY, CALL_INVALID_STATE, RATE_LIMITED, SERVICE_UNAVAILABLE |
-| `call:incoming` | S→C (mọi tab online của callee, room `user:{calleeId}`) **có ACK** | `{ callId, conversationId, callType, caller: UserPublic, expiresAt }`; device trả ACK `{ ok: true }` | — | — | — | — |
-| `call:ringing` | S→C (room `tab:{callerTabId}`) | `{ callId }` | — | — | — | — |
+| `call:incoming` | S→C (mọi tab online của callee, room `user:{calleeId}`) **có ACK** | `{ callId, conversationId, callType, caller: UserPublic, ringExpiresAt }` (`ringExpiresAt` = thời điểm hết đổ chuông theo deadline `RING` của server; client đếm ngược theo trường này, không đọc hằng số); device trả ACK `{ ok: true }` | — | — | — | — |
+| `call:ringing` | S→C (room `tab:{callerTabId}`) | `{ callId, ringExpiresAt }` | — | — | — | — |
 | `call:accept` | C→S | `CallIdPayload` | Là callee; status ∈ {INITIATED, RINGING} | socketGeneric | `{ callId, status: 'ACCEPTED' }` | VALIDATION_ERROR, CALL_NOT_FOUND, FORBIDDEN, CALL_ALREADY_ANSWERED, CALL_TIMEOUT, CALL_INVALID_STATE, RATE_LIMITED, SERVICE_UNAVAILABLE |
 | `call:accepted` | S→C (room `tab:{callerTabId}` + `tab:{acceptedTabId}`) | `{ callId, acceptedDeviceId, acceptedTabId }` | — | — | — | — |
 | `call:answered-elsewhere` | S→C (mọi tab khác của callee) | `{ callId, reason: 'ANSWERED_ELSEWHERE' }` | — | — | — | — |
@@ -1017,7 +1026,7 @@ export const CallStateReportPayload = z.object({
 | `call:ice-candidate` | C→S và S→C | `CallIcePayload` | Chỉ 2 tab tham gia; status không terminal; `revision` == `offerRevision` | callSignal | `{}` | VALIDATION_ERROR, CALL_NOT_FOUND, FORBIDDEN, CALL_INVALID_STATE, RATE_LIMITED |
 | `call:ice-restart` | C→S và S→C | `CallIceRestartPayload` | 2 tab tham gia; status ∈ {CONNECTING, CONNECTED, RECONNECTING}; `attempt` = `iceRestarts` + 1 ≤ `CALL_MAX_ICE_RESTARTS` | callSignal | `{ attempt }` | VALIDATION_ERROR, CALL_NOT_FOUND, FORBIDDEN, CALL_INVALID_STATE, RATE_LIMITED |
 | `call:end` | C→S | `CallEndPayload` | 2 tab tham gia sau ACCEPTED; tab caller trước ACCEPTED (như cancel); tab bất kỳ của callee ở INITIATED/RINGING chỉ với `MEDIA_FAILURE`; terminal → ACK ok trạng thái hiện tại (idempotent, không phát lại) | socketGeneric | `{ callId, status: CallStatus, endReason: CallEndReason }` | VALIDATION_ERROR, CALL_NOT_FOUND, FORBIDDEN, RATE_LIMITED |
-| `call:state` | C→S (báo cáo media) và S→C (trạng thái chính thức) | C→S `CallStateReportPayload` (chỉ 2 tab tham gia). S→C `CallStateEvent` = `{ callId, conversationId, status, endReason: CallEndReason \| null, callType, callerId, calleeId, acceptedDeviceId: string \| null, acceptedTabId: string \| null, connectedAt: string \| null, endedAt: string \| null, version: number }` tới user rooms của caller và callee | callSignal | `{ status, version }`. callId không còn trạng thái live trong Redis → ACK trả trạng thái cuối trong `callHistory` (nếu record chưa terminal thì server chốt FAILED/SERVER_RESTART trước) và phát `call:state` kết thúc tới socket đó | VALIDATION_ERROR, CALL_NOT_FOUND, FORBIDDEN, RATE_LIMITED |
+| `call:state` | C→S (báo cáo media) và S→C (trạng thái chính thức) | C→S `CallStateReportPayload` (chỉ 2 tab tham gia). S→C `CallStateEvent` = `{ callId, conversationId, status, endReason: CallEndReason \| null, callType, callerId, calleeId, acceptedDeviceId: string \| null, acceptedTabId: string \| null, connectedAt: string \| null, endedAt: string \| null, version: number }` tới user rooms của caller và callee | callSignal | `{ status, version }`. callId không còn trạng thái live trong Redis → ACK trả trạng thái cuối trong `callHistory` (nếu record chưa terminal thì server chốt theo T29 trước: ENDED nếu có `connectedAt`, ngược lại FAILED, `endReason = SERVER_RESTART`) và phát `call:state` kết thúc tới socket đó | VALIDATION_ERROR, CALL_NOT_FOUND, FORBIDDEN, RATE_LIMITED |
 | `e2ee:prekeys-low` | S→C (device room) | `{ deviceId, remaining: number }` | — | — | — | — |
 
 Ghi chú:
@@ -1037,7 +1046,7 @@ Chi tiết schema ở `api_spec.yaml`. Endpoint đánh dấu `[NEW]` là bổ su
 | POST | `/auth/refresh` | refreshCookie + CSRF | refresh | Xoay refresh token (D-19) |
 | POST | `/auth/logout` | refreshCookie + CSRF | refresh | Thu hồi family hiện tại, kết thúc cuộc gọi của device (`LOGOUT`) |
 | GET | `/auth/me` | bearer | rest | `UserPublic` + privacy |
-| POST | `/auth/change-password` `[NEW]` | bearer | login | Đổi mật khẩu; thu hồi mọi family khác (EC-AUTH-006) |
+| POST | `/auth/change-password` `[NEW]` | bearer | changePassword | Đổi mật khẩu; thu hồi mọi family khác (EC-AUTH-006); `currentPassword` sai → 422 `VALIDATION_ERROR` (EC-AUTH-008) |
 | GET | `/users/search?q=` | bearer | rest | Theo tiền tố username/displayName hoặc email chính xác; tối đa `USER_SEARCH_LIMIT` |
 | PATCH | `/users/me` | bearer | rest | `displayName`, `avatarUrl`, `privacy.showLastSeen` |
 | POST | `/users/{userId}/block` | bearer | rest | Idempotent; 204 |
@@ -1058,7 +1067,7 @@ Chi tiết schema ở `api_spec.yaml`. Endpoint đánh dấu `[NEW]` là bổ su
 | POST | `/e2ee/devices/{deviceId}/prekeys` | bearer (`did` = deviceId) | rest | Bổ sung one-time prekeys |
 | DELETE | `/e2ee/devices/{deviceId}` `[NEW]` | bearer (device thuộc mình) | rest | Thu hồi device |
 | GET | `/e2ee/users/{userId}/bundles` | bearer | e2eeBundle | Bundle cho mọi device ACTIVE của user (tiêu thụ one-time prekey nguyên tử) |
-| GET | `/health` | — | — | `{ status: 'ok' \| 'degraded', mongo: 'up' \| 'down', redis: 'up' \| 'down' }`; 503 khi mongo down |
+| GET | `/health` | — | — | `{ status: 'ok' \| 'degraded' \| 'draining', mongo: 'up' \| 'down', redis: 'up' \| 'down' }`; 503 khi mongo down hoặc đang draining (§10.3) |
 
 ---
 
@@ -1124,15 +1133,15 @@ Mọi luồng ở mục 7 đánh dấu điểm kiểm tra bằng `[AUTHZ-n]`:
 | Mã | Kiểm tra | Nơi thực hiện | Lỗi |
 |---|---|---|---|
 | AUTHZ-1 | Token hợp lệ, chưa hết hạn, `sid` chưa bị thu hồi, user `ACTIVE` | `authenticate.ts`, `socket-auth.ts` | UNAUTHENTICATED / TOKEN_EXPIRED |
-| AUTHZ-2 | Là thành viên hiện tại của conversation (`conversationMembers` tồn tại, `leftAt = null`) | `conversations.service.assertMember` | NOT_A_MEMBER (conversation không tồn tại → NOT_FOUND; conversation tồn tại nhưng không phải thành viên → **NOT_FOUND** đối với REST GET để chống dò ID, NOT_A_MEMBER cho thao tác ghi khi user từng là thành viên) |
+| AUTHZ-2 | Là thành viên hiện tại của conversation (`conversationMembers` tồn tại, `leftAt = null`) | `conversations.service.assertMember` | Conversation không tồn tại hoặc user **chưa từng** là thành viên → **NOT_FOUND** cho mọi thao tác đọc/ghi, REST và socket (chống dò ID); user **đã từng** là thành viên (đã rời/bị xóa) → NOT_A_MEMBER |
 | AUTHZ-3 | Không bị chặn hai chiều (DIRECT/SECRET, call) | `users.service.isBlockedEitherWay` | USER_BLOCKED |
 | AUTHZ-4 | Role đủ quyền (OWNER/ADMIN) cho thao tác nhóm | `conversations.service` | FORBIDDEN |
 | AUTHZ-5 | Là người gửi tin + trong cửa sổ 15 phút | `messages.service.edit/delete` | FORBIDDEN |
 | AUTHZ-6 | Là tab tham gia cuộc gọi đúng vai trò cho event (`socket.data.tabId` = `callerTabId`/`acceptedTabId`) | `calls.service` | FORBIDDEN (callId không tồn tại hoặc user không phải caller/callee → CALL_NOT_FOUND) |
-| AUTHZ-7 | `deviceId` trong path = `did` trong token; device thuộc user và ACTIVE | `e2ee.service` | FORBIDDEN |
+| AUTHZ-7 | `deviceId` trong path = `did` trong token; device thuộc user và ACTIVE | `e2ee.service` | FORBIDDEN (`PUT keys`/`POST prekeys` với `deviceId ≠ did`: ràng buộc token, không phải dò ID); `DELETE /e2ee/devices/{deviceId}` với device không thuộc mình → **NOT_FOUND** |
 | AUTHZ-8 | CSRF double-submit khớp | `csrf.ts` | FORBIDDEN |
 
-Quy tắc chống liệt kê (EC-SEC-001): với REST `GET /conversations/{id}` và `GET /conversations/{id}/messages`, người **chưa từng** là thành viên nhận `404 NOT_FOUND` giống hệt conversation không tồn tại; người **đã bị xóa/đã rời** nhận `403 NOT_A_MEMBER` (họ đã biết hội thoại tồn tại).
+Quy tắc chống liệt kê (EC-SEC-001, FR-SEC-008): **mọi** truy cập tài nguyên theo ID (conversation, message, call, device, user) mà người gọi không có quyền **thấy** trả `404 NOT_FOUND` (socket: ACK `NOT_FOUND`; cuộc gọi: `CALL_NOT_FOUND`) với body giống hệt tài nguyên không tồn tại. Ngoại lệ có chủ đích: (1) người **đã bị xóa/đã rời** nhận `403 NOT_A_MEMBER` (họ đã biết hội thoại tồn tại); (2) tài nguyên thấy được nhưng không đủ quyền thao tác (role, không phải người gửi, sai tab, `deviceId ≠ did`, CSRF) → `403 FORBIDDEN`; (3) chặn người dùng → `USER_BLOCKED` theo D-21.
 
 ### 6.3 Cấu hình xác thực
 
@@ -1258,7 +1267,7 @@ Browser(tab)               Express /api/v1                Mongo                 
     |  socket.disconnect(); socket.connect()  (auth callback đọc token mới)
 ```
 
-Đổi mật khẩu (EC-AUTH-006): `POST /auth/change-password {currentPassword, newPassword}` → verify → hash mới → revoke **mọi family khác** `sid` hiện tại (reason `PASSWORD_CHANGED`), set `session:revoked:{sid}` cho từng family, emit `session:revoked` vào từng `session:{sid}`, kết thúc cuộc gọi của các session đó với `LOGOUT`.
+Đổi mật khẩu (EC-AUTH-006): `POST /auth/change-password {currentPassword, newPassword}` → rate limit `changePassword` (5/15 phút/user) → verify (sai → 422 `VALIDATION_ERROR` `details: [{ field: 'currentPassword', reason: 'INVALID' }]`, EC-AUTH-008) → hash mới → revoke **mọi family khác** `sid` hiện tại (reason `PASSWORD_CHANGED`), set `session:revoked:{sid}` cho từng family, emit `session:revoked` vào từng `session:{sid}`, kết thúc cuộc gọi của các session đó với `LOGOUT`.
 
 Khóa tài khoản (EC-AUTH-005, thao tác vận hành qua script `npm run user:lock -w server -- <email>`): set `users.status = LOCKED`, revoke mọi family (reason `ACCOUNT_LOCKED`), emit `session:revoked`, `disconnectSockets(true)` cho room `user:{userId}`, kết thúc mọi cuộc gọi với `LOGOUT`.
 
@@ -1421,11 +1430,11 @@ Caller A (tab A1)          Gateway/calls.service            Redis               
  |<-------------------------| ACK✔ {callId, status:'INITIATED', merged:false, callType:'VIDEO'}
  | UI "Đang gọi…" + ringback | BUSY: insert callHistory BUSY/BUSY, SYSTEM message CALL_MISSED, emit call:busy → user:{B}
  |                          |       ACK✘ CALL_BUSY → UI "Người nhận đang bận"
- |                          | emit call:incoming {callId, caller, callType, expiresAt} → user:{B}, timeout 5s, chờ ACK
+ |                          | emit call:incoming {callId, caller, callType, ringExpiresAt} → user:{B}, timeout 5s, chờ ACK
  |                          |-------------------------------------------------------->| B1 ring     | B2 ring
  |                          |<-------------------------------------------- ACK {ok:true} từ ≥1 tab
  |                          | call-transition INITIATED→RINGING (CAS)
- |<-------------------------| call:ringing {callId} → tab:{A1};  call:state RINGING → user:{A}, user:{B}
+ |<-------------------------| call:ringing {callId, ringExpiresAt} → tab:{A1};  call:state RINGING → user:{A}, user:{B}
  | UI "Đang đổ chuông…"     |  (không tab nào ACK trong 5s hoặc B offline: giữ INITIATED; khi B kết nối → gửi lại call:incoming)
  |                          |
  |                          |                                    B1 bấm "Trả lời": getUserMedia trước
@@ -2049,6 +2058,7 @@ Mọi key tạo qua `server/src/infra/redis/keys.ts`. Tiền tố toàn cục `R
 | `ice:servers:xirsys` | STRING JSON `{iceServers, fetchedAt}` | `ICE_SERVERS_CACHE_TTL_S` | `iceServers.service` | `GET /calls/ice-servers` |
 | `e2ee:lowsent:{deviceId}` | STRING `1` | `E2EE_PREKEYS_LOW_NOTIFY_COOLDOWN_S` | khi phát `e2ee:prekeys-low` | trước khi phát |
 | `idem:conv:{userId}:{idempotencyKey}` | STRING `conversationId` | 24 h | `POST /conversations` (GROUP) | `POST /conversations` |
+| `ops:user-locked` | Kênh Pub/Sub (không phải key), message JSON `{ userId }` | — | `jobs/user-lock.ts` (PUBLISH) | `session.handler` mọi instance (SUBSCRIBE → `disconnectSockets(true)` room `user:{userId}`) |
 
 ---
 
@@ -2119,7 +2129,7 @@ Mọi key tạo qua `server/src/infra/redis/keys.ts`. Tiền tố toàn cục `R
 
 ## Phụ lục C — Registry Edge Case ID
 
-Ma trận edge case trong `product_requirements.md` phải chứa **đúng** các ID sau với hành vi đã chốt (được bổ sung ID mới ở cuối mỗi nhóm). Quy ước Test ID: `TC-<NHÓM>-<số>` tương ứng 1-1 với `EC-<NHÓM>-<số>` (ví dụ `EC-CALL-SIG-003` → `TC-CALL-SIG-003`); AC dùng `AC-<số>` do PRD cấp.
+Ma trận edge case trong `product_requirements.md` phải chứa **đúng** các ID sau với hành vi đã chốt (được bổ sung ID mới ở cuối mỗi nhóm). Quy ước Test ID: `TC-<NHÓM>-<số>` tương ứng 1-1 với `EC-<NHÓM>-<số>` (ví dụ `EC-CALL-SIG-003` → `TC-CALL-SIG-003`); `TC-AC-<số>` ↔ `AC-<số>` do PRD cấp; `TC-ARCH-<số>` ↔ `AC-ARCH-<số>` (mục 12); `TC-DB-<số>` do `database_schema.md` §7 cấp.
 
 ### AUTH
 
@@ -2132,6 +2142,7 @@ Ma trận edge case trong `product_requirements.md` phải chứa **đúng** cá
 | EC-AUTH-005 | Tài khoản bị khóa khi đang có socket | Revoke mọi family, ngắt socket, kết thúc cuộc gọi LOGOUT | 7(a) |
 | EC-AUTH-006 | Đổi mật khẩu | Thu hồi mọi phiên khác `PASSWORD_CHANGED` | 7(a) |
 | EC-AUTH-007 | Logout khi đang gọi | Cuộc gọi ENDED/CANCELLED với `LOGOUT` | 7(a), T11, T27 |
+| EC-AUTH-008 | Đổi mật khẩu với `currentPassword` sai / dò mật khẩu qua phiên đã đăng nhập | 422 `VALIDATION_ERROR` `details[{field:'currentPassword',reason:'INVALID'}]`; rate limit `changePassword` 5/15 phút/user → `RATE_LIMITED` | 7(a), 4.4.1 |
 
 ### NET
 
@@ -2280,7 +2291,7 @@ Ma trận edge case trong `product_requirements.md` phải chứa **đúng** cá
 | EC-E2EE-007 | Đăng nhập thiết bị mới không đọc lịch sử SECRET cũ | Hành vi thiết kế | 7(h) |
 | EC-E2EE-008 | Danh sách thiết bị đổi giữa lúc gửi | `CONFLICT` → tải lại bundle, mã hóa lại | 7(h) |
 
-Tổng: 104 edge case.
+Tổng: 105 edge case.
 
 ---
 
@@ -2296,6 +2307,7 @@ Ngoài danh sách biến trong yêu cầu gốc, `development_guide.md` (`.env.e
 | `REDIS_URL_TEST` | `redis://:<pass>@localhost:6379/15` | Redis cho integration test |
 | `SOCKET_ADAPTER` | `memory` | `memory` \| `redis-streams` (10.4) |
 | `TRUST_PROXY` | `1` | Số hop proxy tin cậy |
+| `DEV_CALL_RING_TIMEOUT_MS` | (không đặt) | Chỉ có hiệu lực khi `NODE_ENV != production`: thay `CALL_RING_TIMEOUT_MS` cho deadline `RING` khi test tay; production bỏ qua. Client không đọc biến này mà đếm ngược theo `ringExpiresAt` |
 
 Giá trị nhạy cảm (`JWT_ACCESS_SECRET`, `REFRESH_TOKEN_PEPPER`, `DATA_ENCRYPTION_KEYS`, `XIRSYS_SECRET`) chỉ sinh bằng `scripts/gen-secrets.mjs`; file này không chứa giá trị thật.
 
@@ -2309,7 +2321,7 @@ Giá trị nhạy cảm (`JWT_ACCESS_SECRET`, `REFRESH_TOKEN_PEPPER`, `DATA_ENCR
   - 35 event khớp danh sách 3.3 gốc; không có `message:ack`, không có `call:initiate` (4.5). ACK `message:send` qua callback.
   - Mọi hằng số gốc giữ giá trị: `MESSAGE_MAX_LENGTH=4000`, `GROUP_MAX_MEMBERS=100`, `GROUP_TITLE_MAX=100`, `DISPLAY_NAME_MAX=80`, `HISTORY_PAGE_DEFAULT=30`, `HISTORY_PAGE_MAX=100`, access 15m, refresh 30d, presence 60s/20s/10s, typing 5s/3s, call 45s/30s/20s/2 restart, TURN 1h/5', outbox 200/backoff/30s/24h, rate limit 6 rule gốc, Socket.IO 25s/20s/2'.
 - [x] **FR/AC được tham chiếu bằng ID:** Registry FR (Phụ lục B) cấp sẵn 56 FR ID cho PRD; AC kiến trúc `AC-ARCH-001..015` (mục 12); AC nghiệp vụ `AC-xxx` do PRD cấp.
-- [x] **Edge case có ID:** 104 EC ID ở Phụ lục C phủ đủ 11 nhóm của mục 7 yêu cầu gốc (AUTH, NET, MSG, GROUP, PRES, CALL-SIG, CALL-MEDIA, CALL-NET, INFRA, SEC, E2EE); mỗi EC có quyết định chốt và mục tham chiếu; Test ID theo quy ước `TC-*`.
+- [x] **Edge case có ID:** 105 EC ID ở Phụ lục C phủ đủ 11 nhóm của mục 7 yêu cầu gốc (AUTH, NET, MSG, GROUP, PRES, CALL-SIG, CALL-MEDIA, CALL-NET, INFRA, SEC, E2EE); mỗi EC có quyết định chốt và mục tham chiếu; Test ID theo quy ước `TC-*`.
 - [x] **Không có secret thật, không chỗ trống:** ví dụ dùng `<ngắn hạn>`, `tr.example.net`, `<host>`; không có "TODO"/"..." thay nội dung; các điểm chưa chắc chắn về API bên thứ ba đều ghi `// Xác minh với tài liệu chính thức của …` kèm giả định (Socket.IO `skipMiddlewares`/`tryAllTransports`/adapter, Xirsys API, libsignal TS, rate-limiter-flexible, OWASP Argon2).
 - [x] **Sửa 8 mâu thuẫn của bản nháp:** (1) cấu trúc server chốt `modules/ realtime/ infra/ http/` (D-01); (2) tên event theo 3.3; (3) một enum `CallStatus` cho state machine/DB/UI (8.1); (4) người tạo nhóm là OWNER; (5) `message:edit/delete` có quy tắc 15 phút, chỉ người gửi, placeholder thu hồi (FR-CHAT-007/008); (6) AES-256-GCM (9.2) và E2EE (7(h), 9.3) đặc tả mức code; (7) không lồng code block; (8) glare, đổ chuông đa thiết bị, chặn người dùng, OWNER rời nhóm, gọi nhóm bị từ chối đều có quyết định (D-03, D-07, D-21, D-22, D-23).
 - [x] **Không mâu thuẫn với file đã sinh trước:** đây là file đầu tiên (1/6). Các điểm các file sau phải đối chiếu: cây thư mục 4.1 (`development_guide.md`, `ui_ux_spec.md`), endpoint 4.6 gồm 4 endpoint `[NEW]` (`api_spec.yaml`), payload event 4.5 (`api_spec.yaml` `x-socket-events`), Redis key Phụ lục A và collection list (`database_schema.md`), chuỗi UI 8.6 (`ui_ux_spec.md`), FR/EC registry (`product_requirements.md`), biến môi trường Phụ lục D (`development_guide.md`).

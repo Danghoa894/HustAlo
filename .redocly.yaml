@@ -1,0 +1,20 @@
+# Cấu hình redocly lint cho .spec/api_spec.yaml (npm run lint, npm run spec:check).
+# Giữ ruleset recommended; chỉ tắt các rule dưới đây vì lý do đã ghi. Không thêm rule tắt mới khi chưa duyệt spec.
+extends:
+  - recommended
+
+rules:
+  # Schema payload Socket.IO chỉ được tham chiếu từ extension `x-socket-events` (hợp đồng event, kiến trúc §4.5).
+  # Redocly không duyệt $ref bên trong extension nên báo nhầm là "never used".
+  no-unused-components: off
+
+  # OAS 3.0.3 không có kiểu null: các trường `type: object` + `allOf: [$ref]` + `nullable: true`
+  # (Message.ciphertext/system/receipt, PreKeyBundle.oneTimePreKey) có example `null` hợp lệ theo spec
+  # nhưng rule này không áp `nullable` lên `allOf`. Quyết định giữ OAS 3.0.3 (review spec, L2).
+  no-invalid-media-type-examples: off
+
+  # Server duy nhất là môi trường dev local (http://localhost:4000/api/v1); production không khai báo trong spec.
+  no-server-example.com: off
+
+  # operation-4xx-response: GIỮ BẬT. Ngoại lệ có chủ đích duy nhất (GET /health không nhận tham số và
+  # không có 4xx) nằm trong .redocly.lint-ignore.yaml.

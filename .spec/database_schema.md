@@ -231,7 +231,7 @@ Model file: `server/src/modules/users/userBlock.model.ts`.
 - Chặn: `updateOne({ blockerId, blockedId }, { $setOnInsert: { blockerId, blockedId } }, { upsert: true })`; `E11000` do đua → coi như thành công.
 - Bỏ chặn: `deleteOne({ blockerId, blockedId })`, không tồn tại vẫn `204`.
 - `isBlockedEitherWay(a, b)`: `exists({ $or: [{ blockerId: a, blockedId: b }, { blockerId: b, blockedId: a }] })` — mỗi nhánh dùng một index.
-- `GET /auth/me` trả tối đa 1000 `blockedUserIds` (giới hạn MVP).
+- `GET /auth/me` trả tối đa `BLOCKED_LIST_MAX` (1000) `blockedUserIds` (giới hạn MVP).
 
 ```ts
 // server/src/modules/users/userBlock.model.ts
@@ -430,7 +430,7 @@ Model file: `server/src/modules/messages/message.model.ts`.
 | `type` | String | ✔ | — | `MessageType` | TEXT / SYSTEM |
 | `contentEnc` | Object \| null | ✘ | `null` | `{ v: 1, keyId, iv, ct, tag }`; chỉ TEXT trong DIRECT/GROUP | AES-256-GCM (FR-SEC-002) |
 | `ciphertext` | Object \| null | ✘ | `null` | Envelope `{ v: 1, senderDeviceId, recipients: [{ deviceId, type: 1\|3, body }] }`, 1..10 recipients; chỉ SECRET | E2EE (FR-E2EE-004) |
-| `system` | Object \| null | ✘ | `null` | `{ kind: SystemEventKind, actorId, targetUserIds[], title, callId, callType, durationSec }`; chỉ SYSTEM | FR-CHAT-011 |
+| `system` | Object \| null | ✘ | `null` | `{ kind: SystemEventKind, actorId, targetUserIds[], title, callId, callType, durationSec }`; `title` 1..`GROUP_TITLE_MAX` (100) code point; chỉ SYSTEM | FR-CHAT-011 |
 | `editedAt` | Date \| null | ✘ | `null` | — | FR-CHAT-007 |
 | `deletedAt` | Date \| null | ✘ | `null` | Khi set: `contentEnc = null`, `ciphertext = null` | Thu hồi (FR-CHAT-008) |
 | `createdAt` | Date | ✔ | service gán | — | Thời điểm server nhận; thành phần tuple cursor |
@@ -467,7 +467,7 @@ Model file: `server/src/modules/messages/message.model.ts`.
 // server/src/modules/messages/message.model.ts
 import { Schema, model, type InferSchemaType } from 'mongoose';
 import {
-  CallType, E2EE_ENVELOPE_VERSION, E2EE_MAX_DEVICES_PER_USER, DATA_ENCRYPTION_VERSION,
+  CallType, E2EE_ENVELOPE_VERSION, E2EE_MAX_DEVICES_PER_USER, DATA_ENCRYPTION_VERSION, GROUP_TITLE_MAX,
   MessageType, SignalMessageType, SystemEventKind,
 } from '@hustalo/shared';
 import { baseSchemaOptions } from '../../infra/db/schema-options';
@@ -516,7 +516,7 @@ const systemSchema = new Schema(
     kind: { type: String, required: true, enum: Object.values(SystemEventKind) },
     actorId: { type: Schema.Types.ObjectId, required: true, ref: 'User' },
     targetUserIds: { type: [Schema.Types.ObjectId], default: [], ref: 'User' },
-    title: { type: String, default: null, maxlength: 200 },
+    title: { type: String, default: null, maxlength: GROUP_TITLE_MAX * 2 }, // code point kiểm ở Zod; *2 cho UTF-16
     callId: { type: Schema.Types.ObjectId, default: null, ref: 'CallHistory' },
     callType: { type: String, default: null, enum: [...Object.values(CallType), null] },
     durationSec: { type: Number, default: null, min: 0 },
@@ -737,6 +737,7 @@ Model file: `server/src/modules/e2ee/userDevice.model.ts`. Chỉ lưu **khóa c�
 - Đăng ký lại cùng `deviceId` (IndexedDB bị xóa, EC-E2EE-006): ghi đè `identityKey`, `registrationId`, `signedPreKey`; giữ `signalDeviceId`; xóa mọi `oneTimePreKeys` cũ của device; `status = ACTIVE`, `revokedAt = null`.
 - Device REVOKED đăng ký lại (cùng `deviceId`, phiên đăng nhập mới): như trên — được phép.
 - Một trình duyệt có thể đăng nhập nhiều tài khoản lần lượt với cùng `deviceId`; uniqueness theo `(userId, deviceId)` nên không xung đột.
+- `userDevices` **không** lưu `userAgent`. Trường `Device.userAgent` của `GET /e2ee/devices` lấy từ `refreshSessions.userAgent` của thế hệ mới nhất theo `(userId, deviceId)`: `findOne({ userId, deviceId }).sort({ createdAt: -1 })` (index `user_device_active` lọc `userId, deviceId`; không có phiên → `''`). `isCurrent` = `deviceId === did` của token; `oneTimePreKeyCount` = `countDocuments` trên index `available` của `oneTimePreKeys`.
 
 ```ts
 // server/src/modules/e2ee/userDevice.model.ts
@@ -1304,6 +1305,7 @@ export const keys = {
   iceServersXirsys: () => `${p}ice:servers:xirsys`,
   e2eeLowSent: (deviceId: string) => `${p}e2ee:lowsent:${deviceId}`,
   idemConversation: (userId: string, key: string) => `${p}idem:conv:${userId}:${key}`,
+  opsUserLocked: () => `${p}ops:user-locked`, // kênh Pub/Sub, không phải key
   prefix: p,
 } as const;
 ```
@@ -1325,6 +1327,7 @@ export const keys = {
 | `ice:servers:xirsys` | STRING JSON `{ iceServers, fetchedAt }` | `ICE_SERVERS_CACHE_TTL_S` | `GET`; `SET key <json> EX 300` | lệnh đơn | FR-CALL-007 |
 | `e2ee:lowsent:{deviceId}` | STRING `1` | `E2EE_PREKEYS_LOW_NOTIFY_COOLDOWN_S` | `SET NX EX 3600` | lệnh đơn | FR-E2EE-003 |
 | `idem:conv:{userId}:{key}` | STRING `conversationId` | 86400 s | `SET NX EX` sau khi tạo GROUP; `GET` trước khi tạo | lệnh đơn (DB unique index là nguồn sự thật) | FR-GROUP-001 |
+| `ops:user-locked` | Kênh Pub/Sub (không lưu dữ liệu), message JSON `{ userId }` | — | `PUBLISH` từ `jobs/user-lock.ts`; `SUBSCRIBE` ở `session.handler` mọi instance → `disconnectSockets(true)` room `user:{userId}` | Pub/Sub | FR-AUTH-006 |
 
 Subject rate limit: `ip+email` → `${ip}:${sha256(email).slice(0,16)}` (không đưa email thô vào key); `user` → userId; `socket` → `${userId}:${tabId}`; `user+target` → `${userId}:${targetUserId}`.
 

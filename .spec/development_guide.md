@@ -152,7 +152,7 @@ Quy tắc phụ thuộc: `client` và `server` được import `@hustalo/shared`
     "test:unit": "npm run test:unit --workspaces --if-present",
     "test:integration": "npm run test:integration -w server",
     "test:e2e": "npm run test:e2e -w client",
-    "lint": "eslint . --max-warnings 0 && prettier --check . && redocly lint .spec/api_spec.yaml",
+    "lint": "eslint . --max-warnings 0 && prettier --check . && redocly lint .spec/api_spec.yaml --config .redocly.yaml",
     "format": "prettier --write .",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "db:indexes": "npm run db:indexes -w server",
@@ -165,7 +165,8 @@ Quy tắc phụ thuộc: `client` và `server` được import `@hustalo/shared`
     "infra:logs": "docker compose --env-file infra/.env -f infra/docker-compose.yml logs -f --tail=100",
     "certs": "node scripts/make-certs.mjs",
     "secrets": "node scripts/gen-secrets.mjs",
-    "trace:check": "node scripts/check-traceability.mjs"
+    "trace:check": "node scripts/check-traceability.mjs",
+    "spec:check": "redocly lint .spec/api_spec.yaml --config .redocly.yaml && node scripts/spec-check.mjs"
   }
 }
 ```
@@ -539,8 +540,8 @@ TURN_FALLBACK_USERNAME=hustalo
 TURN_FALLBACK_CREDENTIAL=replace-with-turn-password
 # all | relay (relay: ép đi qua TURN để test, AC-085)
 ICE_TRANSPORT_POLICY=all
-# ms; mặc định 45000 = CALL_RING_TIMEOUT_MS. Chỉ được khác 45000 khi NODE_ENV=development (DG-08)
-CALL_RING_TIMEOUT_MS=45000
+# ms; tùy chọn, chỉ có hiệu lực khi NODE_ENV != production (DG-08). Bỏ trống = CALL_RING_TIMEOUT_MS (45000).
+# DEV_CALL_RING_TIMEOUT_MS=10000
 
 # ---------- Chỉ dev ----------
 # Mật khẩu chung của alice/bob/carol do npm run db:seed tạo. db:seed từ chối chạy khi NODE_ENV=production.
@@ -569,7 +570,7 @@ Quyết định DG-09: client dùng URL **tương đối** để REST, cookie v�
 ```ts
 // server/src/config/env.ts
 import { z } from 'zod';
-import { CALL_RING_TIMEOUT_MS, SOCKET_PING_INTERVAL_MS, SOCKET_PING_TIMEOUT_MS } from '@hustalo/shared';
+import { SOCKET_PING_INTERVAL_MS, SOCKET_PING_TIMEOUT_MS } from '@hustalo/shared';
 
 const csv = z
   .string()
@@ -626,15 +627,13 @@ const EnvSchema = z
     TURN_FALLBACK_USERNAME: z.string().default(''),
     TURN_FALLBACK_CREDENTIAL: z.string().default(''),
     ICE_TRANSPORT_POLICY: z.enum(['all', 'relay']).default('all'),
-    CALL_RING_TIMEOUT_MS: z.coerce.number().int().min(5000).max(120000).default(CALL_RING_TIMEOUT_MS),
+    DEV_CALL_RING_TIMEOUT_MS: z.coerce.number().int().min(5000).max(120000).optional(), // DG-08
 
     SEED_PASSWORD: z.string().min(8).max(128).optional(),
   })
   .superRefine((e, ctx) => {
     const fail = (path: string, message: string) => ctx.addIssue({ code: z.ZodIssueCode.custom, path: [path], message });
     if (e.NODE_ENV !== 'development' && !e.COOKIE_SECURE) fail('COOKIE_SECURE', 'chỉ được false khi NODE_ENV=development');
-    if (e.NODE_ENV !== 'development' && e.CALL_RING_TIMEOUT_MS !== CALL_RING_TIMEOUT_MS)
-      fail('CALL_RING_TIMEOUT_MS', `ngoài development phải bằng ${CALL_RING_TIMEOUT_MS} (DG-08)`);
     if ((e.XIRSYS_IDENT === '') !== (e.XIRSYS_SECRET === '')) fail('XIRSYS_SECRET', 'XIRSYS_IDENT và XIRSYS_SECRET phải cùng có hoặc cùng trống');
     if (e.TURN_FALLBACK_URLS.length > 0 && (e.TURN_FALLBACK_USERNAME === '' || e.TURN_FALLBACK_CREDENTIAL === ''))
       fail('TURN_FALLBACK_CREDENTIAL', 'có TURN_FALLBACK_URLS thì phải có username và credential');
@@ -659,7 +658,7 @@ export type Env = typeof env;
 ```
 
 Quy tắc:
-- DG-08: `CALL_RING_TIMEOUT_MS` là biến env để dev rút ngắn khi test tay (ví dụ 10000). Ngoài `development` giá trị phải bằng hằng số `CALL_RING_TIMEOUT_MS` của `packages/shared` (45 s). Mọi test AC/EC chạy với giá trị mặc định; test integration dùng `fake-clock.ts` thay vì đổi env.
+- DG-08: `DEV_CALL_RING_TIMEOUT_MS` (tùy chọn) để dev rút ngắn thời gian đổ chuông khi test tay (ví dụ 10000). Chỉ có hiệu lực khi `NODE_ENV != production`; ở production server bỏ qua và luôn dùng hằng `CALL_RING_TIMEOUT_MS` (45 s) của `packages/shared`. Thời gian hiệu lực `ringTimeoutMs = env.NODE_ENV !== 'production' ? (env.DEV_CALL_RING_TIMEOUT_MS ?? CALL_RING_TIMEOUT_MS) : CALL_RING_TIMEOUT_MS` dùng cho deadline `RING` và để tính `ringExpiresAt` gửi trong `call:incoming`/`call:ringing`; client **không** đọc biến này hay hằng số mà đếm ngược theo `ringExpiresAt`. Mọi test AC/EC chạy với giá trị mặc định; test integration dùng `fake-clock.ts` thay vì đổi env.
 - DG-10: Xirsys chưa cấu hình (`XIRSYS_IDENT` trống) được coi như "Xirsys lỗi" ở kiến trúc §9.5 bước 3: trả fallback với `source: 'FALLBACK'` nhưng **không** log `warn` và không tăng `hustalo_ice_servers_fallback_total` (vì là cấu hình có chủ đích). Đây là bổ sung cho §9.5, không đổi hợp đồng `IceServersResponse`.
 - Lỗi env in **tên** biến, không in giá trị.
 
@@ -1080,7 +1079,7 @@ Checklist:
 - [ ] Client: `features/auth/*` (LoginPage, RegisterPage, AuthCard, SessionModal, `useSessionLifecycle.ts`), `lib/api/refresh.ts` (Web Locks, D-19), `lib/socket/socket.ts`, `lib/socket/emit.ts`, `stores/auth.store.ts`, `stores/socket.store.ts`, `components/layout/ConnectionBanner.tsx`, `features/settings/ProfileSection.tsx`, `BlockedSection.tsx`, `SecuritySection.tsx` (đổi mật khẩu).
 - [ ] `npm run db:seed` hoạt động.
 
-Gate: `TC-AC-001`, `TC-AC-002`, `TC-AC-003`, `TC-AC-004`, `TC-AC-005`, `TC-AC-006`, `TC-AC-007`, `TC-AC-009`, `TC-AC-010`, `TC-AC-011` (phần session; phần đồng bộ tin ở M3), `TC-AC-012`, `TC-AC-013`, `TC-AC-102`, `TC-AC-108`, `TC-ARCH-013`, `TC-ARCH-014`, `TC-AUTH-001`, `TC-AUTH-002`, `TC-AUTH-003`, `TC-AUTH-004`, `TC-AUTH-005`, `TC-AUTH-006`, `TC-SEC-004`, `TC-SEC-005`, `TC-DB-002`, `TC-DB-003`, `TC-DB-018`, `TC-DB-019`.
+Gate: `TC-AC-001`, `TC-AC-002`, `TC-AC-003`, `TC-AC-004`, `TC-AC-005`, `TC-AC-006`, `TC-AC-007`, `TC-AC-009`, `TC-AC-010`, `TC-AC-018`, `TC-AC-011` (phần session; phần đồng bộ tin ở M3), `TC-AC-012`, `TC-AC-013`, `TC-AC-102`, `TC-AC-108`, `TC-ARCH-013`, `TC-ARCH-014`, `TC-AUTH-001`, `TC-AUTH-002`, `TC-AUTH-003`, `TC-AUTH-004`, `TC-AUTH-005`, `TC-AUTH-006`, `TC-AUTH-008`, `TC-SEC-004`, `TC-SEC-005`, `TC-DB-002`, `TC-DB-003`, `TC-DB-018`, `TC-DB-019`.
 
 ### M2 — Hội thoại và nhóm
 
@@ -1357,6 +1356,16 @@ jobs:
 - In ID thiếu test. `--strict`: exit 1 nếu thiếu. Không có `--strict`: exit 0 (dùng khi đang làm dở milestone).
 - Một test có thể phủ nhiều ID: `it('TC-AC-021 TC-NET-004 retry trùng trả duplicate', …)`.
 
+### 8.8b Đối chiếu spec — `scripts/spec-check.mjs` `[NEW]`
+
+`npm run spec:check` = `redocly lint .spec/api_spec.yaml --config .redocly.yaml` (Redocly CLI 2.x chỉ tự đọc `redocly.yaml`, nên truyền `--config` tường minh; ngoại lệ ở `.redocly.lint-ignore.yaml`) rồi `node scripts/spec-check.mjs`. Script chỉ dùng Node built-in, exit 1 khi có lỗi và kiểm:
+- FR ↔ AC hai chiều (mỗi FR có ≥ 1 AC; cột FR của AC khớp danh sách AC của FR); mỗi EC trong ma trận PRD khớp registry kiến trúc Phụ lục C, có `TC-*` đúng quy ước và được ít nhất một FR tham chiếu; ID tham chiếu ở mọi file phải tồn tại.
+- Traceability Matrix (mục 10) khớp đúng danh sách AC/EC của PRD và cột Test ID có TC cho mọi AC/EC; mọi `TC-AC-*`/`TC-<EC>` xuất hiện trong Gate milestone.
+- Event: bảng §4.5 kiến trúc = `x-socket-events` của api; `ErrorCode` và enum api = kiến trúc §4.4; path api = §4.6.
+- Hằng số: mọi tên dạng UPPER_SNAKE trong backtick phải có trong `constants.ts`/enum/env (kiến trúc Phụ lục D, `.env.example`); giá trị ghi kèm dạng `` `TÊN` (60 s) `` khớp `constants.ts`; rule rate limit ở `x-rate-limit`/`rateLimit` của api tồn tại trong `RATE_LIMITS` và `x-rate-limit` khớp cột Rate limit của kiến trúc §4.6.
+- Mọi operation (trừ `GET /health`) có response `503`; chuỗi UI kiến trúc §8.6, PRD FR-CHAT-011 và FR-PRES-002 có nguyên văn trong `ui_ux_spec.md`; số "Tổng: N edge case" khớp registry.
+- `--fix-matrix`: sinh lại cột AC/EC/Test ID của Traceability Matrix từ PRD (giữ `AC-ARCH-*`, `TC-ARCH-*`, `TC-DB-*` sẵn có).
+
 ### 8.9 Log và dữ liệu nhạy cảm
 
 - Chỉ log qua `logger` (pino), field có cấu trúc; redact theo kiến trúc §11.3.
@@ -1396,7 +1405,7 @@ jobs:
 
 - [x] **Enum, event, mã lỗi, hằng số khớp mục 2 và 3:** file này không định nghĩa enum/event/mã lỗi mới; các hằng số được dùng đúng tên/giá trị của `constants.ts` (kiến trúc §4.4.1): `CALL_RING_TIMEOUT_MS` 45 s (giá trị mặc định env và ràng buộc DG-08), `SOCKET_PING_INTERVAL_MS` 25 s, `SOCKET_PING_TIMEOUT_MS` 20 s, `CALL_MAX_ICE_RESTARTS` 2, `TURN_CREDENTIAL_TTL_S` 1 h, `PASSWORD_MIN/MAX` 8..128 (seed password). Tên event `call:*`, `session:*`, `e2ee:prekeys-low` dùng đúng danh sách 35 event; không có `message:ack` hay `call:initiate`.
 - [x] **FR/AC được tham chiếu bằng ID:** mỗi milestone liệt kê FR và Gate theo `TC-AC-*`; Traceability Matrix phủ đủ 58 FR (56 FR trong registry kiến trúc Phụ lục B + `FR-CHAT-011`, `FR-CALL-011` do PRD bổ sung).
-- [x] **Edge case có ID:** đủ 104 EC (`TC-AUTH-001..007`, `TC-NET-001..010`, `TC-MSG-001..017`, `TC-GROUP-001..007`, `TC-PRES-001..005`, `TC-CALL-SIG-001..016`, `TC-CALL-MEDIA-001..013`, `TC-CALL-NET-001..010`, `TC-INFRA-001..003`, `TC-SEC-001..008`, `TC-E2EE-001..008`) đều nằm trong Gate của đúng một hoặc nhiều milestone và trong Traceability Matrix; 26 test database `TC-DB-001..026` và 15 `TC-ARCH-*` cũng được phân vào milestone.
+- [x] **Edge case có ID:** đủ 105 EC (`TC-AUTH-001..008`, `TC-NET-001..010`, `TC-MSG-001..017`, `TC-GROUP-001..007`, `TC-PRES-001..005`, `TC-CALL-SIG-001..016`, `TC-CALL-MEDIA-001..013`, `TC-CALL-NET-001..010`, `TC-INFRA-001..003`, `TC-SEC-001..008`, `TC-E2EE-001..008`) đều nằm trong Gate của đúng một hoặc nhiều milestone và trong Traceability Matrix; 26 test database `TC-DB-001..026` và 15 `TC-ARCH-*` cũng được phân vào milestone.
 - [x] **Không có secret thật, không chỗ trống:** mọi file `.env.example` dùng giá trị mẫu `replace-…`; `SEED_PASSWORD` là mật khẩu dev cục bộ, bị env.ts cấm ở production; chỗ chưa chắc chắn về công cụ bên thứ ba đều có `// Xác minh với tài liệu chính thức của …` (tsx `--env-file`, tag image coturn/mongo-express, Xirsys base URL và quota, Playwright `setOffline`, GitHub Actions, menu Android).
 - [x] **Không mâu thuẫn với file đã sinh — các điểm đã đối chiếu:**
   - Cây thư mục kiến trúc §4.1: dùng đúng `infra/docker-compose.yml`, `infra/mongo/init-replica.js` (host `mongo:27017`), `infra/coturn/turnserver.conf`, `infra/certs/localhost+lan*.pem`, `scripts/gen-secrets.mjs` (có `--data-key` như §9.2.4), `scripts/check-bundle-secrets.mjs`, `server/src/infra/db/{indexes,seed}.ts`, `jobs/reencrypt-messages.ts`, `test/{global-setup,fake-clock}.ts`, `client/{vite,playwright}.config.ts`, `client/e2e/*`.
@@ -1419,7 +1428,7 @@ Cột "Test ID" liệt kê test bắt buộc; `npm run trace:check -- --strict` 
 | FR-AUTH-002 | AC-003, AC-004 | EC-SEC-005 | `POST /auth/login` (`loginUser`) | `users`, `refreshSessions`; `rl:login:*` | §3.1 LoginPage | TC-AC-003, TC-AC-004, TC-SEC-005 | M1 |
 | FR-AUTH-003 | AC-005, AC-006, AC-007, AC-ARCH-013 | EC-AUTH-003, EC-AUTH-004, EC-SEC-004 | `POST /auth/refresh` (`refreshSession`); `session:revoked` | `refreshSessions`; `session:revoked:{sid}`, `rl:refresh:*` | §3.9 SessionModal (useSessionLifecycle) | TC-AC-005, TC-AC-006, TC-AC-007, TC-ARCH-013, TC-AUTH-003, TC-AUTH-004, TC-SEC-004, TC-DB-018, TC-DB-019 | M1 |
 | FR-AUTH-004 | AC-008 | EC-AUTH-007 | `POST /auth/logout` (`logoutSession`); `call:state` | `refreshSessions`, `callHistory`; `session:revoked:{sid}`, `call:active:{callId}`, `user:incall:{userId}` | §3.8 SettingsPage (Đăng xuất), §3.7 InCallScreen | TC-AC-008, TC-AUTH-007 | M1 (logout), M5 (cuộc gọi) |
-| FR-AUTH-005 | AC-009 | EC-AUTH-006 | `POST /auth/change-password` (`changePassword`); `session:revoked` | `users`, `refreshSessions`; `session:revoked:{sid}` | §3.8 SecuritySection | TC-AC-009, TC-AUTH-006 | M1 |
+| FR-AUTH-005 | AC-009, AC-018 | EC-AUTH-006, EC-AUTH-008 | `POST /auth/change-password` (`changePassword`); `session:revoked` | `users`, `refreshSessions`; `session:revoked:{sid}` | §3.8 SecuritySection | TC-AC-009, TC-AC-018, TC-AUTH-006, TC-AUTH-008 | M1 |
 | FR-AUTH-006 | AC-010 | EC-AUTH-005 | Script `user:lock`/`user:unlock`; `session:revoked` | `users`, `refreshSessions`; `session:revoked:{sid}` | §3.9 SessionModal | TC-AC-010, TC-AUTH-005 | M1 |
 | FR-AUTH-007 | AC-011, AC-ARCH-014 | EC-AUTH-002 | Handshake `auth.token`; `session:expired` | — (JWT); `session:revoked:{sid}` | §3.0 ConnectionBanner, §3.9 SessionModal | TC-AC-011, TC-ARCH-014, TC-AUTH-002 | M1, M3 (sync) |
 | FR-USER-001 | AC-012 | — | `GET /users/search` (`searchUsers`) | `users`, `userBlocks` | §3.2 NewChatDialog, §3.4 UserPicker | TC-AC-012 | M1 |
@@ -1427,16 +1436,16 @@ Cột "Test ID" liệt kê test bắt buộc; `npm run trace:check -- --strict` 
 | FR-USER-003 | AC-014, AC-015, AC-033, AC-087 | EC-MSG-011, EC-CALL-SIG-013, EC-GROUP-003 | `POST/DELETE /users/{userId}/block` (`blockUser`, `unblockUser`); ACK `USER_BLOCKED` cho `message:send`, `typing:start`, `call:invite` | `userBlocks`, `conversations` | §3.3 BlockedComposerNotice, §3.8 BlockedSection | TC-AC-014, TC-AC-015, TC-AC-033, TC-AC-087, TC-MSG-011, TC-CALL-SIG-013, TC-GROUP-003 | M1, M3, M4, M5 |
 | FR-USER-004 | AC-016 | EC-PRES-004 | `PATCH /users/me` (`privacy.showLastSeen`); `presence:snapshot`, `presence:update` | `users` | §3.8 PrivacySection, §3.3 ChatHeader | TC-AC-016, TC-PRES-004 | M4 |
 | FR-CHAT-001 | AC-017 | — | `POST /conversations` type DIRECT (`createConversation`) | `conversations`, `conversationMembers` | §3.2 NewChatDialog | TC-AC-017, TC-DB-008 | M2 |
-| FR-CHAT-002 | AC-020, AC-021, AC-029, AC-035, AC-036, AC-ARCH-006 | EC-MSG-001, EC-MSG-002, EC-MSG-005, EC-MSG-006, EC-MSG-010, EC-MSG-012, EC-NET-004, EC-SEC-002, EC-INFRA-003 | `message:send` (ACK), `message:new` | `messages`, `messageReceipts`, `conversations`; `rl:messageSend:*` | §3.3 Composer, MessageBubble | TC-AC-020, TC-AC-021, TC-AC-029, TC-AC-035, TC-AC-036, TC-ARCH-006, TC-MSG-001, TC-MSG-002, TC-MSG-005, TC-MSG-006, TC-MSG-010, TC-MSG-012, TC-NET-004, TC-SEC-002, TC-INFRA-003, TC-DB-005, TC-DB-006, TC-DB-007 | M3 |
+| FR-CHAT-002 | AC-020, AC-021, AC-029, AC-035, AC-036, AC-ARCH-006 | EC-MSG-001, EC-MSG-002, EC-MSG-003, EC-MSG-004, EC-MSG-005, EC-MSG-006, EC-MSG-010, EC-MSG-012, EC-NET-004, EC-SEC-002, EC-INFRA-003 | `message:send` (ACK), `message:new` | `messages`, `messageReceipts`, `conversations`; `rl:messageSend:*` | §3.3 Composer, MessageBubble | TC-AC-020, TC-AC-021, TC-AC-029, TC-AC-035, TC-AC-036, TC-ARCH-006, TC-MSG-001, TC-MSG-002, TC-MSG-003, TC-MSG-004, TC-MSG-005, TC-MSG-006, TC-MSG-010, TC-MSG-012, TC-NET-004, TC-SEC-002, TC-INFRA-003, TC-DB-005, TC-DB-006, TC-DB-007 | M3 |
 | FR-CHAT-003 | AC-037 | EC-NET-007, EC-SEC-001, EC-MSG-013 | `GET /conversations/{id}/messages` (`listMessages`) | `messages` (index `(conversationId, createdAt, _id)`) | §3.3 MessageList, NewMessagesButton | TC-AC-037, TC-NET-007, TC-SEC-001, TC-MSG-013, TC-DB-009 | M3 |
 | FR-CHAT-004 | AC-022, AC-023, AC-024, AC-025, AC-042, AC-043 | EC-MSG-008, EC-MSG-009, EC-MSG-014, EC-SEC-003 | `message:delivered`, `message:read`, `message:status`; `POST /conversations/{id}/read` (`markConversationRead`) | `messageReceipts`, `conversationMembers` (cursor) | §3.3 MessageStatusIcon, ReadByIndicator | TC-AC-022, TC-AC-023, TC-AC-024, TC-AC-025, TC-AC-042, TC-AC-043, TC-MSG-008, TC-MSG-009, TC-MSG-014, TC-SEC-003, TC-DB-010, TC-DB-011, TC-DB-014 | M3 |
-| FR-CHAT-005 | AC-026 | EC-NET-008, EC-INFRA-002 | `typing:start`, `typing:stop`, `typing:update` | `typing:{conversationId}:{userId}`, `rl:typing:*` | §3.3 TypingIndicator, §3.2 preview | TC-AC-026, TC-NET-008, TC-INFRA-002 | M4 |
+| FR-CHAT-005 | AC-026 | — | `typing:start`, `typing:stop`, `typing:update` | `typing:{conversationId}:{userId}`, `rl:typing:*` | §3.3 TypingIndicator, §3.2 preview | TC-AC-026 | M4 |
 | FR-CHAT-006 | AC-040, AC-041 | EC-MSG-007, EC-NET-001, EC-INFRA-001 | `message:send` (retry cùng `clientMessageId`) | IndexedDB `outbox` (client); `messages` | §3.3 bubble PENDING/FAILED | TC-AC-040, TC-AC-041, TC-MSG-007, TC-NET-001, TC-INFRA-001 | M3 |
 | FR-CHAT-007 | AC-030, AC-031 | EC-MSG-015, EC-MSG-017 | `message:edit` | `messages` (`editedAt`, `contentEnc`) | §3.3 MessageActions, MessageMeta "Đã chỉnh sửa" | TC-AC-030, TC-AC-031, TC-MSG-015, TC-MSG-017 | M3, M7 (SECRET) |
 | FR-CHAT-008 | AC-031, AC-032 | EC-MSG-015 | `message:delete` | `messages` (`deletedAt`, xóa `contentEnc`/`ciphertext`) | §3.3 bubble "Tin nhắn đã bị thu hồi", §3.2 preview | TC-AC-031, TC-AC-032, TC-MSG-015 | M3, M7 (SECRET) |
 | FR-CHAT-009 | AC-039 | EC-MSG-014 | `GET /conversations` (`listConversations`); `message:new`, `conversation:updated` | `conversations`, `conversationMembers`, `messages`, `messageReceipts` | §3.2 ChatListPane, UnreadBadge | TC-AC-039, TC-MSG-014, TC-DB-013 | M2, M3 |
-| FR-CHAT-010 | AC-028 | EC-NET-001, EC-NET-002, EC-NET-003, EC-NET-005, EC-NET-006, EC-NET-009, EC-NET-010 | Reconnect Socket.IO (`connectionStateRecovery`); `GET /conversations/{id}/messages?after=` | `messages` | §3.0 ConnectionBanner | TC-AC-028, TC-NET-001, TC-NET-002, TC-NET-003, TC-NET-005, TC-NET-006, TC-NET-009, TC-NET-010 | M3 |
-| FR-CHAT-011 | AC-050, AC-054, AC-073, AC-091 | — | `message:new` (type SYSTEM) | `messages` (`system.kind`) | §3.3 SystemMessage | TC-AC-050, TC-AC-054, TC-AC-073, TC-AC-091 | M2, M3, M5 |
+| FR-CHAT-010 | AC-028 | EC-NET-001, EC-NET-002, EC-NET-003, EC-NET-004, EC-NET-005, EC-NET-006, EC-NET-007, EC-NET-008, EC-NET-009, EC-NET-010 | Reconnect Socket.IO (`connectionStateRecovery`); `GET /conversations/{id}/messages?after=` | `messages` | §3.0 ConnectionBanner | TC-AC-028, TC-NET-001, TC-NET-002, TC-NET-003, TC-NET-004, TC-NET-005, TC-NET-006, TC-NET-007, TC-NET-008, TC-NET-009, TC-NET-010 | M3 |
+| FR-CHAT-011 | AC-050, AC-091 | — | `message:new` (type SYSTEM) | `messages` (`system.kind`) | §3.3 SystemMessage | TC-AC-050, TC-AC-091 | M2, M3, M5 |
 | FR-GROUP-001 | AC-050 | EC-GROUP-001, EC-GROUP-002, EC-GROUP-003 | `POST /conversations` type GROUP + `Idempotency-Key`; `conversation:updated` | `conversations`, `conversationMembers`, `messages`; `idem:conv:{userId}:{key}` | §3.4 CreateGroupDialog | TC-AC-050, TC-GROUP-001, TC-GROUP-002, TC-GROUP-003 | M2 |
 | FR-GROUP-002 | AC-051, AC-052, AC-058 | EC-GROUP-001, EC-GROUP-002, EC-GROUP-003, EC-GROUP-006 | `POST /conversations/{id}/members` (`addConversationMembers`); `conversation:updated` | `conversations` (`memberCount`), `conversationMembers`, `userBlocks` | §3.4 MemberManagerDialog, UserPicker | TC-AC-051, TC-AC-052, TC-AC-058, TC-GROUP-001, TC-GROUP-002, TC-GROUP-003, TC-GROUP-006, TC-DB-012 | M2 |
 | FR-GROUP-003 | AC-034, AC-055, AC-057 | EC-GROUP-005, EC-GROUP-007, EC-MSG-010 | `DELETE /conversations/{id}/members/{userId}` (`removeConversationMember`); `conversation:member-removed` | `conversationMembers` (`leftAt`), `conversations` | §3.4 MemberRow, §3.3 RoomNotFound | TC-AC-034, TC-AC-055, TC-AC-057, TC-GROUP-005, TC-GROUP-007, TC-MSG-010 | M2, M3 |
@@ -1444,35 +1453,35 @@ Cột "Test ID" liệt kê test bắt buộc; `npm run trace:check -- --strict` 
 | FR-GROUP-005 | AC-056 | EC-GROUP-006 | `PATCH /conversations/{id}` (`updateConversation`); `conversation:updated` | `conversations` (`title`), `messages` | §3.4 MemberManagerDialog (đổi tên) | TC-AC-056, TC-GROUP-006 | M2 |
 | FR-GROUP-006 | AC-055, AC-059 | EC-GROUP-005 | `PATCH /conversations/{id}/members/{userId}` (`updateConversationMemberRole`) | `conversationMembers` (`role`) | §3.4 MemberRow | TC-AC-055, TC-AC-059, TC-GROUP-005 | M2 |
 | FR-PRES-001 | AC-027, AC-060, AC-061, AC-062 | EC-PRES-001, EC-PRES-002, EC-PRES-003, EC-PRES-005 | `presence:update`; handshake/disconnect | `presence:conns:{userId}`, `presence:users`, `presence:offline-pending` | §3.2 OnlineDot, §3.3 ChatHeader | TC-AC-027, TC-AC-060, TC-AC-061, TC-AC-062, TC-PRES-001, TC-PRES-002, TC-PRES-003, TC-PRES-005, TC-DB-024, TC-DB-025 | M4 |
-| FR-PRES-002 | AC-061 | EC-PRES-004 | `presence:update` (`lastSeenAt`) | `users` (`lastSeenAt`) | §3.3 ChatHeader "Hoạt động … trước" | TC-AC-061, TC-PRES-004 | M4 |
+| FR-PRES-002 | AC-016, AC-061 | EC-PRES-004 | `presence:update` (`lastSeenAt`) | `users` (`lastSeenAt`) | §3.3 ChatHeader "Hoạt động … trước" | TC-AC-016, TC-AC-061, TC-PRES-004 | M4 |
 | FR-PRES-003 | AC-063 | EC-SEC-002 | `presence:subscribe`, `presence:snapshot`; `rl:presenceSubscribe:*` | `conversationMembers`, `userBlocks` | §3.2 ChatListPane | TC-AC-063, TC-SEC-002 | M4 |
-| FR-CALL-001 | AC-070 | EC-CALL-SIG-007, EC-CALL-SIG-008, EC-CALL-SIG-009, EC-CALL-SIG-010, EC-CALL-SIG-014 | `call:invite`, `call:incoming`, `call:ringing`, `call:accept`, `call:accepted`, `call:offer`, `call:answer`, `call:ice-candidate`, `call:state`, `call:end` | `callHistory`; `call:active:{callId}`, `user:incall:{userId}`, `call:deadlines`, `rl:callInvite:*` | §3.6 OutgoingCallScreen, §3.5 IncomingCallScreen, §3.7 InCallScreen | TC-AC-070, TC-CALL-SIG-007, TC-CALL-SIG-008, TC-CALL-SIG-009, TC-CALL-SIG-010, TC-CALL-SIG-014, TC-ARCH-008 | M5 |
+| FR-CALL-001 | AC-070 | EC-CALL-SIG-007, EC-CALL-SIG-008, EC-CALL-SIG-009, EC-CALL-SIG-010, EC-CALL-SIG-014 | `call:invite`, `call:incoming`, `call:ringing`, `call:accept`, `call:accepted`, `call:offer`, `call:answer`, `call:ice-candidate`, `call:state`, `call:end` | `callHistory`; `call:active:{callId}`, `user:incall:{userId}`, `call:deadlines`, `rl:callInvite:*` | §3.6 OutgoingCallScreen, §3.5 IncomingCallScreen, §3.7 InCallScreen | TC-AC-070, TC-ARCH-008, TC-CALL-SIG-007, TC-CALL-SIG-008, TC-CALL-SIG-009, TC-CALL-SIG-010, TC-CALL-SIG-014 | M5 |
 | FR-CALL-002 | AC-071 | EC-CALL-MEDIA-002, EC-CALL-MEDIA-011 | Như FR-CALL-001 với `callType: VIDEO` | `callHistory`; `call:active:{callId}` | §3.7 InCallScreen (LocalVideo PiP, RemoteVideo) | TC-AC-071, TC-CALL-MEDIA-002, TC-CALL-MEDIA-011 | M5 |
 | FR-CALL-003 | AC-076, AC-083, AC-088 | EC-CALL-SIG-001, EC-CALL-SIG-004, EC-CALL-SIG-011, EC-CALL-SIG-016 | `call:incoming` (mọi tab), `call:answered-elsewhere`, ACK `CALL_ALREADY_ANSWERED`, `CALL_NOT_FOUND`, `FORBIDDEN` | `call:active:{callId}` (`acceptedTabId`), `call:pending:{calleeId}` | §3.5 IncomingCallScreen, toast "Đã trả lời trên thiết bị khác" | TC-AC-076, TC-AC-083, TC-AC-088, TC-CALL-SIG-001, TC-CALL-SIG-004, TC-CALL-SIG-011, TC-CALL-SIG-016 | M5 |
-| FR-CALL-004 | AC-072, AC-073, AC-074, AC-075, AC-084, AC-089 | EC-CALL-SIG-002, EC-CALL-SIG-005, EC-CALL-SIG-006, EC-CALL-SIG-015 | `call:reject`, `call:cancel`, `call:busy`, `call:end`, `call:state`; ACK `CALL_BUSY`, `CALL_TIMEOUT` | `callHistory`; `call:active:{callId}`, `call:deadlines`, `user:incall:{userId}` | §3.6, §3.5, CallEndedNotice | TC-AC-072, TC-AC-073, TC-AC-074, TC-AC-075, TC-AC-084, TC-AC-089, TC-CALL-SIG-002, TC-CALL-SIG-005, TC-CALL-SIG-006, TC-CALL-SIG-015, TC-ARCH-007, TC-DB-015, TC-DB-022, TC-DB-023 | M5 |
+| FR-CALL-004 | AC-072, AC-073, AC-074, AC-075, AC-084, AC-089 | EC-CALL-SIG-002, EC-CALL-SIG-005, EC-CALL-SIG-006, EC-CALL-SIG-015 | `call:reject`, `call:cancel`, `call:busy`, `call:end`, `call:state`; ACK `CALL_BUSY`, `CALL_TIMEOUT` | `callHistory`; `call:active:{callId}`, `call:deadlines`, `user:incall:{userId}` | §3.6, §3.5, CallEndedNotice | TC-AC-072, TC-AC-073, TC-AC-074, TC-AC-075, TC-AC-084, TC-AC-089, TC-ARCH-007, TC-CALL-SIG-002, TC-CALL-SIG-005, TC-CALL-SIG-006, TC-CALL-SIG-015, TC-DB-015, TC-DB-022, TC-DB-023 | M5 |
 | FR-CALL-005 | AC-077, AC-ARCH-015 | EC-CALL-SIG-003 | `call:invite` (ACK `merged: true`), `call:accepted` | `callHistory`; `call:active:{callId}`, `user:incall:{userId}` (`call-invite.lua`) | §3.6 → §3.7 tự chuyển | TC-AC-077, TC-ARCH-015, TC-CALL-SIG-003, TC-DB-021 | M5 |
 | FR-CALL-006 | AC-081, AC-082, AC-092 | EC-CALL-NET-001, EC-CALL-NET-002, EC-CALL-NET-007, EC-CALL-NET-008, EC-CALL-NET-009, EC-CALL-NET-010 | `call:ice-restart`, `call:offer` (revision), `call:state` (RECONNECTING), `call:end` (`NETWORK_FAILURE`) | `call:active:{callId}`, `call:deadlines` (RECONNECT); `callHistory` | §3.7 InCallScreen "Đang kết nối lại…" | TC-AC-081, TC-AC-082, TC-AC-092, TC-CALL-NET-001, TC-CALL-NET-002, TC-CALL-NET-007, TC-CALL-NET-008, TC-CALL-NET-009, TC-CALL-NET-010 | M5 |
 | FR-CALL-007 | AC-085, AC-090 | EC-CALL-NET-003, EC-CALL-NET-004, EC-CALL-NET-005, EC-CALL-NET-006, EC-SEC-006 | `GET /calls/ice-servers` (`getIceServers`) | `ice:servers:xirsys` | — (lib/webrtc/ice-servers.ts) | TC-AC-085, TC-AC-090, TC-CALL-NET-003, TC-CALL-NET-004, TC-CALL-NET-005, TC-CALL-NET-006, TC-SEC-006 | M5 |
-| FR-CALL-008 | AC-091 | EC-CALL-SIG-015 | `GET /calls` (`listCalls`); `message:new` SYSTEM `CALL_ENDED`/`CALL_MISSED` | `callHistory`, `messages` | §3.3 SystemMessage, CallHistoryList | TC-AC-091, TC-CALL-SIG-015, TC-DB-015 | M5 |
-| FR-CALL-009 | AC-078, AC-079, AC-080 | EC-CALL-MEDIA-001, EC-CALL-MEDIA-002, EC-CALL-MEDIA-003, EC-CALL-MEDIA-004, EC-CALL-MEDIA-005, EC-CALL-MEDIA-006, EC-CALL-MEDIA-007, EC-CALL-MEDIA-008, EC-CALL-MEDIA-009, EC-CALL-MEDIA-012, EC-CALL-MEDIA-013 | `call:end` (`MEDIA_FAILURE`); không gửi `call:invite` khi lỗi trước khi gọi | `callHistory` | §3.7 MediaErrorPanel, ma trận UI §4.4 | TC-AC-078, TC-AC-079, TC-AC-080, TC-CALL-MEDIA-001, TC-CALL-MEDIA-003, TC-CALL-MEDIA-004, TC-CALL-MEDIA-005, TC-CALL-MEDIA-006, TC-CALL-MEDIA-007, TC-CALL-MEDIA-008, TC-CALL-MEDIA-009, TC-CALL-MEDIA-012, TC-CALL-MEDIA-013 | M5 |
+| FR-CALL-008 | AC-091 | — | `GET /calls` (`listCalls`); `message:new` SYSTEM `CALL_ENDED`/`CALL_MISSED` | `callHistory`, `messages` | §3.3 SystemMessage, CallHistoryList | TC-AC-091, TC-DB-015 | M5 |
+| FR-CALL-009 | AC-078, AC-079, AC-080 | EC-CALL-MEDIA-001, EC-CALL-MEDIA-002, EC-CALL-MEDIA-003, EC-CALL-MEDIA-004, EC-CALL-MEDIA-005, EC-CALL-MEDIA-006, EC-CALL-MEDIA-007, EC-CALL-MEDIA-008, EC-CALL-MEDIA-009, EC-CALL-MEDIA-010, EC-CALL-MEDIA-011, EC-CALL-MEDIA-012, EC-CALL-MEDIA-013 | `call:end` (`MEDIA_FAILURE`); không gửi `call:invite` khi lỗi trước khi gọi | `callHistory` | §3.7 MediaErrorPanel, ma trận UI §4.4 | TC-AC-078, TC-AC-079, TC-AC-080, TC-CALL-MEDIA-001, TC-CALL-MEDIA-002, TC-CALL-MEDIA-003, TC-CALL-MEDIA-004, TC-CALL-MEDIA-005, TC-CALL-MEDIA-006, TC-CALL-MEDIA-007, TC-CALL-MEDIA-008, TC-CALL-MEDIA-009, TC-CALL-MEDIA-010, TC-CALL-MEDIA-011, TC-CALL-MEDIA-012, TC-CALL-MEDIA-013 | M5 |
 | FR-CALL-010 | AC-086 | EC-CALL-SIG-012 | `call:invite` → ACK `VALIDATION_ERROR` "Cuộc gọi nhóm chưa được hỗ trợ" | `conversations` (`type`) | §3.3 ChatHeader (ẩn nút gọi trong nhóm) | TC-AC-086, TC-CALL-SIG-012 | M5 |
 | FR-CALL-011 | AC-093 | EC-CALL-MEDIA-010 | `call:incoming` | — | §3.5 IncomingCallScreen, AutoplayUnlockButton | TC-AC-093, TC-CALL-MEDIA-010 | M5 |
 | FR-SEC-001 | AC-107 | EC-CALL-MEDIA-009 | Toàn bộ REST/WSS qua HTTPS; DTLS-SRTP | — | §4.4 "không gian không an toàn" | TC-AC-107, TC-CALL-MEDIA-009 | M0, M6 |
 | FR-SEC-002 | AC-100, AC-ARCH-005 | — | `message:send`, `message:edit`, `GET …/messages` (giải mã khi trả DTO) | `messages` (`contentEnc`) | — | TC-AC-100, TC-ARCH-005, TC-ARCH-004, TC-DB-005 | M0 (crypto), M3 |
 | FR-SEC-003 | AC-101 | — | `npm run job:reencrypt -w server` | `messages` (index `reencrypt_keyId`) | — | TC-AC-101, TC-DB-020 | M3 |
 | FR-SEC-004 | AC-108 | EC-SEC-005 | `POST /auth/register`, `/auth/login`, `/auth/change-password` | `users` (`passwordHash`, `select: false`) | — | TC-AC-108, TC-SEC-005, TC-DB-003 | M1 |
-| FR-SEC-005 | AC-004, AC-109, AC-ARCH-009 | EC-SEC-005, EC-SEC-008, EC-CALL-SIG-014, EC-INFRA-002 | Mọi REST/event có rule `RATE_LIMITS`; 429 `RATE_LIMITED`, 503 `SERVICE_UNAVAILABLE` | `rl:{rule}:{subject}` | Toast lỗi `RATE_LIMITED` (`i18n/errors.ts`) | TC-AC-004, TC-AC-109, TC-ARCH-009, TC-SEC-005, TC-SEC-008, TC-CALL-SIG-014, TC-INFRA-002 | M1, M6 |
+| FR-SEC-005 | AC-004, AC-018, AC-109, AC-ARCH-009 | EC-SEC-005, EC-SEC-008, EC-CALL-SIG-014, EC-INFRA-002, EC-AUTH-008 | Mọi REST/event có rule `RATE_LIMITS`; 429 `RATE_LIMITED`, 503 `SERVICE_UNAVAILABLE` | `rl:{rule}:{subject}` | Toast lỗi `RATE_LIMITED` (`i18n/errors.ts`) | TC-AC-004, TC-AC-018, TC-AC-109, TC-ARCH-009, TC-SEC-005, TC-SEC-008, TC-CALL-SIG-014, TC-INFRA-002, TC-AUTH-008 | M1, M6 |
 | FR-SEC-006 | AC-102, AC-106, AC-107 | EC-SEC-004, EC-MSG-003, EC-MSG-004 | `POST /auth/refresh`, `/auth/logout` (CSRF); header helmet/CSP/CORS | — | §3.3 MessageBubble (`dir="auto"`, escape) | TC-AC-102, TC-AC-106, TC-AC-107, TC-SEC-004, TC-MSG-003, TC-MSG-004 | M1, M3, M6 |
 | FR-SEC-007 | AC-104, AC-ARCH-010 | EC-SEC-007 | Toàn bộ (logger redact) | — | — | TC-AC-104, TC-ARCH-010, TC-SEC-007 | M6 |
-| FR-SEC-008 | AC-029, AC-083, AC-103, AC-105 | EC-SEC-001, EC-SEC-002, EC-SEC-003, EC-SEC-006, EC-MSG-005, EC-GROUP-007 | Mọi endpoint/event (bảng AUTHZ kiến trúc §6.2); `conversation:join` | `conversationMembers` | §3.3 RoomNotFound | TC-AC-029, TC-AC-083, TC-AC-103, TC-AC-105, TC-SEC-001, TC-SEC-002, TC-SEC-003, TC-SEC-006, TC-MSG-005, TC-GROUP-007, TC-ARCH-001, TC-ARCH-002, TC-ARCH-011 | M0–M6 |
+| FR-SEC-008 | AC-029, AC-083, AC-103, AC-105 | EC-SEC-001, EC-SEC-002, EC-SEC-003, EC-SEC-006, EC-MSG-005, EC-GROUP-007 | Mọi endpoint/event (bảng AUTHZ kiến trúc §6.2); `conversation:join` | `conversationMembers` | §3.3 RoomNotFound | TC-AC-029, TC-AC-083, TC-AC-103, TC-AC-105, TC-ARCH-001, TC-ARCH-002, TC-ARCH-011, TC-SEC-001, TC-SEC-002, TC-SEC-003, TC-SEC-006, TC-MSG-005, TC-GROUP-007 | M0–M6 |
 | FR-E2EE-001 | AC-110 | EC-E2EE-006 | `PUT /e2ee/devices/{deviceId}/keys` (`registerDeviceKeys`), `GET /e2ee/devices` (`listMyDevices`) | `userDevices`, `oneTimePreKeys` | §3.8 DevicesSection | TC-AC-110, TC-E2EE-006, TC-DB-017 | M7 |
-| FR-E2EE-002 | AC-111, AC-116 | EC-E2EE-002 | `GET /e2ee/users/{userId}/bundles` (`getPreKeyBundles`); `rl:e2eeBundle:*` | `oneTimePreKeys` (`consumedAt`), `userDevices` | — | TC-AC-111, TC-AC-116, TC-E2EE-002, TC-DB-016 | M7 |
+| FR-E2EE-002 | AC-111, AC-116 | EC-E2EE-001, EC-E2EE-002 | `GET /e2ee/users/{userId}/bundles` (`getPreKeyBundles`); `rl:e2eeBundle:*` | `oneTimePreKeys` (`consumedAt`), `userDevices` | — | TC-AC-111, TC-AC-116, TC-E2EE-001, TC-E2EE-002, TC-DB-016 | M7 |
 | FR-E2EE-003 | AC-115 | EC-E2EE-002 | `e2ee:prekeys-low`, `POST /e2ee/devices/{deviceId}/prekeys` (`uploadOneTimePreKeys`) | `oneTimePreKeys`; `e2ee:lowsent:{deviceId}` | — | TC-AC-115, TC-E2EE-002 | M7 |
-| FR-E2EE-004 | AC-111, AC-112, AC-119, AC-121, AC-122 | EC-E2EE-001, EC-E2EE-008, EC-MSG-016 | `POST /conversations` type SECRET; `message:send` kind `E2EE` (envelope), `message:new` tới `device:{deviceId}`; ACK `E2EE_KEYS_UNAVAILABLE`, `CONFLICT`, `VALIDATION_ERROR` | `conversations`, `messages` (`ciphertext`), `userDevices` | §3.3 E2eeBadge "Đang thiết lập mã hóa…" / "Mã hóa đầu-cuối" | TC-AC-111, TC-AC-112, TC-AC-119, TC-AC-121, TC-AC-122, TC-E2EE-001, TC-E2EE-008, TC-MSG-016 | M7 |
-| FR-E2EE-005 | AC-120 | EC-E2EE-003 | — (tính phía client từ identity key trong bundle) | `userDevices` (`identityKey`) | §3.8 SafetyNumberDialog | TC-AC-120, TC-E2EE-003 | M7 |
-| FR-E2EE-006 | AC-113 | EC-E2EE-003, EC-E2EE-006 | `GET /e2ee/users/{userId}/bundles` (identity mới) | `userDevices` | §3.3 IdentityChangedBanner | TC-AC-113, TC-E2EE-003, TC-E2EE-006 | M7 |
+| FR-E2EE-004 | AC-111, AC-112, AC-119, AC-121, AC-122 | EC-E2EE-001, EC-E2EE-005, EC-E2EE-008, EC-MSG-016 | `POST /conversations` type SECRET; `message:send` kind `E2EE` (envelope), `message:new` tới `device:{deviceId}`; ACK `E2EE_KEYS_UNAVAILABLE`, `CONFLICT`, `VALIDATION_ERROR` | `conversations`, `messages` (`ciphertext`), `userDevices` | §3.3 E2eeBadge "Đang thiết lập mã hóa…" / "Mã hóa đầu-cuối" | TC-AC-111, TC-AC-112, TC-AC-119, TC-AC-121, TC-AC-122, TC-E2EE-001, TC-E2EE-005, TC-E2EE-008, TC-MSG-016 | M7 |
+| FR-E2EE-005 | AC-120 | — | — (tính phía client từ identity key trong bundle) | `userDevices` (`identityKey`) | §3.8 SafetyNumberDialog | TC-AC-120 | M7 |
+| FR-E2EE-006 | AC-113 | EC-E2EE-003 | `GET /e2ee/users/{userId}/bundles` (identity mới) | `userDevices` | §3.3 IdentityChangedBanner | TC-AC-113, TC-E2EE-003 | M7 |
 | FR-E2EE-007 | AC-117 | EC-E2EE-005 | `DELETE /e2ee/devices/{deviceId}` (`revokeDevice`); `session:revoked { DEVICE_REVOKED }` | `userDevices` (`status: REVOKED`), `oneTimePreKeys`, `refreshSessions` | §3.8 DevicesSection | TC-AC-117, TC-E2EE-005 | M7 |
-| FR-E2EE-008 | AC-114, AC-118 | EC-E2EE-004, EC-E2EE-007 | `GET /conversations/{id}/messages` (envelope không có recipient cho device mới) | `messages` (`ciphertext`) | §3.3 bubble "Không thể giải mã tin nhắn này" / "Tin nhắn được gửi trước khi thiết bị này tham gia" | TC-AC-114, TC-AC-118, TC-E2EE-004, TC-E2EE-007 | M7 |
+| FR-E2EE-008 | AC-114, AC-118 | EC-E2EE-004, EC-E2EE-006, EC-E2EE-007 | `GET /conversations/{id}/messages` (envelope không có recipient cho device mới) | `messages` (`ciphertext`) | §3.3 bubble "Không thể giải mã tin nhắn này" / "Tin nhắn được gửi trước khi thiết bị này tham gia" | TC-AC-114, TC-AC-118, TC-E2EE-004, TC-E2EE-006, TC-E2EE-007 | M7 |
 
 Bảng phủ AC kiến trúc và test database không gắn FR trực tiếp:
 

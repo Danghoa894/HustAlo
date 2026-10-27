@@ -26,7 +26,7 @@
 | Người tham gia | Thành viên hiện tại của hội thoại (`leftAt = null`). |
 | Bubble | Một tin nhắn hiển thị trong phòng chat. |
 | Placeholder thu hồi | Bubble của tin đã bị thu hồi, hiển thị đúng chuỗi "Tin nhắn đã bị thu hồi". |
-| TC-* | Test ID. Quy ước: `TC-<NHÓM>-<số>` ứng 1-1 với `EC-<NHÓM>-<số>`; `TC-AC-<số>` ứng 1-1 với `AC-<số>`. |
+| TC-* | Test ID. Quy ước: `TC-<NHÓM>-<số>` ứng 1-1 với `EC-<NHÓM>-<số>`; `TC-AC-<số>` ứng 1-1 với `AC-<số>`; `TC-ARCH-<số>` ứng 1-1 với `AC-ARCH-<số>` (kiến trúc §12); `TC-DB-<số>` do `database_schema.md` §7 cấp. |
 
 ---
 
@@ -83,10 +83,10 @@ Ký hiệu: ✔ được phép; ✘ bị từ chối (kèm mã lỗi); — khôn
 | P04 | Chặn / bỏ chặn người khác | ✘ | ✔ | ✔ | ✔ | UNAUTHENTICATED | FR-USER-003 |
 | P05 | Tạo DIRECT/SECRET/GROUP | ✘ | ✔ | ✔ | ✔ | UNAUTHENTICATED | FR-CHAT-001, FR-GROUP-001, FR-E2EE-004 |
 | P06 | Xem hội thoại và lịch sử | ✘ | ✔ | ✔ | ✔ | NOT_FOUND (chưa từng là thành viên) / NOT_A_MEMBER (đã rời/bị xóa) | FR-CHAT-003, FR-SEC-008 |
-| P07 | Gửi tin nhắn | ✘ | ✔ | ✔ | ✔ | NOT_A_MEMBER; USER_BLOCKED (DIRECT/SECRET) | FR-CHAT-002 |
+| P07 | Gửi tin nhắn | ✘ | ✔ | ✔ | ✔ | NOT_FOUND (chưa từng là thành viên) / NOT_A_MEMBER (đã rời/bị xóa); USER_BLOCKED (DIRECT/SECRET) | FR-CHAT-002 |
 | P08 | Sửa / thu hồi tin **của chính mình** trong 15 phút | ✘ | ✔ | ✔ | ✔ | FORBIDDEN | FR-CHAT-007/008 |
 | P09 | Sửa / thu hồi tin của người khác | ✘ | ✘ | ✘ | ✘ | FORBIDDEN | FR-CHAT-007/008 |
-| P10 | Gửi typing / receipt | ✘ | ✔ | ✔ | ✔ | NOT_A_MEMBER | FR-CHAT-004/005 |
+| P10 | Gửi typing / receipt | ✘ | ✔ | ✔ | ✔ | NOT_FOUND (chưa từng là thành viên) / NOT_A_MEMBER (đã rời/bị xóa) | FR-CHAT-004/005 |
 | P11 | Đổi tên nhóm | ✘ | ✘ | ✔ | ✔ | FORBIDDEN | FR-GROUP-005 |
 | P12 | Thêm thành viên | ✘ | ✘ | ✔ | ✔ | FORBIDDEN | FR-GROUP-002 |
 | P13 | Xóa thành viên role MEMBER | ✘ | ✘ | ✔ | ✔ | FORBIDDEN | FR-GROUP-003 |
@@ -101,7 +101,7 @@ Ký hiệu: ✔ được phép; ✘ bị từ chối (kèm mã lỗi); — khôn
 | P22 | Theo dõi presence người khác | ✘ | ✔ chỉ người có chung hội thoại, không chặn | ✔ | ✔ | (lọc im lặng) | FR-PRES-003 |
 | P23 | Đăng ký khóa E2EE cho device | ✘ | ✔ chỉ device của token (`did`) | ✔ | ✔ | FORBIDDEN | FR-E2EE-001 |
 | P24 | Lấy prekey bundle của user khác | ✘ | ✔ chỉ khi có chung SECRET hoặc đang tạo SECRET, không chặn | ✔ | ✔ | NOT_FOUND / USER_BLOCKED | FR-E2EE-002 |
-| P25 | Thu hồi device E2EE | ✘ | ✔ chỉ device của chính mình | ✔ | ✔ | FORBIDDEN | FR-E2EE-007 |
+| P25 | Thu hồi device E2EE | ✘ | ✔ chỉ device của chính mình | ✔ | ✔ | NOT_FOUND (device không thuộc mình, FR-SEC-008) | FR-E2EE-007 |
 
 ---
 
@@ -152,8 +152,8 @@ Mọi FR dùng hằng số trong `packages/shared/src/constants.ts` (kiến trú
 
 #### FR-AUTH-005 — Đổi mật khẩu
 - **Mô tả:** `POST /auth/change-password { currentPassword, newPassword }`.
-- **Quy tắc:** `currentPassword` sai → `401 UNAUTHENTICATED` "Mật khẩu hiện tại không đúng"; `newPassword` theo quy tắc FR-AUTH-001 và khác mật khẩu cũ (`VALIDATION_ERROR`). Thành công: thu hồi **mọi family khác** (`PASSWORD_CHANGED`), giữ session hiện tại, `204`. Rate limit theo rule `login` (khóa theo IP + email của user).
-- **AC:** AC-009. **EC:** EC-AUTH-006.
+- **Quy tắc:** `currentPassword` sai → `422 VALIDATION_ERROR` "Mật khẩu hiện tại không đúng", `details: [{ field: 'currentPassword', reason: 'INVALID' }]`; không dùng `401` để client không nhầm với hết phiên, session hiện tại giữ nguyên. `newPassword` theo quy tắc FR-AUTH-001 và khác mật khẩu cũ (`400 VALIDATION_ERROR`). Thành công: thu hồi **mọi family khác** (`PASSWORD_CHANGED`), giữ session hiện tại, `204`. Rate limit riêng `changePassword` 5/15 phút/user (tính cả lần đúng và sai); Redis down → `503 SERVICE_UNAVAILABLE` (fail-closed như auth, D-10).
+- **AC:** AC-009, AC-018. **EC:** EC-AUTH-006, EC-AUTH-008.
 
 #### FR-AUTH-006 — Khóa tài khoản
 - **Mô tả:** Quản trị vận hành khóa tài khoản bằng script `npm run user:lock -w server -- <email>` (MVP không có UI quản trị); mở khóa bằng `npm run user:unlock -w server -- <email>`.
@@ -170,7 +170,7 @@ Mọi FR dùng hằng số trong `packages/shared/src/constants.ts` (kiến trú
 #### FR-USER-001 — Tìm kiếm người dùng
 - **Mô tả:** `GET /users/search?q=` trả tối đa `USER_SEARCH_LIMIT` (20) `UserPublic`.
 - **Quy tắc:**
-  - `q` sau trim dài `USER_SEARCH_MIN_QUERY` (2) đến 100 ký tự, ngắn hơn → `VALIDATION_ERROR`.
+  - `q` sau trim dài `USER_SEARCH_MIN_QUERY` (2) đến `USER_SEARCH_MAX_QUERY` (100) ký tự, ngoài khoảng → `VALIDATION_ERROR`.
   - Khớp: email **chính xác** (nếu `q` chứa `@`), hoặc tiền tố `username`, hoặc tiền tố `displayNameNormalized` (chữ thường, bỏ dấu tiếng Việt, `đ`→`d`).
   - Loại khỏi kết quả: chính mình, user `LOCKED`, user **đã chặn mình**. User mình đã chặn vẫn hiển thị (để bỏ chặn), kèm `blockedByMe: true`.
   - Sắp xếp: khớp username chính xác → tiền tố username → tiền tố displayName; cùng hạng theo `displayName` tăng dần.
@@ -188,9 +188,9 @@ Mọi FR dùng hằng số trong `packages/shared/src/constants.ts` (kiến trú
   - Khi A chặn B **hoặc** B chặn A: trong DIRECT/SECRET giữa A và B không ai gửi tin, typing hay gọi được (`USER_BLOCKED`); presence giữa hai người bị ẩn (không subscribe được); B không thấy A trong tìm kiếm nếu A chặn B.
   - Không ảnh hưởng GROUP chung đang có (vẫn gửi tin nhóm); nhưng không thể thêm vào nhóm người đã chặn mình (FR-GROUP-002).
   - Cuộc gọi đang diễn ra giữa A và B khi chặn: **không** bị cắt; lời mời mới bị từ chối.
-  - `GET /auth/me` trả `blockedUserIds` (danh sách người mình đã chặn) để hiển thị trong Cài đặt.
+  - `GET /auth/me` trả `blockedUserIds` (danh sách người mình đã chặn, tối đa `BLOCKED_LIST_MAX` = 1000) để hiển thị trong Cài đặt.
   - `ConversationSummary` DIRECT/SECRET có `blockedByMe: boolean` và `canMessage: boolean` (`false` khi bị chặn bất kỳ chiều nào). Người bị chặn chỉ thấy `canMessage: false`, không biết chiều chặn.
-- **AC:** AC-014, AC-015. **EC:** EC-MSG-011, EC-CALL-SIG-013, EC-GROUP-003.
+- **AC:** AC-014, AC-015, AC-033, AC-087. **EC:** EC-MSG-011, EC-CALL-SIG-013, EC-GROUP-003.
 
 #### FR-USER-004 — Quyền riêng tư lastSeen
 - **Mô tả:** `privacy.showLastSeen` (mặc định `true`).
@@ -214,12 +214,12 @@ Mọi FR dùng hằng số trong `packages/shared/src/constants.ts` (kiến trú
   - DIRECT/SECRET bị chặn → `USER_BLOCKED`; không phải người tham gia → `NOT_A_MEMBER` / `NOT_FOUND`.
   - Rate limit `messageSend` 20/10 s/user.
   - Nội dung lưu dạng `contentEnc` AES-256-GCM (FR-SEC-002); SECRET theo FR-E2EE-004.
-- **AC:** AC-020, AC-021, AC-029, AC-035, AC-036. **EC:** EC-MSG-001..006, EC-MSG-010, EC-MSG-012, EC-NET-004, EC-SEC-002.
+- **AC:** AC-020, AC-021, AC-029, AC-035, AC-036. **EC:** EC-MSG-001..006, EC-MSG-010, EC-MSG-012, EC-NET-004, EC-SEC-002, EC-INFRA-003.
 
 #### FR-CHAT-003 — Lịch sử phân trang cursor
 - **Mô tả:** `GET /conversations/{id}/messages?before=&after=&limit=`.
 - **Quy tắc:** `limit` 1..`HISTORY_PAGE_MAX` (100), mặc định `HISTORY_PAGE_DEFAULT` (30). `before`/`after` là cursor base64url của `(createdAt, _id)`, loại trừ nhau (cả hai → `VALIDATION_ERROR`); không có cả hai = trang mới nhất. Kết quả `MessagePage { items (sắp tăng dần theo (createdAt,_id)), nextBefore: string|null, nextAfter: string|null }`. Không dùng `skip`. Tin thu hồi trả về với `deletedAt` và `content: null`. SECRET: `ciphertext.recipients` chỉ còn phần tử cho `did` của token (có thể rỗng — tin trước khi device tham gia).
-- **AC:** AC-037. **EC:** EC-NET-007, EC-SEC-001.
+- **AC:** AC-037. **EC:** EC-NET-007, EC-SEC-001, EC-MSG-013.
 
 #### FR-CHAT-004 — Receipt đã gửi / đã nhận / đã đọc
 - **Mô tả:** Trạng thái client `PENDING → SENT → DELIVERED → READ`, hoặc `PENDING → FAILED`.
@@ -249,7 +249,7 @@ Mọi FR dùng hằng số trong `packages/shared/src/constants.ts` (kiến trú
 #### FR-CHAT-008 — Thu hồi tin
 - **Mô tả:** `message:delete { messageId }` — thu hồi với mọi người.
 - **Quy tắc:** chỉ người gửi; trong 15 phút; không áp dụng SYSTEM (`FORBIDDEN`). Áp dụng cả SECRET. Thành công: xóa `contentEnc`/`ciphertext`, set `deletedAt`, phát `message:delete`; mọi client hiển thị placeholder **"Tin nhắn đã bị thu hồi"** đúng vị trí cũ. Thu hồi lần hai → ACK ok trả bản hiện tại (idempotent). Nếu là tin cuối, preview danh sách chat hiển thị "Tin nhắn đã bị thu hồi". Không có "xóa phía tôi" ở MVP.
-- **AC:** AC-032. **EC:** EC-MSG-015.
+- **AC:** AC-031, AC-032. **EC:** EC-MSG-015.
 
 #### FR-CHAT-009 — Danh sách hội thoại
 - **Mô tả:** `GET /conversations?cursor=&limit=` trả `ConversationSummary[]`.
@@ -295,7 +295,7 @@ Mọi FR dùng hằng số trong `packages/shared/src/constants.ts` (kiến trú
 #### FR-GROUP-003 — Xóa thành viên
 - **Mô tả:** `DELETE /conversations/{id}/members/{userId}` với `userId ≠ me`.
 - **Quy tắc:** quyền theo P13–P15; xóa OWNER → `FORBIDDEN`. Set `leftAt` trên bản ghi thành viên, giảm `memberCount`; server cho mọi socket của người bị xóa rời room `conv:{id}`, phát `conversation:member-removed { reason: 'REMOVED' }` tới thành viên còn lại **và** người bị xóa; SYSTEM `MEMBER_REMOVED`. Người bị xóa mất quyền truy cập (`NOT_A_MEMBER`), hội thoại biến khỏi danh sách của họ; tin họ đang gửi dở bị từ chối `NOT_A_MEMBER`. Cuộc gọi không bị ảnh hưởng (GROUP không có cuộc gọi). `204`.
-- **AC:** AC-034, AC-057. **EC:** EC-GROUP-005, EC-GROUP-007, EC-MSG-010.
+- **AC:** AC-034, AC-055, AC-057. **EC:** EC-GROUP-005, EC-GROUP-007, EC-MSG-010.
 
 #### FR-GROUP-004 — Rời nhóm và chuyển quyền OWNER
 - **Mô tả:** Rời: `DELETE /conversations/{id}/members/{me}`. Chuyển quyền: `PATCH /conversations/{id}/members/{userId} { role: 'OWNER' }`.
@@ -314,7 +314,7 @@ Mọi FR dùng hằng số trong `packages/shared/src/constants.ts` (kiến trú
 #### FR-GROUP-006 — Phân quyền ADMIN
 - **Mô tả:** `PATCH /conversations/{id}/members/{userId} { role: 'ADMIN' | 'MEMBER' }`.
 - **Quy tắc:** chỉ OWNER (P16); target là OWNER → `FORBIDDEN`; OWNER tự đổi role của mình → `VALIDATION_ERROR` (dùng chuyển quyền). Role không đổi → `200` không SYSTEM. Thay đổi → SYSTEM `ROLE_CHANGED`, `conversation:updated { change: 'ROLE' }`. Không giới hạn số ADMIN.
-- **AC:** AC-059. **EC:** EC-GROUP-005.
+- **AC:** AC-055, AC-059. **EC:** EC-GROUP-005.
 
 ### 3.5 Presence
 
@@ -338,7 +338,7 @@ Mọi FR dùng hằng số trong `packages/shared/src/constants.ts` (kiến trú
 #### FR-CALL-001 — Gọi thoại 1-1
 - **Mô tả:** Cuộc gọi `VOICE` trong DIRECT/SECRET theo kiến trúc §7(e) và state machine §8.
 - **Quy tắc:** chỉ cần micro. Điều khiển: tắt/bật micro, bật/tắt loa ngoài (chỉ trình duyệt hỗ trợ `setSinkId`; không hỗ trợ thì ẩn nút), kết thúc. Thời lượng tính từ `connectedAt`. Rate limit `callInvite` 5/phút/user.
-- **AC:** AC-070. **EC:** EC-CALL-SIG-014.
+- **AC:** AC-070. **EC:** EC-CALL-SIG-007, EC-CALL-SIG-008, EC-CALL-SIG-009, EC-CALL-SIG-010, EC-CALL-SIG-014.
 
 #### FR-CALL-002 — Gọi video 1-1
 - **Mô tả:** Cuộc gọi `VIDEO`, video 1280×720 lý tưởng.
@@ -371,7 +371,7 @@ Mọi FR dùng hằng số trong `packages/shared/src/constants.ts` (kiến trú
 - **AC:** AC-085, AC-090. **EC:** EC-CALL-NET-003, EC-CALL-NET-004, EC-CALL-NET-005, EC-CALL-NET-006, EC-SEC-006.
 
 #### FR-CALL-008 — Lịch sử cuộc gọi và SYSTEM message
-- **Mô tả:** `GET /calls?cursor=&limit=` trả `CallRecord[]` của mình (caller hoặc callee), sắp `createdAt` giảm dần, `limit` mặc định 20, tối đa 50.
+- **Mô tả:** `GET /calls?cursor=&limit=` trả `CallRecord[]` của mình (caller hoặc callee), sắp `createdAt` giảm dần, `limit` mặc định `CALL_PAGE_DEFAULT` (20), tối đa `CALL_PAGE_MAX` (50).
 - **Quy tắc:** `CallRecord { id, conversationId, callType, direction: 'OUTGOING' | 'INCOMING' (tính theo người xem), peer: UserPublic, status, endReason, createdAt, connectedAt, endedAt, durationSec }`. SYSTEM `CALL_MISSED` khi MISSED/BUSY, `CALL_ENDED` khi ENDED có `connectedAt` (§8.2). `CALL_MISSED` tính vào `unreadCount` của callee.
 - **AC:** AC-091. **EC:** —.
 
@@ -413,7 +413,7 @@ Mọi FR dùng hằng số trong `packages/shared/src/constants.ts` (kiến trú
 - Argon2id `memoryCost 19456 KiB, timeCost 2, parallelism 1`; rehash khi tham số đổi; `passwordHash` là `select: false`. **AC:** AC-108. **EC:** EC-SEC-005.
 
 #### FR-SEC-005 — Rate limit
-- Theo `RATE_LIMITS` (kiến trúc §4.4.1): login 5/60 s/IP+email, register 3/60 s/IP, refresh 30/60 s/IP, `message:send` 20/10 s/user, `call:invite` 5/60 s/user, `typing:*` 20/10 s/user, REST 100/60 s/user, signaling 100/10 s/socket, socket khác 60/10 s/socket, presence subscribe 10/60 s/user, bundle E2EE 10/60 s/user+target. REST vượt → `429` + `Retry-After`; socket → ACK `RATE_LIMITED`. Redis down: auth fail-closed, còn lại limiter bộ nhớ (D-10). **AC:** AC-004, AC-109. **EC:** EC-SEC-005, EC-SEC-008, EC-CALL-SIG-014, EC-INFRA-002.
+- Theo `RATE_LIMITS` (kiến trúc §4.4.1): login 5/60 s/IP+email, register 3/60 s/IP, refresh 30/60 s/IP, đổi mật khẩu 5/15 phút/user, `message:send` 20/10 s/user, `call:invite` 5/60 s/user, `typing:*` 20/10 s/user, REST 100/60 s/user, signaling 100/10 s/socket, socket khác 60/10 s/socket, presence subscribe 10/60 s/user, bundle E2EE 10/60 s/user+target. REST vượt → `429` + `Retry-After`; socket → ACK `RATE_LIMITED`. Redis down: auth fail-closed, còn lại limiter bộ nhớ (D-10). **AC:** AC-004, AC-018, AC-109. **EC:** EC-SEC-005, EC-SEC-008, EC-CALL-SIG-014, EC-INFRA-002, EC-AUTH-008.
 
 #### FR-SEC-006 — CSRF, CORS, CSP, header
 - Double-submit CSRF cho `/auth/refresh` và `/auth/logout`; cookie `SameSite=Strict`; CORS whitelist `CORS_ORIGINS`; helmet + CSP (kiến trúc §9.6); cấm `dangerouslySetInnerHTML` với dữ liệu người dùng. **AC:** AC-102, AC-106, AC-107. **EC:** EC-SEC-004, EC-MSG-003, EC-MSG-004.
@@ -422,7 +422,9 @@ Mọi FR dùng hằng số trong `packages/shared/src/constants.ts` (kiến trú
 - Không log mật khẩu, token, cookie, nội dung/ciphertext tin nhắn, SDP, ICE candidate, credential TURN, khóa E2EE (pino redact, kiến trúc §11.3). **AC:** AC-104. **EC:** EC-SEC-007.
 
 #### FR-SEC-008 — Phân quyền mọi điểm vào, chống dò ID
-- `senderId/userId/deviceId` lấy từ token; mọi handler kiểm quyền (AUTHZ-1..8); người chưa từng là thành viên nhận `404 NOT_FOUND` như hội thoại không tồn tại; join room không cấp quyền đọc dữ liệu. Bí mật Xirsys không có trong bundle client. **AC:** AC-083, AC-103, AC-105. **EC:** EC-SEC-001, EC-SEC-002, EC-SEC-003, EC-SEC-006, EC-MSG-005, EC-GROUP-007.
+- `senderId/userId/deviceId` lấy từ token; mọi handler kiểm quyền (AUTHZ-1..8); join room không cấp quyền đọc dữ liệu. Bí mật Xirsys không có trong bundle client.
+- **Quy tắc 404 (chống dò ID):** mọi truy cập tài nguyên theo ID (conversation, message, call, device E2EE, user) mà người gọi không có quyền **thấy** — không tồn tại, của user khác, hội thoại chưa từng tham gia, cuộc gọi không phải caller/callee, device không thuộc mình — trả `404 NOT_FOUND` (socket: ACK `NOT_FOUND`; cuộc gọi: `CALL_NOT_FOUND`) với body giống hệt tài nguyên không tồn tại, cho cả đọc lẫn ghi, REST lẫn socket. Ngoại lệ có chủ đích: người **đã từng** là thành viên → `403 NOT_A_MEMBER`; tài nguyên thấy được nhưng không đủ quyền thao tác (role, không phải người gửi, sai tab, `deviceId ≠ did`, CSRF) → `403 FORBIDDEN`; chặn người dùng → `USER_BLOCKED` (D-21).
+- **AC:** AC-029, AC-083, AC-103, AC-105. **EC:** EC-SEC-001, EC-SEC-002, EC-SEC-003, EC-SEC-006, EC-MSG-005, EC-GROUP-007.
 
 ### 3.8 E2EE (Secret Chat)
 
@@ -457,7 +459,7 @@ Mọi FR dùng hằng số trong `packages/shared/src/constants.ts` (kiến trú
 - **AC:** AC-113. **EC:** EC-E2EE-003.
 
 #### FR-E2EE-007 — Thu hồi thiết bị
-- **Mô tả:** `DELETE /e2ee/devices/{deviceId}` từ Cài đặt → Thiết bị (chỉ device của mình; có thể thu hồi chính device hiện tại).
+- **Mô tả:** `DELETE /e2ee/devices/{deviceId}` từ Cài đặt → Thiết bị (chỉ device của mình; device không thuộc mình → `404 NOT_FOUND` theo FR-SEC-008; đã thu hồi → `204` idempotent; có thể thu hồi chính device hiện tại).
 - **Quy tắc:** `status = REVOKED`, xóa one-time prekey của device, thu hồi session family của device (`DEVICE_REVOKED`), device đó bị đăng xuất. Tin gửi từ device đã thu hồi → `FORBIDDEN`; client nhận envelope từ device REVOKED (biết qua lần tải bundle gần nhất) hiển thị "Tin nhắn từ thiết bị đã bị thu hồi" thay vì nội dung. Peer phát hiện thay đổi ở lần gửi kế tiếp (`CONFLICT`).
 - **AC:** AC-117. **EC:** EC-E2EE-005.
 
@@ -498,6 +500,7 @@ Mọi FR dùng hằng số trong `packages/shared/src/constants.ts` (kiến trú
 | AC-009 | FR-AUTH-005 | alice đăng nhập trên 3 device | Đổi mật khẩu từ device 1 | `204`; device 2, 3 nhận `session:revoked { reason: 'PASSWORD_CHANGED' }` và refresh trả `401`; device 1 vẫn dùng được | I |
 | AC-010 | FR-AUTH-006 | alice có 2 socket online | Chạy `user:lock` cho alice | Hai socket nhận `session:revoked { reason: 'ACCOUNT_LOCKED' }` và bị ngắt; REST với access token cũ trả `401`; reconnect bị `connect_error UNAUTHENTICATED` | I |
 | AC-011 | FR-AUTH-007 | Socket alice kết nối với token còn 2 s (fake clock) | Tới `exp` | Socket nhận `session:expired`; bị ngắt sau 5 s nếu chưa reconnect; client refresh, reconnect, và tin bob gửi trong lúc đó xuất hiện sau sync | I, E |
+| AC-018 | FR-AUTH-005, FR-SEC-005 | alice đăng nhập | `POST /auth/change-password` với `currentPassword` sai 5 lần trong 15 phút, rồi lần 6 với mật khẩu đúng | 5 lần đầu `422 VALIDATION_ERROR` với `details = [{ field: 'currentPassword', reason: 'INVALID' }]`, mật khẩu không đổi, access token và refresh của alice vẫn dùng được; lần 6 `429 RATE_LIMITED` kèm `Retry-After` | I |
 
 ### 4.2 User
 
@@ -507,7 +510,7 @@ Mọi FR dùng hằng số trong `packages/shared/src/constants.ts` (kiến trú
 | AC-013 | FR-USER-002 | alice đăng nhập | `PATCH /users/me { displayName: 81 ký tự }`; `{ avatarUrl: "http://x" }`; `{ displayName: "Alice Mới" }` | Hai lần đầu `400 VALIDATION_ERROR`; lần ba `200`, `GET /auth/me` trả tên mới | I |
 | AC-014 | FR-USER-003 | DIRECT alice–bob; alice chặn bob | bob gửi `message:send`, `typing:start`, `call:invite`; alice gửi `message:send` | Cả bốn bị từ chối `USER_BLOCKED`; summary của bob có `canMessage: false`, không có `blockedByMe: true`; summary của alice có `blockedByMe: true` | I |
 | AC-015 | FR-USER-003 | alice chặn bob, rồi bỏ chặn | bob gửi tin | Tin gửi thành công; `POST`/`DELETE block` lặp lại vẫn `204` | I |
-| AC-016 | FR-USER-004 | bob `showLastSeen = false`; alice `true` | bob offline; alice và bob subscribe presence của nhau | alice nhận `lastSeenAt: null` của bob; bob nhận `lastSeenAt: null` của alice (có đi có lại); trạng thái OFFLINE vẫn hiển thị | I |
+| AC-016 | FR-USER-004, FR-PRES-002 | bob `showLastSeen = false`; alice `true` | bob offline; alice và bob subscribe presence của nhau | alice nhận `lastSeenAt: null` của bob; bob nhận `lastSeenAt: null` của alice (có đi có lại); trạng thái OFFLINE vẫn hiển thị | I |
 
 ### 4.3 Chat
 
@@ -587,7 +590,7 @@ Mọi FR dùng hằng số trong `packages/shared/src/constants.ts` (kiến trú
 | AC-088 | FR-CALL-003 | bob offline | alice gọi; bob đăng nhập sau 15 s | alice thấy "Đang gọi…" (INITIATED); khi bob kết nối, bob nhận `call:incoming` và đổ chuông; trạng thái chuyển RINGING; trả lời được trước khi hết 45 s tính từ lúc alice gọi | I, E |
 | AC-089 | FR-CALL-004 | Cuộc gọi đã MISSED | bob gửi `call:accept` | ACK `CALL_TIMEOUT`; bob thấy "Cuộc gọi đã kết thúc" | I |
 | AC-090 | FR-CALL-007 | Xirsys trả lỗi 500 (mock) | `GET /calls/ice-servers` | `200`, `source: 'FALLBACK'`, `iceServers` chứa `STUN_URLS` và coturn; metric `hustalo_ice_servers_fallback_total` tăng; response không chứa `XIRSYS_SECRET` | I |
-| AC-091 | FR-CALL-008 | alice và bob có 3 cuộc gọi (CONNECTED rồi ENDED, MISSED, REJECTED) | alice `GET /calls` | 3 record sắp mới nhất trước, `direction` đúng theo alice, `durationSec` chỉ có ở cuộc gọi đã kết nối; hội thoại có đúng 2 SYSTEM (`CALL_ENDED`, `CALL_MISSED`) | I |
+| AC-091 | FR-CALL-008, FR-CHAT-011 | alice và bob có 3 cuộc gọi (CONNECTED rồi ENDED, MISSED, REJECTED) | alice `GET /calls` | 3 record sắp mới nhất trước, `direction` đúng theo alice, `durationSec` chỉ có ở cuộc gọi đã kết nối; hội thoại có đúng 2 SYSTEM (`CALL_ENDED`, `CALL_MISSED`) | I |
 | AC-092 | FR-CALL-006 | Cuộc gọi CONNECTED | Restart process server (Redis giữ nguyên) | Media không gián đoạn (`bytesReceived` tiếp tục tăng); sau khi socket reconnect và gửi `call:state`, trạng thái vẫn CONNECTED; kết thúc bình thường sau đó | E |
 | AC-093 | FR-CALL-011 | Trình duyệt chặn autoplay (chưa có tương tác) | bob nhận `call:incoming` | Màn hình cuộc gọi đến hiển thị kèm nút "Chạm để bật âm thanh"; bấm nút → nhạc chuông phát; trả lời được không cần bấm nút đó | E |
 
@@ -628,7 +631,7 @@ Mọi FR dùng hằng số trong `packages/shared/src/constants.ts` (kiến trú
 
 ## 5. Ma trận edge case
 
-ID khớp registry `system_architecture.md` Phụ lục C (104 dòng, 11 nhóm). "Trạng thái UI" ghi chuỗi tiếng Việt chính hoặc tên thành phần UI; `ui_ux_spec.md` dùng đúng các chuỗi này. "—" ở cột Mã lỗi nghĩa là không trả lỗi.
+ID khớp registry `system_architecture.md` Phụ lục C (105 dòng, 11 nhóm). "Trạng thái UI" ghi chuỗi tiếng Việt chính hoặc tên thành phần UI; `ui_ux_spec.md` dùng đúng các chuỗi này. "—" ở cột Mã lỗi nghĩa là không trả lỗi.
 
 ### 5.1 AUTH
 
@@ -641,6 +644,7 @@ ID khớp registry `system_architecture.md` Phụ lục C (104 dòng, 11 nhóm).
 | EC-AUTH-005 | AUTH | Tài khoản bị khóa khi đang có socket | Thu hồi mọi family, ngắt socket, kết thúc cuộc gọi LOGOUT | Về `/login` | Modal "Tài khoản của bạn đã bị khóa." | UNAUTHENTICATED | TC-AUTH-005 |
 | EC-AUTH-006 | AUTH | Đổi mật khẩu khi có phiên khác | Thu hồi mọi family khác `PASSWORD_CHANGED` | Phiên khác về `/login`; phiên hiện tại giữ nguyên | Phiên khác: modal "Mật khẩu đã được thay đổi. Vui lòng đăng nhập lại."; phiên hiện tại: toast "Đã đổi mật khẩu" | UNAUTHENTICATED (phiên khác) | TC-AUTH-006 |
 | EC-AUTH-007 | AUTH | Logout khi đang gọi | Kết thúc cuộc gọi `LOGOUT` (ENDED hoặc CANCELLED), phát `call:state` | Đóng pc, stop track, về `/login` | Bên kia: "Cuộc gọi đã kết thúc" | — | TC-AUTH-007 |
+| EC-AUTH-008 | AUTH | Đổi mật khẩu với mật khẩu hiện tại sai / dò mật khẩu qua phiên đã đăng nhập | 422 với `details[{field:'currentPassword',reason:'INVALID'}]`, không thu hồi phiên; rate limit `changePassword` 5/15 phút/user | Báo lỗi tại trường "Mật khẩu hiện tại", không refresh/đăng xuất; 429 → vô hiệu nút trong `Retry-After` | "Mật khẩu hiện tại không đúng" / "Bạn đã thử quá nhiều lần. Vui lòng thử lại sau {n} giây." | VALIDATION_ERROR / RATE_LIMITED | TC-AUTH-008 |
 
 ### 5.2 NET
 
@@ -841,8 +845,8 @@ Một FR/milestone chỉ được coi là xong khi **tất cả** điều kiện
   - Mọi mã lỗi trong FR, AC, ma trận thuộc 20 mã chuẩn; `DUPLICATE_MESSAGE` thể hiện qua `duplicate: true`, không phải lỗi; `E2EE_DECRYPT_FAILED` chỉ phía client.
   - Event dùng đúng tên §4.5 kiến trúc; không có `message:ack`, `call:initiate`.
   - Hằng số: `MESSAGE_MAX_LENGTH` 4000, `MESSAGE_EDIT_WINDOW_MS` 15 phút, `GROUP_MAX_MEMBERS` 100, `GROUP_TITLE_MAX` 100, `DISPLAY_NAME_MAX` 80, `HISTORY_PAGE_DEFAULT/MAX` 30/100, `CONVERSATION_PAGE_DEFAULT/MAX` 20/50, `UNREAD_COUNT_CAP` 99, token 15 phút/30 ngày, `REFRESH_REUSE_GRACE_S` 10, presence 60/20/10 s, typing 5/3 s, call 45/30/20 s + 2 ICE restart, `ICE_DISCONNECTED_GRACE_MS` 3 s, TURN 1 h/5 phút, outbox 200/1-2-4-8 s/30 s/24 h, `GROUP_ADD_BATCH_MAX` 50, E2EE 100/20/5 thiết bị/7 ngày, rate limit đúng `RATE_LIMITS`.
-- [x] **FR/AC tham chiếu bằng ID:** 56 FR của registry kiến trúc (Phụ lục B) đều có mục ở §3, cộng 2 FR mới được phép bổ sung: `FR-CHAT-011` (SYSTEM message) và `FR-CALL-011` (âm báo cuộc gọi). Mỗi FR liệt kê AC và EC; 101 AC (AC-001..AC-122, có khoảng trống đánh số để chèn sau) đều chỉ ra FR gốc; Test ID `TC-AC-<số>`.
-- [x] **Edge case có ID trong ma trận:** ma trận §5 có đúng 104 dòng, trùng 1-1 với registry kiến trúc Phụ lục C (AUTH 7, NET 10, MSG 17, GROUP 7, PRES 5, CALL-SIG 16, CALL-MEDIA 13, CALL-NET 10, INFRA 3, SEC 8, E2EE 8); mỗi dòng có hành vi server/client, trạng thái UI, mã lỗi, Test ID `TC-*`. Các yêu cầu AC tối thiểu (chat 13 trường hợp, call 16, E2EE 4) đều có AC tương ứng.
+- [x] **FR/AC tham chiếu bằng ID:** 56 FR của registry kiến trúc (Phụ lục B) đều có mục ở §3, cộng 2 FR mới được phép bổ sung: `FR-CHAT-011` (SYSTEM message) và `FR-CALL-011` (âm báo cuộc gọi). Mỗi FR liệt kê AC và EC; 102 AC (AC-001..AC-122, có khoảng trống đánh số để chèn sau) đều chỉ ra FR gốc; Test ID `TC-AC-<số>`.
+- [x] **Edge case có ID trong ma trận:** ma trận §5 có đúng 105 dòng, trùng 1-1 với registry kiến trúc Phụ lục C (AUTH 8, NET 10, MSG 17, GROUP 7, PRES 5, CALL-SIG 16, CALL-MEDIA 13, CALL-NET 10, INFRA 3, SEC 8, E2EE 8); mỗi dòng có hành vi server/client, trạng thái UI, mã lỗi, Test ID `TC-*`. Các yêu cầu AC tối thiểu (chat 13 trường hợp, call 16, E2EE 4) đều có AC tương ứng.
 - [x] **Không có secret thật, không chỗ trống:** không có giá trị secret; email/user ví dụ là dữ liệu seed; không có "TODO" hay "tương tự như trên".
 - [x] **Không mâu thuẫn với `system_architecture.md` — các điểm đã đối chiếu:**
   - D-03 glare gộp (FR-CALL-005, AC-077); D-04 caller là offerer (FR-CALL-006); D-06 đang đổ chuông tính là bận (FR-CALL-004); D-07 từ chối một tab là từ chối tất cả (AC-072); D-08 gọi người offline (AC-088); D-10 rate limit khi Redis down (AC-109); D-11 một SECRET mỗi cặp (FR-E2EE-004); D-16 không sửa tin SECRET (EC-MSG-017); D-17 đếm code point (AC-036); D-19 grace refresh (AC-007); D-21 chặn hai chiều (FR-USER-003); D-22 không gọi nhóm (AC-086); D-23 OWNER rời nhóm (AC-053).

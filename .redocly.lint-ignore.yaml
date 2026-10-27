@@ -1,0 +1,7 @@
+# This file instructs Redocly's linter to ignore the rules contained for specific parts of your API.
+# See https://redocly.com/docs/cli/ for more information.
+# Ngoại lệ có chủ đích (ghi ở đầu api_spec.yaml): GET /health không nhận tham số nên không có 4xx;
+# 503 dùng HealthResponse để probe đọc trạng thái từng phụ thuộc. Không thêm mục mới khi chưa duyệt spec.
+.spec/api_spec.yaml:
+  operation-4xx-response:
+    - '#/paths/~1health/get/responses'

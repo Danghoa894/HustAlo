@@ -253,6 +253,8 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '429':
           $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
 
   /auth/me:
     get:
@@ -287,6 +289,8 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '429':
           $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
 
   /auth/change-password:
     post:
@@ -294,10 +298,12 @@ paths:
       operationId: changePassword
       summary: Đổi mật khẩu và thu hồi các phiên khác
       description: |
-        `currentPassword` sai → 401 "Mật khẩu hiện tại không đúng". Thành công: thu hồi mọi family khác (PASSWORD_CHANGED),
-        giữ session hiện tại.
-      x-rate-limit: login
-      x-requirements: [FR-AUTH-005, AC-009, EC-AUTH-006]
+        `currentPassword` sai → 422 `VALIDATION_ERROR` "Mật khẩu hiện tại không đúng" với
+        `details: [{ field: 'currentPassword', reason: 'INVALID' }]` (không dùng 401 để client không nhầm với hết phiên;
+        session hiện tại giữ nguyên). `newPassword` sai quy tắc → 400. Thành công: thu hồi mọi family khác (PASSWORD_CHANGED),
+        giữ session hiện tại. Rate limit `changePassword` 5/15 phút/user; Redis down → 503 (fail-closed).
+      x-rate-limit: changePassword
+      x-requirements: [FR-AUTH-005, FR-SEC-005, AC-009, AC-018, EC-AUTH-006, EC-AUTH-008]
       requestBody:
         required: true
         content:
@@ -317,8 +323,27 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '422':
+          description: Mật khẩu hiện tại không đúng (VALIDATION_ERROR, EC-AUTH-008).
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/XRequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error:
+                  code: VALIDATION_ERROR
+                  message: Mật khẩu hiện tại không đúng
+                  details:
+                    - field: currentPassword
+                      reason: INVALID
+                  requestId: 7b1c2d3e-4f5a-4b6c-8d7e-9f0a1b2c3d4e
         '429':
           $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
 
   /users/search:
     get:
@@ -334,7 +359,7 @@ paths:
         - name: q
           in: query
           required: true
-          description: Chuỗi tìm kiếm sau trim, 2..100 ký tự.
+          description: Chuỗi tìm kiếm sau trim, `USER_SEARCH_MIN_QUERY`..`USER_SEARCH_MAX_QUERY` (2..100) ký tự.
           schema:
             type: string
             minLength: 2
@@ -363,6 +388,8 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '429':
           $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
 
   /users/me:
     patch:
@@ -407,6 +434,8 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '429':
           $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
 
   /users/{userId}/block:
     parameters:
@@ -432,6 +461,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '429':
           $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
     delete:
       tags: [Users]
       operationId: unblockUser
@@ -452,6 +483,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '429':
           $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
 
   /conversations:
     get:
@@ -508,6 +541,8 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '429':
           $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
     post:
       tags: [Conversations]
       operationId: createConversation
@@ -646,6 +681,8 @@ paths:
           $ref: '#/components/responses/UnprocessableEntity'
         '429':
           $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
 
   /conversations/{conversationId}:
     parameters:
@@ -710,6 +747,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '429':
           $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
     patch:
       tags: [Conversations]
       operationId: updateConversation
@@ -767,6 +806,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '429':
           $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
 
   /conversations/{conversationId}/members:
     parameters:
@@ -825,6 +866,8 @@ paths:
           $ref: '#/components/responses/UnprocessableEntity'
         '429':
           $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
 
   /conversations/{conversationId}/members/{userId}:
     parameters:
@@ -899,6 +942,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '429':
           $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
     delete:
       tags: [Conversations]
       operationId: removeConversationMember
@@ -927,6 +972,8 @@ paths:
           $ref: '#/components/responses/Conflict'
         '429':
           $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
 
   /conversations/{conversationId}/messages:
     parameters:
@@ -1017,6 +1064,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '429':
           $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
 
   /conversations/{conversationId}/read:
     parameters:
@@ -1061,6 +1110,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '429':
           $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
 
   /calls:
     get:
@@ -1121,6 +1172,8 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '429':
           $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
 
   /calls/ice-servers:
     get:
@@ -1167,6 +1220,8 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '429':
           $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
 
   /e2ee/devices:
     get:
@@ -1209,6 +1264,8 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '429':
           $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
 
   /e2ee/devices/{deviceId}:
     parameters:
@@ -1219,9 +1276,9 @@ paths:
       summary: Thu hồi thiết bị E2EE của tôi
       description: |
         `status = REVOKED`, xóa one-time prekey của device, thu hồi session family của device (`session:revoked` DEVICE_REVOKED).
-        Device không thuộc mình → 404. Đã thu hồi → 204 (idempotent).
+        Device không thuộc mình → 404 NOT_FOUND, body giống hệt device không tồn tại (FR-SEC-008). Đã thu hồi → 204 (idempotent).
       x-rate-limit: rest
-      x-requirements: [FR-E2EE-007, AC-117, EC-E2EE-005]
+      x-requirements: [FR-E2EE-007, FR-SEC-008, AC-117, EC-E2EE-005]
       responses:
         '204':
           description: Đã thu hồi
@@ -1236,6 +1293,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '429':
           $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
 
   /e2ee/devices/{deviceId}/keys:
     parameters:
@@ -1295,6 +1354,8 @@ paths:
           $ref: '#/components/responses/PayloadTooLarge'
         '429':
           $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
 
   /e2ee/devices/{deviceId}/prekeys:
     parameters:
@@ -1342,6 +1403,8 @@ paths:
           $ref: '#/components/responses/PayloadTooLarge'
         '429':
           $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
 
   /e2ee/users/{userId}/bundles:
     parameters:
@@ -1404,6 +1467,8 @@ paths:
           $ref: '#/components/responses/UnprocessableEntity'
         '429':
           $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
 
   /health:
     get:
@@ -1571,7 +1636,7 @@ components:
       name: limit
       in: query
       required: false
-      description: 1..50, mặc định 20.
+      description: 1..`CALL_PAGE_MAX` (50), mặc định `CALL_PAGE_DEFAULT` (20).
       schema:
         type: integer
         minimum: 1
@@ -1842,7 +1907,7 @@ components:
               type: string
               description: Tiếng Việt; client hiển thị theo `code`, không parse `message`.
             details:
-              description: 'VALIDATION_ERROR: mảng `{ path, message }`; CONFLICT: `{ field }` khi trùng email/username.'
+              description: 'VALIDATION_ERROR: mảng `{ path, message }` (lỗi Zod) hoặc `{ field, reason }` (422 currentPassword sai); CONFLICT: `{ field }` khi trùng email/username.'
               oneOf:
                 - type: array
                   items:
@@ -1853,6 +1918,18 @@ components:
                         type: string
                       message:
                         type: string
+                - type: array
+                  items:
+                    type: object
+                    required: [field, reason]
+                    additionalProperties: false
+                    properties:
+                      field:
+                        type: string
+                        enum: [currentPassword]
+                      reason:
+                        type: string
+                        enum: [INVALID]
                 - type: object
                   additionalProperties: true
             requestId:
@@ -1973,6 +2050,7 @@ components:
         blockedUserIds:
           type: array
           maxItems: 1000
+          description: Tối đa `BLOCKED_LIST_MAX` (1000).
           items:
             $ref: '#/components/schemas/ObjectId'
         createdAt:
@@ -2320,9 +2398,26 @@ components:
           $ref: '#/components/schemas/UuidV4'
         recipients:
           type: array
-          minItems: 0
+          minItems: 1
           maxItems: 10
-          description: Khi gửi 1..10 phần tử; khi trả về cho một device chỉ còn phần tử của device đó (0 hoặc 1).
+          description: Khi gửi (`message:send`) 1..`2 × E2EE_MAX_DEVICES_PER_USER` (10) phần tử, khớp Zod `E2eeEnvelope`.
+          items:
+            $ref: '#/components/schemas/E2eeRecipient'
+    E2eeEnvelopeView:
+      type: object
+      description: Envelope trả về cho một device (REST lịch sử, `message:new`) — `recipients` chỉ còn phần tử của device đó (0 hoặc 1; 0 khi tin gửi trước khi device tham gia).
+      required: [v, senderDeviceId, recipients]
+      additionalProperties: false
+      properties:
+        v:
+          type: integer
+          enum: [1]
+        senderDeviceId:
+          $ref: '#/components/schemas/UuidV4'
+        recipients:
+          type: array
+          minItems: 0
+          maxItems: 1
           items:
             $ref: '#/components/schemas/E2eeRecipient'
     SystemPayload:
@@ -2340,8 +2435,9 @@ components:
             $ref: '#/components/schemas/ObjectId'
         title:
           type: string
-          maxLength: 200
+          maxLength: 100
           nullable: true
+          description: Tên nhóm mới (TITLE_CHANGED), 1..`GROUP_TITLE_MAX` (100) code point.
         callId:
           type: string
           pattern: '^[a-f0-9]{24}$'
@@ -2397,7 +2493,7 @@ components:
         ciphertext:
           type: object
           allOf:
-            - $ref: '#/components/schemas/E2eeEnvelope'
+            - $ref: '#/components/schemas/E2eeEnvelopeView'
           nullable: true
         system:
           type: object
@@ -3116,7 +3212,7 @@ components:
       allOf:
         - $ref: '#/components/schemas/ServerEventMeta'
         - type: object
-          required: [callId, conversationId, callType, caller, expiresAt]
+          required: [callId, conversationId, callType, caller, ringExpiresAt]
           properties:
             callId:
               $ref: '#/components/schemas/ObjectId'
@@ -3126,9 +3222,10 @@ components:
               $ref: '#/components/schemas/CallType'
             caller:
               $ref: '#/components/schemas/UserPublic'
-            expiresAt:
+            ringExpiresAt:
               type: string
               format: date-time
+              description: Thời điểm hết đổ chuông theo deadline RING của server; client đếm ngược theo trường này, không đọc CALL_RING_TIMEOUT_MS.
     CallIncomingClientAck:
       type: object
       description: Client trả qua callback của `call:incoming` (server emit có timeout CALL_INCOMING_ACK_TIMEOUT_MS = 5 s).
@@ -3138,15 +3235,19 @@ components:
         ok:
           type: boolean
           enum: [true]
-    CallIdEvent:
+    CallRingingEvent:
       description: Dùng cho `call:ringing`.
       allOf:
         - $ref: '#/components/schemas/ServerEventMeta'
         - type: object
-          required: [callId]
+          required: [callId, ringExpiresAt]
           properties:
             callId:
               $ref: '#/components/schemas/ObjectId'
+            ringExpiresAt:
+              type: string
+              format: date-time
+              description: Như `call:incoming.ringExpiresAt`; caller đếm ngược theo trường này.
     CallAcceptedEvent:
       allOf:
         - $ref: '#/components/schemas/ServerEventMeta'
@@ -3257,7 +3358,7 @@ components:
         attempt:
           type: integer
           minimum: 1
-          maximum: 2
+          description: Không giới hạn trên ở schema; vượt CALL_MAX_ICE_RESTARTS (2) → CALL_INVALID_STATE từ state machine (T30).
     CallIceRestartEvent:
       allOf:
         - $ref: '#/components/schemas/ServerEventMeta'
@@ -3498,7 +3599,7 @@ x-socket-events:
       authorization: Thành viên; DIRECT/SECRET không bị chặn
       rateLimit: typing
       clientThrottle: TYPING_CLIENT_THROTTLE_MS (3 s)
-      errors: [VALIDATION_ERROR, NOT_A_MEMBER, USER_BLOCKED, RATE_LIMITED, SERVICE_UNAVAILABLE]
+      errors: [VALIDATION_ERROR, NOT_FOUND, NOT_A_MEMBER, USER_BLOCKED, RATE_LIMITED]
       requirements: [FR-CHAT-005, AC-026]
     typing:stop:
       direction: client-to-server
@@ -3508,7 +3609,7 @@ x-socket-events:
         $ref: '#/components/schemas/EmptyAckData'
       authorization: Thành viên
       rateLimit: typing
-      errors: [VALIDATION_ERROR, NOT_A_MEMBER, RATE_LIMITED, SERVICE_UNAVAILABLE]
+      errors: [VALIDATION_ERROR, NOT_FOUND, NOT_A_MEMBER, RATE_LIMITED]
       requirements: [FR-CHAT-005, AC-026]
     typing:update:
       direction: server-to-client
@@ -3560,7 +3661,7 @@ x-socket-events:
       direction: server-to-client
       target: 'tab:{callerTabId}'
       payload:
-        $ref: '#/components/schemas/CallIdEvent'
+        $ref: '#/components/schemas/CallRingingEvent'
       requirements: [FR-CALL-001, AC-070]
     call:accept:
       direction: client-to-server
@@ -3681,7 +3782,7 @@ x-socket-events:
       serverPayload:
         $ref: '#/components/schemas/CallStateEvent'
       target: 'user:{callerId} và user:{calleeId}'
-      authorization: C→S chỉ 2 tab tham gia; callId không còn live → ACK trạng thái cuối (chốt FAILED/ENDED SERVER_RESTART nếu cần)
+      authorization: C→S chỉ 2 tab tham gia; callId không còn live → ACK trạng thái cuối (chốt theo T29 — ENDED nếu có connectedAt, ngược lại FAILED — với SERVER_RESTART nếu cần)
       rateLimit: callSignal
       errors: [VALIDATION_ERROR, CALL_NOT_FOUND, FORBIDDEN, RATE_LIMITED]
       requirements: [FR-CALL-006, AC-081, AC-082, AC-092, EC-CALL-NET-002, EC-CALL-NET-007, EC-CALL-NET-009, EC-NET-005]
@@ -3701,7 +3802,7 @@ x-socket-events:
 #       Ràng buộc số: MessageText 4000, title 100, displayName 80, username ^[a-z0-9_.]{3,30}$, password 8..128,
 #       history limit 1..100 (mặc định 30), conversation limit 1..50 (mặc định 20), GROUP memberIds ≤ 99, add ≤ 50,
 #       memberCount ≤ 100, unreadCount ≤ 100, presence subscribe ≤ 200, sdp ≤ 20000, candidate ≤ 1024,
-#       ice-restart attempt ≤ 2, recipients ≤ 10, prekeys ≤ 100, prekeys-low remaining ≤ 19, bundles ≤ 5 device.
+#       ice-restart attempt ≥ 1 (giới hạn 2 kiểm ở state machine), recipients 1..10 khi gửi / 0..1 khi trả về, prekeys ≤ 100, prekeys-low remaining ≤ 19, bundles ≤ 5 device.
 # - [x] FR/AC tham chiếu bằng ID: mọi operation và event có x-requirements / requirements.
 # - [x] Edge case có ID: EC liên quan REST/socket gắn ở x-requirements (AUTH, NET, MSG, GROUP, PRES, CALL-SIG,
 #       CALL-MEDIA, CALL-NET, INFRA, SEC, E2EE).
@@ -3714,6 +3815,6 @@ x-socket-events:
 #         GROUP call → VALIDATION_ERROR, SECRET chỉ ciphertext.
 #       * DB: Message DTO phản ánh contentEnc (giải mã thành content), ciphertext, system (senderId = actor), editedAt,
 #         deletedAt; cursor base64url [createdAtISO, id] theo database_schema.md §4; consumedAt cho one-time prekey.
-#       * UI: query key ui_ux_spec.md §3 ánh xạ trực tiếp các operationId ở đây.
+#       * UI: query key ui_ux_spec.md §3 ánh xạ theo method + path của endpoint (không dùng operationId).
 #       * Ngoại lệ có chủ đích (ghi ở đầu file): /auth/register và /health không có 401; /health không có 400 và
 #         response 503 dùng HealthResponse thay vì ErrorResponse (để probe đọc trạng thái từng phụ thuộc).
