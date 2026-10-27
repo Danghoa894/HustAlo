@@ -1,0 +1,10 @@
+**/dist
+coverage
+client/playwright-report
+client/test-results
+infra/certs
+package-lock.json
+.spec
+**/node_modules
+CLAUDE.md
+.claude

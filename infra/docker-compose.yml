@@ -1,0 +1,97 @@
+# infra/docker-compose.yml — CHỈ dùng cho phát triển và test local. Không dùng cho production.
+# Chạy qua npm run infra:up (đọc biến từ infra/.env).
+name: hustalo
+
+services:
+  mongo:
+    image: mongo:7.0
+    command: ['--replSet', 'rs0', '--bind_ip_all', '--port', '27017']
+    ports:
+      - '127.0.0.1:27017:27017'
+    volumes:
+      - mongo-data:/data/db
+      - mongo-config:/data/configdb
+      - ./mongo/init-replica.js:/scripts/init-replica.js:ro
+    healthcheck:
+      # Script idempotent: lần đầu gọi rs.initiate rồi trả "chưa khỏe"; các lần sau chỉ khỏe khi node là PRIMARY.
+      test: ['CMD', 'mongosh', '--quiet', '--norc', '/scripts/init-replica.js']
+      interval: 5s
+      timeout: 10s
+      start_period: 20s
+      retries: 30
+    restart: unless-stopped
+
+  redis:
+    image: redis:7.2-alpine
+    command:
+      - redis-server
+      - --requirepass
+      - ${REDIS_PASSWORD:?Thiếu REDIS_PASSWORD trong infra/.env}
+      - --save
+      - ''
+      - --appendonly
+      - 'no'
+    environment:
+      REDISCLI_AUTH: ${REDIS_PASSWORD}
+    ports:
+      - '127.0.0.1:6379:6379'
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ['CMD-SHELL', 'redis-cli ping | grep -q PONG']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  coturn:
+    # Xác minh với tài liệu chính thức của coturn/coturn trên Docker Hub: tag 4.6 tồn tại và entrypoint
+    # tự thêm "turnserver" khi tham số đầu tiên bắt đầu bằng "-".
+    image: coturn/coturn:4.6
+    command:
+      - -c
+      - /etc/coturn/turnserver.conf
+      - --external-ip=${TURN_EXTERNAL_IP:?Thiếu TURN_EXTERNAL_IP trong infra/.env}
+      - --user=${TURN_USERNAME:?Thiếu TURN_USERNAME}:${TURN_PASSWORD:?Thiếu TURN_PASSWORD}
+    ports:
+      - '3478:3478/udp'
+      - '3478:3478/tcp'
+      - '5349:5349/tcp'
+      - '49160-49200:49160-49200/udp'
+    volumes:
+      - ./coturn/turnserver.conf:/etc/coturn/turnserver.conf:ro
+      - ./certs:/certs:ro
+    healthcheck:
+      # turnutils_stunclient đi kèm gói coturn; gửi STUN Binding tới chính server.
+      test: ['CMD', 'turnutils_stunclient', '-p', '3478', '127.0.0.1']
+      interval: 10s
+      timeout: 5s
+      start_period: 5s
+      retries: 10
+    restart: unless-stopped
+
+  mongo-express:
+    # Xác minh với tài liệu chính thức của mongo-express trên Docker Hub: tag 1.0.2 và tên biến ME_CONFIG_*.
+    image: mongo-express:1.0.2
+    profiles: ['tools']
+    depends_on:
+      mongo:
+        condition: service_healthy
+    environment:
+      ME_CONFIG_MONGODB_URL: mongodb://mongo:27017/?replicaSet=rs0
+      ME_CONFIG_BASICAUTH: 'true'
+      ME_CONFIG_BASICAUTH_USERNAME: ${ME_USERNAME:?Thiếu ME_USERNAME}
+      ME_CONFIG_BASICAUTH_PASSWORD: ${ME_PASSWORD:?Thiếu ME_PASSWORD}
+    ports:
+      - '127.0.0.1:8081:8081'
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -q -O /dev/null http://localhost:8081/ || exit 1']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  mongo-data:
+  mongo-config:
+  redis-data:

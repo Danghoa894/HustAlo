@@ -4,3 +4,6 @@ node_modules/
 infra/certs/
 **/dist
 coverage
+client/playwright-report/
+client/test-results/
+*.tsbuildinfo

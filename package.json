@@ -2,11 +2,55 @@
   "name": "hustalo",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=22 <23", "npm": ">=10" },
+  "workspaces": [
+    "packages/shared",
+    "server",
+    "client"
+  ],
+  "engines": {
+    "node": ">=22 <23",
+    "npm": ">=10"
+  },
   "scripts": {
+    "dev": "concurrently -k -n server,client -c blue,green \"npm:dev:server\" \"npm:dev:client\"",
+    "dev:client": "npm run dev -w client",
+    "dev:server": "npm run dev -w server",
+    "build": "npm run build -w server && npm run build -w client && node scripts/check-bundle-secrets.mjs",
+    "test": "npm run test:unit && npm run test:integration",
+    "test:unit": "npm run test:unit --workspaces --if-present",
+    "test:integration": "npm run test:integration -w server",
+    "test:e2e": "npm run test:e2e -w client",
+    "lint": "eslint . --max-warnings 0 && prettier --check . && redocly lint .spec/api_spec.yaml --config .redocly.yaml",
+    "format": "prettier --write .",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "db:indexes": "npm run db:indexes -w server",
+    "db:seed": "npm run db:seed -w server",
+    "db:migrate": "npm run db:migrate -w server",
+    "infra:up": "docker compose --env-file infra/.env -f infra/docker-compose.yml up -d --wait",
+    "infra:down": "docker compose --env-file infra/.env -f infra/docker-compose.yml down",
+    "infra:reset": "docker compose --env-file infra/.env -f infra/docker-compose.yml down -v",
+    "infra:tools": "docker compose --env-file infra/.env -f infra/docker-compose.yml --profile tools up -d --wait",
+    "infra:logs": "docker compose --env-file infra/.env -f infra/docker-compose.yml logs -f --tail=100",
+    "certs": "node scripts/make-certs.mjs",
+    "secrets": "node scripts/gen-secrets.mjs",
+    "trace:check": "node scripts/check-traceability.mjs",
     "spec:check": "redocly lint .spec/api_spec.yaml --config .redocly.yaml && node scripts/spec-check.mjs"
   },
   "devDependencies": {
-    "@redocly/cli": "2.71.2"
+    "@eslint/js": "9.39.5",
+    "@redocly/cli": "2.71.2",
+    "@types/node": "22.20.5",
+    "concurrently": "10.0.6",
+    "eslint": "9.39.5",
+    "eslint-config-prettier": "10.1.8",
+    "eslint-import-resolver-typescript": "4.4.5",
+    "eslint-plugin-import": "2.32.0",
+    "eslint-plugin-react": "7.37.5",
+    "eslint-plugin-react-hooks": "5.2.0",
+    "globals": "17.13.0",
+    "prettier": "3.9.10",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.72.1",
+    "vitest": "3.2.7"
   }
 }
