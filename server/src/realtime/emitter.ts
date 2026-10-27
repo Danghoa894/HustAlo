@@ -19,6 +19,8 @@ export interface Emitter {
   toSession<E extends ServerEventName>(sid: string, event: E, payload: ServerEventPayload<E>): void;
   toConv<E extends ServerEventName>(conversationId: string, event: E, payload: ServerEventPayload<E>): void;
   toPresence<E extends ServerEventName>(userId: string, event: E, payload: ServerEventPayload<E>): void;
+  /** Ngắt mọi socket trong room (sau khi đã phát event thu hồi phiên). */
+  disconnect(rooms: string | string[]): void;
 }
 
 export function withMeta<P extends object>(payload: P, now: () => Date = () => new Date()): P & ServerEventMeta {
@@ -38,5 +40,8 @@ export function createEmitter(io: Server): Emitter {
     toSession: (id, e, p) => toRooms(sessionRoom(id), e, p),
     toConv: (id, e, p) => toRooms(convRoom(id), e, p),
     toPresence: (id, e, p) => toRooms(presenceRoom(id), e, p),
+    disconnect: (rooms) => {
+      io.in(rooms).disconnectSockets(true);
+    },
   };
 }

@@ -16,3 +16,19 @@ export function isValidMessageText(input: string): boolean {
   const n = countCodePoints(normalizeMessageText(input));
   return n >= 1 && n <= MESSAGE_MAX_LENGTH;
 }
+
+/** Chuẩn hóa để tìm kiếm tiền tố displayName: bỏ dấu tiếng Việt, đ→d, chữ thường (database_schema.md §2.1). */
+export function normalizeForSearch(s: string): string {
+  return s
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'd')
+    .toLowerCase()
+    .trim();
+}
+
+/** displayName: NFC + trim, dùng chung cho đăng ký và cập nhật hồ sơ (FR-AUTH-001, FR-USER-002). */
+export function normalizeDisplayName(s: string): string {
+  return s.normalize('NFC').replace(EDGE_TRIM, '');
+}

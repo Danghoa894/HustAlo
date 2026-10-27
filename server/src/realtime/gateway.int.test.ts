@@ -29,6 +29,7 @@ describe('gateway + withAck + emitter', () => {
       corsOrigins: ['https://localhost:5173'],
       adapter: 'memory',
       logger,
+      auth: null,
     });
     io.on('connection', (socket) => {
       void socket.join(userRoom('u1'));

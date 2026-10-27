@@ -1,5 +1,5 @@
 // server/src/realtime/gateway.ts — new Server(httpServer, opts kiến trúc §6.4), adapter, middleware, đăng ký handler
-// M0: chỉ cấu hình + adapter + đếm kết nối. socket-auth và các handler được thêm từ M1.
+// Handler theo domain đăng ký ở main.ts (createRuntime) sau khi service sẵn sàng.
 import type { Server as HttpServer } from 'node:http';
 import {
   SOCKET_MAX_PAYLOAD_BYTES,
@@ -12,12 +12,14 @@ import type { Redis } from 'ioredis';
 import type { Logger } from 'pino';
 import { Server } from 'socket.io';
 import { metrics } from '../infra/metrics/metrics';
+import { socketAuth, type SocketRevocationChecker } from './middleware/socket-auth';
 
 export interface SocketAuth {
   userId: string;
   sid: string;
   deviceId: string;
   tabId: string;
+  exp: number; // giây epoch của access token (D-18)
 }
 
 export interface SocketData {
@@ -37,6 +39,8 @@ export interface GatewayOptions {
   adapter: 'memory' | 'redis-streams';
   redis?: Redis;
   logger: Logger;
+  /** Bắt buộc ở runtime thật; null chỉ dùng trong test hạ tầng không cần xác thực. */
+  auth: SocketRevocationChecker | null;
 }
 
 export function createGateway(httpServer: HttpServer, opts: GatewayOptions): HustaloServer {
@@ -58,6 +62,8 @@ export function createGateway(httpServer: HttpServer, opts: GatewayOptions): Hus
     io.adapter(createAdapter(opts.redis));
     opts.logger.info({ adapter: 'redis-streams' }, 'socket.io adapter');
   }
+
+  if (opts.auth) io.use(socketAuth({ checker: opts.auth, logger: opts.logger }));
 
   io.on('connection', (socket) => {
     metrics.socketConnections.inc();

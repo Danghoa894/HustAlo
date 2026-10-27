@@ -1,4 +1,5 @@
 // server/src/app.ts — createApp(deps): express + middleware + router + error handler
+import cookieParser from 'cookie-parser';
 import express, { type Express } from 'express';
 import type { Logger } from 'pino';
 import { pinoHttp } from 'pino-http';
@@ -43,6 +44,7 @@ export function createApp(deps: AppDeps): Express {
     next();
   });
   app.use(securityMiddleware({ corsOrigins: deps.corsOrigins, production: deps.production }));
+  app.use(cookieParser());
   app.use(API_PREFIX, apiRouter(deps));
   app.use(notFoundHandler);
   app.use(errorHandler);

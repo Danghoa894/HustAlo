@@ -6,6 +6,7 @@ import type { z } from 'zod';
 import { toAppError } from '../http/middleware/error-handler';
 import { metrics } from '../infra/metrics/metrics';
 import type { RateLimiters, RateRule } from '../infra/rate-limit/rate-limiter';
+import { ruleForEvent } from './middleware/socket-rate-limit';
 
 /** Phần socket mà withAck cần; `data.auth` được socket-auth (M1) gắn sau handshake. */
 export interface AckSocket {
@@ -61,8 +62,9 @@ export function withAck<S extends AckSocket, P extends z.ZodTypeAny, D>(
     const run = async (): Promise<D> => {
       const parsed = envelopeSchema.parse(envelope) as { requestId: string; payload: z.output<P> };
       requestId = parsed.requestId;
-      if (opts.rateRule && deps.rateLimiters) {
-        await deps.rateLimiters.consume(opts.rateRule, rateSubject(opts.rateRule, socket));
+      const rule = opts.rateRule ?? ruleForEvent(opts.event);
+      if (rule && deps.rateLimiters) {
+        await deps.rateLimiters.consume(rule, rateSubject(rule, socket));
       }
       return handler(parsed.payload, { socket, requestId });
     };

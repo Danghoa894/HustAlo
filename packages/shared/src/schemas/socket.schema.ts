@@ -132,3 +132,11 @@ export const CallStateReportPayload = z
     connectionState: z.enum(['connected', 'disconnected', 'failed']), // MediaConnectionReport
   })
   .strict();
+
+// ---- Handshake (kiến trúc §6.4): auth { token, deviceId, tabId } ----
+export const SocketHandshakeAuthSchema = z.object({
+  token: z.string().min(1),
+  deviceId: uuid,
+  tabId: uuid,
+});
+export type SocketHandshakeAuth = z.infer<typeof SocketHandshakeAuthSchema>;

@@ -9,3 +9,5 @@ export * from './events/socket-types';
 export * from './utils/text';
 export * from './utils/cursor';
 export * from './utils/compare';
+export * from './schemas/user.schema';
+export * from './schemas/auth.schema';
