@@ -24,7 +24,10 @@ describe('user:lock / user:unlock (FR-AUTH-006, DG-03)', () => {
     const d2 = await login(server, u.email);
     const s1 = await connectAs(server.url, { token: d1.accessToken, deviceId: d1.deviceId });
     const s2 = await connectAs(server.url, { token: d2.accessToken, deviceId: d2.deviceId });
-    const events = Promise.all([waitFor<{ reason: string }>(s1, 'session:revoked'), waitFor<{ reason: string }>(s2, 'session:revoked')]);
+    const events = Promise.all([
+      waitFor<{ reason: string }>(s1, 'session:revoked'),
+      waitFor<{ reason: string }>(s2, 'session:revoked'),
+    ]);
     const closed = Promise.all([waitDisconnect(s1), waitDisconnect(s2)]);
 
     // Job chạy như process riêng: chỉ ghi Mongo/Redis rồi publish ops:user-locked.

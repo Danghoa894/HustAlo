@@ -210,9 +210,12 @@ export function createAuthService(deps: AuthServiceDeps) {
       const user = await usersService.findByIdWithHash(auth.userId);
       if (!user) throw sessionInvalid();
       if (!(await verifyPassword(user.passwordHash, input.currentPassword))) {
-        throw new AppError('VALIDATION_ERROR', 'Mật khẩu hiện tại không đúng', [
-          { field: 'currentPassword', reason: 'INVALID' },
-        ], 422);
+        throw new AppError(
+          'VALIDATION_ERROR',
+          'Mật khẩu hiện tại không đúng',
+          [{ field: 'currentPassword', reason: 'INVALID' }],
+          422,
+        );
       }
       if (input.newPassword === input.currentPassword) {
         throw new AppError('VALIDATION_ERROR', 'Mật khẩu mới phải khác mật khẩu hiện tại', [

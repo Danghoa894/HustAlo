@@ -11,6 +11,9 @@ export default defineConfig({
     globalSetup: './src/test/global-setup.ts',
     pool: 'forks',
     poolOptions: { forks: { singleFork: true } },
+    // mongoose nằm ngoài vite-node (không bị nạp lại) nhưng model.ts thì có → isolate làm model() đăng ký
+    // lần hai (OverwriteModelError). Dùng chung module graph giữa các file trong fork duy nhất.
+    isolate: false,
     testTimeout: 30_000,
     hookTimeout: 120_000,
     environment: 'node',

@@ -19,6 +19,7 @@ import { createGateway, type HustaloServer } from './realtime/gateway';
 import { createSessionNotifier, subscribeUserLocked } from './realtime/handlers/session.handler';
 
 const HTTP_DRAIN_TIMEOUT_MS = 10_000;
+const SUBSCRIBE_BOOT_TIMEOUT_MS = 3_000;
 
 export interface Runtime {
   httpServer: HttpServer;
@@ -67,11 +68,19 @@ export async function createRuntime(opts: RuntimeOptions): Promise<Runtime> {
   httpServer.on('request', app);
 
   // Kết nối Redis riêng cho Pub/Sub (DG-03); Redis down lúc boot → thử lại theo retryStrategy.
-  const subscriber = redis.client.duplicate();
+  // duplicate() kế thừa lazyConnect + enableOfflineQueue=false của client chính → SUBSCRIBE bị từ chối ngay vì
+  // kết nối chưa mở. Bật offline queue: SUBSCRIBE gửi khi kết nối sẵn sàng, ioredis tự subscribe lại sau reconnect.
+  const subscriber = redis.client.duplicate({ lazyConnect: false, enableOfflineQueue: true });
   subscriber.on('error', () => {
     // Trạng thái Redis đã được client chính log (redis.ts); kết nối subscribe tự thử lại.
   });
-  const lockSub = await subscribeUserLocked(subscriber, emitter, opts.logger).catch((err: unknown) => {
+  // Không chặn boot quá SUBSCRIBE_BOOT_TIMEOUT_MS khi Redis down; lệnh SUBSCRIBE vẫn nằm trong hàng đợi.
+  const lockSub = await Promise.race([
+    subscribeUserLocked(subscriber, emitter, opts.logger),
+    new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error('timeout')), SUBSCRIBE_BOOT_TIMEOUT_MS).unref();
+    }),
+  ]).catch((err: unknown) => {
     opts.logger.warn({ err: (err as Error).message }, 'chưa subscribe được ops:user-locked');
     return null;
   });

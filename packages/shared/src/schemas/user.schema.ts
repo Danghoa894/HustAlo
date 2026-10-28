@@ -5,7 +5,11 @@ import { DISPLAY_NAME_MAX, USER_SEARCH_LIMIT, USER_SEARCH_MAX_QUERY, USER_SEARCH
 import { countCodePoints, normalizeDisplayName } from '../utils/text';
 import { isoDate, objectId } from './common.schema';
 
-export const avatarUrlSchema = z.string().max(2048).url().regex(/^https:\/\//, 'Ảnh đại diện phải là URL https://');
+export const avatarUrlSchema = z
+  .string()
+  .max(2048)
+  .url()
+  .regex(/^https:\/\//, 'Ảnh đại diện phải là URL https://');
 
 export const PrivacySchema = z.object({ showLastSeen: z.boolean() }).strict();
 export type Privacy = z.infer<typeof PrivacySchema>;
@@ -64,9 +68,7 @@ export const UserSearchQuerySchema = z
   .strict();
 export type UserSearchQuery = z.infer<typeof UserSearchQuerySchema>;
 
-export const UserSearchResponseSchema = z
-  .object({ items: z.array(UserPublicSchema).max(USER_SEARCH_LIMIT) })
-  .strict();
+export const UserSearchResponseSchema = z.object({ items: z.array(UserPublicSchema).max(USER_SEARCH_LIMIT) }).strict();
 export type UserSearchResponse = z.infer<typeof UserSearchResponseSchema>;
 
 export const UserIdParamsSchema = z.object({ userId: objectId }).strict();

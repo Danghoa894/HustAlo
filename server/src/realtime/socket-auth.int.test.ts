@@ -3,7 +3,15 @@ import { SESSION_EXPIRED_DISCONNECT_DELAY_MS } from '@hustalo/shared';
 import { Types } from 'mongoose';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { signAccessToken } from '../infra/jwt/jwt';
-import { createUser, login, refresh, readCookie, setCookieOf, startTestServer, type TestServer } from '../test/factories';
+import {
+  createUser,
+  login,
+  refresh,
+  readCookie,
+  setCookieOf,
+  startTestServer,
+  type TestServer,
+} from '../test/factories';
 import { connectAs, connectError, waitDisconnect, waitFor } from '../test/socket-client';
 
 let server: TestServer;
@@ -90,7 +98,10 @@ describe('session:expired (FR-AUTH-007, D-18)', () => {
     const r = await refresh(server, s);
     expect(r.status).toBe(200);
     expect(readCookie(setCookieOf(r), 'hustalo_rt')).toBeTruthy();
-    const again = await connectAs(server.url, { token: (r.body as { accessToken: string }).accessToken, deviceId: s.deviceId });
+    const again = await connectAs(server.url, {
+      token: (r.body as { accessToken: string }).accessToken,
+      deviceId: s.deviceId,
+    });
     expect(again.connected).toBe(true);
     again.close();
   });

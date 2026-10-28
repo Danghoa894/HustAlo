@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { SessionRevokeReason, type AuthResponse, type ErrorResponse } from '@hustalo/shared';
+import { SessionRevokeReason, UserStatus, type AuthResponse, type ErrorResponse } from '@hustalo/shared';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
   TEST_PASSWORD,
@@ -12,11 +12,14 @@ import {
   startTestServer,
   type TestServer,
 } from '../../test/factories';
+import { testDb } from '../../test/db';
 import { connectAs, waitDisconnect, waitFor } from '../../test/socket-client';
-import { UserModel } from '../users/user.model';
 import { createAuthRepository } from './auth.repository';
 import { createAuthService } from './auth.service';
 import { RefreshSessionModel } from './refreshSession.model';
+
+// Kiểu InferSchemaType của revokeReason (enum có null) không suy ra được string → khai báo dạng lưu trong DB.
+type RevokeFields = { revokedAt: Date | null; revokeReason: string | null };
 
 const errorOf = (res: { body: unknown }) => (res.body as ErrorResponse).error;
 const authOf = (res: { body: unknown }) => res.body as AuthResponse;
@@ -48,7 +51,12 @@ describe('POST /auth/register (FR-AUTH-001)', () => {
     const res = await server.http().post('/api/v1/auth/register').set('X-Forwarded-For', fakeIp()).send(registerBody());
     expect(res.status).toBe(201);
     const body = authOf(res);
-    expect(body.user).toMatchObject({ email: 'dave@example.com', username: 'dave', displayName: 'Dave', blockedUserIds: [] });
+    expect(body.user).toMatchObject({
+      email: 'dave@example.com',
+      username: 'dave',
+      displayName: 'Dave',
+      blockedUserIds: [],
+    });
     expect(body.accessToken.split('.')).toHaveLength(3);
     const cookies = setCookieOf(res) ?? [];
     const rt = cookies.find((c) => c.startsWith('hustalo_rt=')) ?? '';
@@ -59,21 +67,29 @@ describe('POST /auth/register (FR-AUTH-001)', () => {
     const csrf = cookies.find((c) => c.startsWith('hustalo_csrf=')) ?? '';
     expect(csrf).toMatch(/Path=\//);
     expect(csrf).not.toMatch(/HttpOnly/i);
-    const stored = await UserModel.findOne({ email: 'dave@example.com' }).select('+passwordHash').lean().exec();
+    const stored = await testDb.findUser({ email: 'dave@example.com' }, '+passwordHash');
     expect(stored?.passwordHash).toMatch(/^\$argon2id\$v=19\$/);
     expect(JSON.stringify(body)).not.toContain('passwordHash');
   });
 
   it('TC-AC-002 TC-AUTH-001 hai request cùng email song song → đúng một 201, còn lại 409 details.field=email', async () => {
     const [a, b] = await Promise.all([
-      server.http().post('/api/v1/auth/register').set('X-Forwarded-For', fakeIp()).send(registerBody({ username: 'eve1', email: 'eve@example.com' })),
-      server.http().post('/api/v1/auth/register').set('X-Forwarded-For', fakeIp()).send(registerBody({ username: 'eve2', email: 'eve@example.com' })),
+      server
+        .http()
+        .post('/api/v1/auth/register')
+        .set('X-Forwarded-For', fakeIp())
+        .send(registerBody({ username: 'eve1', email: 'eve@example.com' })),
+      server
+        .http()
+        .post('/api/v1/auth/register')
+        .set('X-Forwarded-For', fakeIp())
+        .send(registerBody({ username: 'eve2', email: 'eve@example.com' })),
     ]);
     expect([a.status, b.status].sort()).toEqual([201, 409]);
     const conflict = a.status === 409 ? a : b;
     expect(errorOf(conflict).code).toBe('CONFLICT');
     expect(errorOf(conflict).details).toEqual({ field: 'email' });
-    expect(await UserModel.countDocuments({ email: 'eve@example.com' })).toBe(1);
+    expect(await testDb.countUsers({ email: 'eve@example.com' })).toBe(1);
   });
 
   it('TC-AUTH-001 trùng username → 409 details.field=username', async () => {
@@ -88,8 +104,16 @@ describe('POST /auth/register (FR-AUTH-001)', () => {
   });
 
   it('mật khẩu không có số / trùng username / username chữ hoa → 400 VALIDATION_ERROR', async () => {
-    for (const o of [{ password: 'chikhongso' }, { password: 'dave1234', username: 'dave1234' }, { username: 'Dave' }]) {
-      const res = await server.http().post('/api/v1/auth/register').set('X-Forwarded-For', fakeIp()).send(registerBody(o));
+    for (const o of [
+      { password: 'chikhongso' },
+      { password: 'dave1234', username: 'dave1234' },
+      { username: 'Dave' },
+    ]) {
+      const res = await server
+        .http()
+        .post('/api/v1/auth/register')
+        .set('X-Forwarded-For', fakeIp())
+        .send(registerBody(o));
       expect(res.status).toBe(400);
       expect(errorOf(res).code).toBe('VALIDATION_ERROR');
     }
@@ -122,7 +146,7 @@ describe('POST /auth/login (FR-AUTH-002)', () => {
     }
     expect(Math.abs(median(wrong) - median(missing))).toBeLessThan(50);
 
-    await UserModel.updateOne({ _id: alice.id }, { $set: { status: 'LOCKED' } });
+    await testDb.setUserStatus(alice.id, UserStatus.LOCKED);
     const locked = await attempt(alice.email, TEST_PASSWORD);
     expect(locked.res.status).toBe(401);
     expect(errorOf(locked.res).message).toBe('Email hoặc mật khẩu không đúng');
@@ -147,10 +171,10 @@ describe('POST /auth/login (FR-AUTH-002)', () => {
 
   it('TC-AC-108 hash tham số cũ (timeCost=1) được rehash timeCost=2 khi đăng nhập; /auth/me không chứa passwordHash', async () => {
     const u = await createUser({ timeCost: 1 });
-    const before = await UserModel.findById(u.id).select('+passwordHash').lean().exec();
+    const before = await testDb.findUser({ id: u.id }, '+passwordHash');
     expect(before?.passwordHash).toContain('t=1');
     const s = await login(server, u.email);
-    const after = await UserModel.findById(u.id).select('+passwordHash').lean().exec();
+    const after = await testDb.findUser({ id: u.id }, '+passwordHash');
     expect(after?.passwordHash).toContain('t=2');
     const me = await server.http().get('/api/v1/auth/me').set('Authorization', `Bearer ${s.accessToken}`);
     expect(me.status).toBe(200);
@@ -197,7 +221,7 @@ describe('POST /auth/refresh (FR-AUTH-003, D-19)', () => {
     expect((await revoked).reason).toBe(SessionRevokeReason.REFRESH_REUSE);
     await disconnected;
     expect((await refresh(server, { ...s, refreshToken: r3 })).status).toBe(401);
-    const familyDocs = await RefreshSessionModel.find({ userId: u.id }).lean().exec();
+    const familyDocs = await RefreshSessionModel.find({ userId: u.id }).lean<RevokeFields[]>().exec();
     expect(familyDocs.every((d) => d.revokedAt !== null && d.revokeReason === 'REFRESH_REUSE')).toBe(true);
     const me = await server.http().get('/api/v1/auth/me').set('Authorization', `Bearer ${s.accessToken}`);
     expect(me.status).toBe(401);
@@ -216,7 +240,10 @@ describe('POST /auth/refresh (FR-AUTH-003, D-19)', () => {
     const retry = await refresh(server, { ...s, refreshToken: newRt });
     expect(retry.status).toBe(200);
     expect(await RefreshSessionModel.countDocuments({ userId: u.id, revokedAt: { $ne: null } })).toBe(0);
-    const me = await server.http().get('/api/v1/auth/me').set('Authorization', `Bearer ${authOf(retry).accessToken}`);
+    const me = await server
+      .http()
+      .get('/api/v1/auth/me')
+      .set('Authorization', `Bearer ${authOf(retry).accessToken}`);
     expect(me.status).toBe(200);
   });
 
@@ -233,7 +260,7 @@ describe('POST /auth/refresh (FR-AUTH-003, D-19)', () => {
     await expect(later.refresh(s.refreshToken, { ip: '', userAgent: '' })).rejects.toMatchObject({
       code: 'UNAUTHENTICATED',
     });
-    const docs = await RefreshSessionModel.find({ userId: u.id }).lean().exec();
+    const docs = await RefreshSessionModel.find({ userId: u.id }).lean<RevokeFields[]>().exec();
     expect(docs).toHaveLength(2);
     expect(docs.every((d) => d.revokedAt !== null && d.revokeReason === 'REFRESH_REUSE')).toBe(true);
   });
@@ -258,7 +285,11 @@ describe('POST /auth/refresh (FR-AUTH-003, D-19)', () => {
     expect(out.status).toBe(204);
     expect(setCookieOf(out)?.some((c) => c.startsWith('hustalo_rt=;'))).toBe(true);
     expect((await refresh(server, s)).status).toBe(401);
-    const again = await server.http().post('/api/v1/auth/logout').set('Cookie', cookies).set('X-CSRF-Token', s.csrfToken);
+    const again = await server
+      .http()
+      .post('/api/v1/auth/logout')
+      .set('Cookie', cookies)
+      .set('X-CSRF-Token', s.csrfToken);
     expect(again.status).toBe(204);
   });
 
@@ -274,7 +305,10 @@ describe('POST /auth/change-password (FR-AUTH-005)', () => {
     const [d1, d2, d3] = [await login(server, u.email), await login(server, u.email), await login(server, u.email)];
     const s2 = await connectAs(server.url, { token: d2.accessToken, deviceId: d2.deviceId });
     const s3 = await connectAs(server.url, { token: d3.accessToken, deviceId: d3.deviceId });
-    const events = Promise.all([waitFor<{ reason: string }>(s2, 'session:revoked'), waitFor<{ reason: string }>(s3, 'session:revoked')]);
+    const events = Promise.all([
+      waitFor<{ reason: string }>(s2, 'session:revoked'),
+      waitFor<{ reason: string }>(s3, 'session:revoked'),
+    ]);
 
     const res = await server
       .http()
@@ -319,7 +353,7 @@ describe('POST /auth/change-password (FR-AUTH-005)', () => {
     const me = await server.http().get('/api/v1/auth/me').set('Authorization', `Bearer ${s.accessToken}`);
     expect(me.status).toBe(200);
     expect((await refresh(server, s)).status).toBe(200);
-    const stored = await UserModel.findById(u.id).select('+passwordHash passwordChangedAt').lean().exec();
+    const stored = await testDb.findUser({ id: u.id }, '+passwordHash passwordChangedAt');
     expect(stored?.passwordChangedAt ?? null).toBeNull();
   });
 

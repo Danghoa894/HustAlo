@@ -58,7 +58,12 @@ export const usersRepository = {
   exists: async (id: string) => (await UserModel.exists({ _id: id })) !== null,
 
   /** Tìm theo tiền tố (regex anchored dùng index); loại `excludeIds` và user LOCKED. */
-  searchPrefix(field: 'username' | 'displayNameNormalized', escapedPrefix: string, excludeIds: Types.ObjectId[], limit: number) {
+  searchPrefix(
+    field: 'username' | 'displayNameNormalized',
+    escapedPrefix: string,
+    excludeIds: Types.ObjectId[],
+    limit: number,
+  ) {
     return UserModel.find({
       [field]: { $regex: `^${escapedPrefix}` },
       _id: { $nin: excludeIds },

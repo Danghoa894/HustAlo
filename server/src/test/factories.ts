@@ -57,8 +57,9 @@ export async function createUser(
   seq += 1;
   const username = overrides.username ?? `user${String(Date.now()).slice(-6)}${seq}`;
   const displayName = overrides.displayName ?? `Người dùng ${seq}`;
+  const email = overrides.email ?? `${username}@hustalo.local`;
   const doc = await UserModel.create({
-    email: overrides.email ?? `${username}@hustalo.local`,
+    email,
     username,
     displayName,
     displayNameNormalized: normalizeForSearch(displayName),
@@ -67,7 +68,7 @@ export async function createUser(
       overrides.timeCost === undefined ? {} : { timeCost: overrides.timeCost },
     ),
   });
-  return { id: String(doc._id), email: doc.email, username, displayName };
+  return { id: String(doc._id), email, username, displayName };
 }
 
 export interface Session {
@@ -113,7 +114,11 @@ export async function login(server: TestServer, email: string, deviceId: string 
 }
 
 /** POST /auth/refresh với cookie + header CSRF. */
-export function refresh(server: TestServer, s: { refreshToken: string; csrfToken: string }, csrfHeader?: string | null) {
+export function refresh(
+  server: TestServer,
+  s: { refreshToken: string; csrfToken: string },
+  csrfHeader?: string | null,
+) {
   const req = server
     .http()
     .post('/api/v1/auth/refresh')

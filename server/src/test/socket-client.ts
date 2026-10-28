@@ -36,7 +36,7 @@ export function connectError(url: string, opts: ConnectOptions): Promise<string>
       s.close();
       throw new Error('Kỳ vọng connect_error nhưng kết nối thành công');
     },
-    (err: Error) => err.message,
+    (err: unknown) => (err as Error).message,
   );
 }
 

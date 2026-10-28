@@ -9,7 +9,11 @@ export const ARGON2_OPTIONS = {
   parallelism: 1,
 } as const;
 
-export function hashPassword(password: string, options: Partial<typeof ARGON2_OPTIONS> = {}): Promise<string> {
+/** `options` ghi đè tham số chi phí (test giả lập hash tham số cũ, AC-108); thuật toán luôn argon2id. */
+export function hashPassword(
+  password: string,
+  options: { memoryCost?: number; timeCost?: number; parallelism?: number } = {},
+): Promise<string> {
   return argon2.hash(password, { ...ARGON2_OPTIONS, ...options });
 }
 

@@ -10,7 +10,9 @@ const userBlockSchema = new Schema(
       required: true,
       ref: 'User',
       validate: {
-        validator(this: { blockerId: unknown }, v: unknown) { return String(v) !== String(this.blockerId); },
+        validator(this: { blockerId: unknown }, v: unknown) {
+          return String(v) !== String(this.blockerId);
+        },
         message: 'blockerId và blockedId phải khác nhau',
       },
     },

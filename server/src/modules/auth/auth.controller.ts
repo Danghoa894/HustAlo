@@ -1,10 +1,5 @@
 // server/src/modules/auth/auth.controller.ts — đọc request, gọi service, set/xóa cookie (kiến trúc §6.3)
-import {
-  CSRF_COOKIE_NAME,
-  REFRESH_COOKIE_NAME,
-  REFRESH_COOKIE_PATH,
-  REFRESH_TOKEN_TTL_S,
-} from '@hustalo/shared';
+import { CSRF_COOKIE_NAME, REFRESH_COOKIE_NAME, REFRESH_COOKIE_PATH, REFRESH_TOKEN_TTL_S } from '@hustalo/shared';
 import type { CookieOptions, Request, RequestHandler, Response } from 'express';
 import { env } from '../../config/env';
 import { getAuth } from '../../http/middleware/authenticate';
@@ -21,7 +16,7 @@ const refreshCookie = (): CookieOptions => ({
 const csrfCookie = (): CookieOptions => ({ ...base(), httpOnly: false, path: '/', maxAge: REFRESH_TOKEN_TTL_S * 1000 });
 
 const meta = (req: Request): RequestMeta => ({ ip: req.ip ?? '', userAgent: req.get('user-agent') ?? '' });
-const body = <T>(res: Response) => (res.locals as { valid: { body: T } }).valid.body;
+const body = (res: Response) => (res.locals as { valid: { body: unknown } }).valid.body;
 const refreshTokenOf = (req: Request) => (req.cookies as Record<string, string | undefined>)[REFRESH_COOKIE_NAME];
 
 function setSessionCookies(res: Response, issued: IssuedSession): void {
@@ -43,13 +38,13 @@ const handle =
 export function authController(service: AuthService) {
   return {
     register: handle(async (req, res) => {
-      const issued = await service.register(body<RegisterRequest>(res), meta(req));
+      const issued = await service.register(body(res) as RegisterRequest, meta(req));
       setSessionCookies(res, issued);
       res.status(201).json(issued.body);
     }),
 
     login: handle(async (req, res) => {
-      const issued = await service.login(body<LoginRequest>(res), meta(req));
+      const issued = await service.login(body(res) as LoginRequest, meta(req));
       setSessionCookies(res, issued);
       res.status(200).json(issued.body);
     }),
@@ -77,7 +72,7 @@ export function authController(service: AuthService) {
     }),
 
     changePassword: handle(async (_req, res) => {
-      await service.changePassword(getAuth(res), body<ChangePasswordRequest>(res));
+      await service.changePassword(getAuth(res), body(res) as ChangePasswordRequest);
       res.status(204).end();
     }),
   };

@@ -1,7 +1,7 @@
 import { type ErrorResponse, type UserMe, type UserSearchResponse } from '@hustalo/shared';
 import { Types } from 'mongoose';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { RefreshSessionModel } from '../auth/refreshSession.model';
+import { testDb } from '../../test/db';
 import { createUser, login, startTestServer, type Session, type TestServer } from '../../test/factories';
 import { UserModel } from './user.model';
 import { UserBlockModel } from './userBlock.model';
@@ -60,11 +60,11 @@ describe('GET /users/search (FR-USER-001)', () => {
 
   it('thứ hạng: username trùng hoàn toàn → tiền tố username → tiền tố displayName', async () => {
     const me = await createUser({ username: 'toi' });
-    const byName = await createUser({ username: 'zzz1', displayName: 'An Bình' });
-    const prefix = await createUser({ username: 'anh', displayName: 'Zed' });
-    const exact = await createUser({ username: 'an', displayName: 'Yên' });
+    const byName = await createUser({ username: 'zzz1', displayName: 'Anh Bình' });
+    const prefix = await createUser({ username: 'anhtu', displayName: 'Zed' });
+    const exact = await createUser({ username: 'anh', displayName: 'Yên' });
     const s = await login(server, me.email);
-    const res = await server.http().get('/api/v1/users/search').query({ q: 'an' }).set(bearer(s));
+    const res = await server.http().get('/api/v1/users/search').query({ q: 'anh' }).set(bearer(s));
     expect(items(res).map((u) => u.id)).toEqual([exact.id, prefix.id, byName.id]);
   });
 });
@@ -95,7 +95,10 @@ describe('PATCH /users/me (FR-USER-002)', () => {
       .set(bearer(s))
       .send({ avatarUrl: 'https://cdn.hustalo.local/a.png', privacy: { showLastSeen: false } });
     expect(res.status).toBe(200);
-    expect(res.body as UserMe).toMatchObject({ avatarUrl: 'https://cdn.hustalo.local/a.png', privacy: { showLastSeen: false } });
+    expect(res.body as UserMe).toMatchObject({
+      avatarUrl: 'https://cdn.hustalo.local/a.png',
+      privacy: { showLastSeen: false },
+    });
     const cleared = await server.http().patch('/api/v1/users/me').set(bearer(s)).send({ avatarUrl: null });
     expect((cleared.body as UserMe).avatarUrl).toBeNull();
   });
@@ -122,7 +125,10 @@ describe('POST/DELETE /users/{userId}/block (FR-USER-003, phần endpoint)', () 
     const me = await createUser();
     const s = await login(server, me.email);
     expect((await server.http().post(`/api/v1/users/${me.id}/block`).set(bearer(s))).status).toBe(400);
-    const missing = await server.http().post(`/api/v1/users/${String(new Types.ObjectId())}/block`).set(bearer(s));
+    const missing = await server
+      .http()
+      .post(`/api/v1/users/${String(new Types.ObjectId())}/block`)
+      .set(bearer(s));
     expect(missing.status).toBe(404);
     expect(errorOf(missing).code).toBe('NOT_FOUND');
     expect((await server.http().post('/api/v1/users/khong-hop-le/block').set(bearer(s))).status).toBe(400);
@@ -138,7 +144,9 @@ describe('model (database_schema.md §7)', () => {
     ]);
     expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
     const rejected = results.find((r) => r.status === 'rejected');
-    expect(rejected?.status === 'rejected' ? (rejected.reason as { code?: number; message: string }) : null).toMatchObject({
+    expect(
+      rejected?.status === 'rejected' ? (rejected.reason as { code?: number; message: string }) : null,
+    ).toMatchObject({
       code: 11000,
       message: expect.stringContaining('email_unique') as unknown,
     });
@@ -150,10 +158,10 @@ describe('model (database_schema.md §7)', () => {
     const plain = await UserModel.findById(u.id).lean().exec();
     expect(plain).not.toHaveProperty('passwordHash');
     expect(await UserModel.findById(u.id).select('+passwordHash').lean().exec()).toHaveProperty('passwordHash');
-    const rs = await RefreshSessionModel.findOne({ userId: u.id }).lean().exec();
+    const rs = await testDb.findRefreshSession(u.id);
     expect(rs).not.toHaveProperty('tokenHash');
     expect(rs).not.toHaveProperty('parentHash');
-    const withHash = await RefreshSessionModel.findOne({ userId: u.id }).select('+tokenHash +parentHash').lean().exec();
+    const withHash = await testDb.findRefreshSession(u.id, '+tokenHash +parentHash');
     expect(withHash).toHaveProperty('tokenHash');
     expect(withHash).toHaveProperty('parentHash');
   });

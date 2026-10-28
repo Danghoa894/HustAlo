@@ -98,7 +98,12 @@ export const usersService = {
       const lower = q.toLowerCase();
       const [byUsername, byName] = await Promise.all([
         usersRepository.searchPrefix('username', escapeRegExp(lower), exclude, USER_SEARCH_LIMIT),
-        usersRepository.searchPrefix('displayNameNormalized', escapeRegExp(normalizeForSearch(q)), exclude, USER_SEARCH_LIMIT),
+        usersRepository.searchPrefix(
+          'displayNameNormalized',
+          escapeRegExp(normalizeForSearch(q)),
+          exclude,
+          USER_SEARCH_LIMIT,
+        ),
       ]);
       const seen = new Map<string, { user: UserRecord; rank: number }>();
       for (const user of byUsername) seen.set(String(user._id), { user, rank: user.username === lower ? 0 : 1 });
@@ -107,7 +112,12 @@ export const usersService = {
     }
     ranked.sort((a, b) => a.rank - b.rank || a.user.displayName.localeCompare(b.user.displayName, 'vi'));
     const page = ranked.slice(0, USER_SEARCH_LIMIT).map((r) => r.user);
-    const blockedByMe = new Set(await usersRepository.blockedAmong(meId, page.map((u) => u._id)));
+    const blockedByMe = new Set(
+      await usersRepository.blockedAmong(
+        meId,
+        page.map((u) => u._id),
+      ),
+    );
     return page.map((u) => ({ ...toUserPublic(u), blockedByMe: blockedByMe.has(String(u._id)) }));
   },
 

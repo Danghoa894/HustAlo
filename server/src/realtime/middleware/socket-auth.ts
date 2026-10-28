@@ -1,10 +1,6 @@
 // server/src/realtime/middleware/socket-auth.ts — xác thực handshake, join room, hẹn giờ session:expired
 // (AUTHZ-1, kiến trúc §6.4, §7(a), D-14, D-18; FR-AUTH-007)
-import {
-  EVENTS,
-  SESSION_EXPIRED_DISCONNECT_DELAY_MS,
-  SocketHandshakeAuthSchema,
-} from '@hustalo/shared';
+import { EVENTS, SESSION_EXPIRED_DISCONNECT_DELAY_MS, SocketHandshakeAuthSchema } from '@hustalo/shared';
 import type { Logger } from 'pino';
 import type { Socket } from 'socket.io';
 import { AppError } from '../../http/errors/app-error';
@@ -33,7 +29,13 @@ export function socketAuth(deps: { checker: SocketRevocationChecker; logger: Log
         if (claims.deviceId !== deviceId) throw new AppError('UNAUTHENTICATED', 'deviceId không khớp did');
         if (await deps.checker.isSessionRevoked(claims.sid)) throw new AppError('UNAUTHENTICATED', 'sid bị thu hồi');
 
-        (socket.data as { auth?: unknown }).auth = { userId: claims.userId, sid: claims.sid, deviceId, tabId, exp: claims.exp };
+        (socket.data as { auth?: unknown }).auth = {
+          userId: claims.userId,
+          sid: claims.sid,
+          deviceId,
+          tabId,
+          exp: claims.exp,
+        };
         await socket.join([userRoom(claims.userId), deviceRoom(deviceId), tabRoom(tabId), sessionRoom(claims.sid)]);
         scheduleExpiry(socket, claims.exp);
         next();
@@ -51,7 +53,10 @@ function scheduleExpiry(socket: Socket, exp: number): void {
   let disconnectTimer: NodeJS.Timeout | undefined;
   const expiryTimer = setTimeout(
     () => {
-      socket.emit(EVENTS.SESSION_EXPIRED, withMeta({ reason: 'TOKEN_EXPIRED', expiredAt: new Date(exp * 1000).toISOString() }));
+      socket.emit(
+        EVENTS.SESSION_EXPIRED,
+        withMeta({ reason: 'TOKEN_EXPIRED', expiredAt: new Date(exp * 1000).toISOString() }),
+      );
       disconnectTimer = setTimeout(() => {
         socket.disconnect(true);
       }, SESSION_EXPIRED_DISCONNECT_DELAY_MS);
