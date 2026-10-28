@@ -14,6 +14,8 @@ export class ApiError extends Error {
     message: string,
     readonly details?: unknown,
     readonly requestId?: string,
+    /** Header Retry-After (giây) khi 429 RATE_LIMITED (EC-SEC-005). */
+    readonly retryAfterSec?: number,
   ) {
     super(message);
   }
@@ -72,10 +74,13 @@ async function send(path: string, opts: RequestOptions, token: string | null): P
 }
 
 async function toApiError(res: Response): Promise<ApiError> {
+  const retryHeader = Number(res.headers.get('Retry-After'));
+  const retryAfterSec = Number.isFinite(retryHeader) && retryHeader > 0 ? Math.ceil(retryHeader) : undefined;
   try {
     const body = (await res.json()) as Partial<ErrorResponse>;
     if (body.error) {
-      return new ApiError(res.status, body.error.code, body.error.message, body.error.details, body.error.requestId);
+      const e = body.error;
+      return new ApiError(res.status, e.code, e.message, e.details, e.requestId, retryAfterSec);
     }
   } catch {
     // body không phải JSON

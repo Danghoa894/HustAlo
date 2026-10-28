@@ -63,6 +63,18 @@ describe('lib/api/http', () => {
     expect(headersOf(1).get('Authorization')).toBe('Bearer new');
   });
 
+  it('TC-SEC-005 429 RATE_LIMITED → ApiError.retryAfterSec đọc từ header Retry-After', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: { code: 'RATE_LIMITED', message: 'x', requestId: 'r' } }), {
+        status: 429,
+        headers: { 'Content-Type': 'application/json', 'Retry-After': '42' },
+      }),
+    );
+    const err = (await http('/auth/login').catch((e: unknown) => e)) as ApiError;
+    expect(err.code).toBe('RATE_LIMITED');
+    expect(err.retryAfterSec).toBe(42);
+  });
+
   it('fetch lỗi mạng → NetworkError (không phải ErrorCode của server)', async () => {
     fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'));
     await expect(http('/x')).rejects.toBeInstanceOf(NetworkError);

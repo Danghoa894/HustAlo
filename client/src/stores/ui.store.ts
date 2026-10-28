@@ -7,6 +7,8 @@ export interface ToastItem {
   id: number;
   tone: ToastTone;
   text: string;
+  /** Dòng phụ dưới text, ví dụ "Các thiết bị khác đã được đăng xuất." (ui_ux_spec.md §3.8). */
+  description?: string;
 }
 
 /** Thời gian tự ẩn theo loại (ui_ux_spec.md §5.2). */
@@ -15,7 +17,7 @@ export const TOAST_MAX = 3;
 
 interface UiState {
   toasts: ToastItem[];
-  pushToast: (tone: ToastTone, text: string) => number;
+  pushToast: (tone: ToastTone, text: string, description?: string) => number;
   dismissToast: (id: number) => void;
 }
 
@@ -23,10 +25,11 @@ let seq = 0;
 
 export const useUiStore = create<UiState>((set) => ({
   toasts: [],
-  pushToast: (tone, text) => {
+  pushToast: (tone, text, description) => {
     seq += 1;
     const id = seq;
-    set((s) => ({ toasts: [{ id, tone, text }, ...s.toasts].slice(0, TOAST_MAX) }));
+    const item: ToastItem = description === undefined ? { id, tone, text } : { id, tone, text, description };
+    set((s) => ({ toasts: [item, ...s.toasts].slice(0, TOAST_MAX) }));
     return id;
   },
   dismissToast: (id) => {

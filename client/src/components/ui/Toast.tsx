@@ -26,7 +26,10 @@ function ToastCard({ toast }: { toast: ToastItem }) {
       role={toast.tone === 'error' ? 'alert' : 'status'}
       className={`flex items-start gap-3 rounded-md border-l-4 bg-surface-2 px-4 py-3 text-sm text-text shadow-md ${TONES[toast.tone]}`}
     >
-      <span className="flex-1">{toast.text}</span>
+      <span className="flex flex-1 flex-col">
+        <span>{toast.text}</span>
+        {toast.description ? <span className="text-text-secondary">{toast.description}</span> : null}
+      </span>
       <button
         type="button"
         aria-label={vi.common.close}
