@@ -73,8 +73,9 @@ export const EnvSchema = z
   .superRefine((e, ctx) => {
     const fail = (path: string, message: string) =>
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: [path], message });
-    if (e.NODE_ENV !== 'development' && !e.COOKIE_SECURE)
-      fail('COOKIE_SECURE', 'chỉ được false khi NODE_ENV=development');
+    // EC-SEC-009: cookie phiên luôn Secure ở production; dev/test chạy http://localhost (DG-01).
+    if (e.NODE_ENV === 'production' && !e.COOKIE_SECURE)
+      fail('COOKIE_SECURE', 'chỉ được false khi NODE_ENV là development hoặc test');
     if ((e.XIRSYS_IDENT === '') !== (e.XIRSYS_SECRET === ''))
       fail('XIRSYS_SECRET', 'XIRSYS_IDENT và XIRSYS_SECRET phải cùng có hoặc cùng trống');
     if (e.TURN_FALLBACK_URLS.length > 0 && (e.TURN_FALLBACK_USERNAME === '' || e.TURN_FALLBACK_CREDENTIAL === ''))

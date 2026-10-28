@@ -40,8 +40,6 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
-      - run: sudo apt-get update && sudo apt-get install -y mkcert libnss3-tools
-      - run: mkcert -install && npm run certs
       - run: node scripts/ci-env.mjs
       - run: npm run infra:up
       - run: npm run db:indexes && npm run db:seed

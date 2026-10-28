@@ -7,7 +7,7 @@ export default defineConfig({
   fullyParallel: false,
   reporter: [['list'], ['html', { open: 'never' }]],
   use: {
-    baseURL: 'https://localhost:5173',
+    baseURL: process.env.E2E_BASE_URL ?? 'http://localhost:5173', // DG-01; smoke production: https://<domain> (§9.7)
     ignoreHTTPSErrors: false,
     trace: 'retain-on-failure',
   },

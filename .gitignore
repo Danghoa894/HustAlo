@@ -1,9 +1,12 @@
 node_modules/
 .env*
 !.env.example
+!.env.*.example
 infra/certs/
 **/dist
 coverage
 client/playwright-report/
 client/test-results/
 *.tsbuildinfo
+
+.claude/worktrees/

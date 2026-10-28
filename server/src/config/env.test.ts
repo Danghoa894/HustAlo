@@ -35,8 +35,10 @@ describe('config/env (fail-fast)', () => {
     expect(issuePaths(parse({ JWT_ACCESS_SECRET: 'ngan' }))).toContain('JWT_ACCESS_SECRET');
   });
 
-  it('COOKIE_SECURE=false chỉ hợp lệ ở development', () => {
-    expect(issuePaths(parse({ COOKIE_SECURE: 'false', NODE_ENV: 'test' }))).toContain('COOKIE_SECURE');
+  it('TC-SEC-009 COOKIE_SECURE=false bị từ chối ở production, hợp lệ ở development/test', () => {
+    expect(issuePaths(parse({ COOKIE_SECURE: 'false', NODE_ENV: 'production' }))).toContain('COOKIE_SECURE');
+    expect(issuePaths(parse({ COOKIE_SECURE: 'true', NODE_ENV: 'production' }))).not.toContain('COOKIE_SECURE');
+    expect(parse({ COOKIE_SECURE: 'false', NODE_ENV: 'test' }).success).toBe(true);
     expect(parse({ COOKIE_SECURE: 'false', NODE_ENV: 'development' }).success).toBe(true);
   });
 
