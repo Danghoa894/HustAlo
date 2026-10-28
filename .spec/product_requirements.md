@@ -401,7 +401,7 @@ Mọi FR dùng hằng số trong `packages/shared/src/constants.ts` (kiến trú
 ### 3.7 Security
 
 #### FR-SEC-001 — Mã hóa đường truyền
-- HTTPS/WSS bắt buộc (local dùng mkcert), HSTS ở production, media DTLS-SRTP, TURN hỗ trợ `turns:` 443 (kiến trúc §9.1). **AC:** AC-107. **EC:** EC-CALL-MEDIA-009.
+- HTTPS/WSS bắt buộc ở production (nginx TLS 1.2+, `development_guide.md` §9), HSTS ở production, cookie phiên luôn `Secure` ở production (`COOKIE_SECURE=false` bị từ chối, kiến trúc §6.3), media DTLS-SRTP, TURN hỗ trợ `turns:` 443 (kiến trúc §9.1). Local mặc định `http://localhost` (secure context của trình duyệt); thiết bị LAN bắt buộc HTTPS mkcert (`VITE_HTTPS=1`). **AC:** AC-107. **EC:** EC-CALL-MEDIA-009, EC-SEC-009.
 
 #### FR-SEC-002 — Mã hóa lưu trữ AES-256-GCM
 - `content` tin DIRECT/GROUP lưu dạng `contentEnc { v, keyId, iv, ct, tag }`, IV 12 byte ngẫu nhiên mỗi lần, AAD `conversationId:messageId` (kiến trúc §9.2). Giải mã lỗi → `content: null`, UI "Không thể hiển thị nội dung tin nhắn này". Giới hạn: server đọc được nội dung, không phải E2EE, không tìm kiếm full-text. **AC:** AC-100. **EC:** —.
@@ -631,7 +631,7 @@ Mọi FR dùng hằng số trong `packages/shared/src/constants.ts` (kiến trú
 
 ## 5. Ma trận edge case
 
-ID khớp registry `system_architecture.md` Phụ lục C (105 dòng, 11 nhóm). "Trạng thái UI" ghi chuỗi tiếng Việt chính hoặc tên thành phần UI; `ui_ux_spec.md` dùng đúng các chuỗi này. "—" ở cột Mã lỗi nghĩa là không trả lỗi.
+ID khớp registry `system_architecture.md` Phụ lục C (106 dòng, 11 nhóm). "Trạng thái UI" ghi chuỗi tiếng Việt chính hoặc tên thành phần UI; `ui_ux_spec.md` dùng đúng các chuỗi này. "—" ở cột Mã lỗi nghĩa là không trả lỗi.
 
 ### 5.1 AUTH
 
@@ -779,6 +779,7 @@ ID khớp registry `system_architecture.md` Phụ lục C (105 dòng, 11 nhóm).
 | EC-SEC-006 | SEC | Secret lọt vào bundle | Build fail nếu `client/dist` chứa giá trị secret | Chỉ dùng biến `VITE_*` công khai | — | — | TC-SEC-006 |
 | EC-SEC-007 | SEC | Log lộ token/nội dung | pino redact | Client không `console.log` token/nội dung ở production | — | — | TC-SEC-007 |
 | EC-SEC-008 | SEC | Spam lời mời gọi diện rộng | Rate limit `callInvite` theo user, metric cảnh báo | Như EC-CALL-SIG-014 | "Bạn thao tác quá nhanh, vui lòng thử lại sau" | RATE_LIMITED | TC-SEC-008 |
+| EC-SEC-009 | SEC | Production cấu hình `COOKIE_SECURE=false` | `config/env.ts` từ chối khởi động khi `NODE_ENV=production`; `false` chỉ hợp lệ khi `NODE_ENV` ∈ {development, test} | — | — | — | TC-SEC-009 |
 
 ### 5.11 E2EE
 
@@ -846,7 +847,7 @@ Một FR/milestone chỉ được coi là xong khi **tất cả** điều kiện
   - Event dùng đúng tên §4.5 kiến trúc; không có `message:ack`, `call:initiate`.
   - Hằng số: `MESSAGE_MAX_LENGTH` 4000, `MESSAGE_EDIT_WINDOW_MS` 15 phút, `GROUP_MAX_MEMBERS` 100, `GROUP_TITLE_MAX` 100, `DISPLAY_NAME_MAX` 80, `HISTORY_PAGE_DEFAULT/MAX` 30/100, `CONVERSATION_PAGE_DEFAULT/MAX` 20/50, `UNREAD_COUNT_CAP` 99, token 15 phút/30 ngày, `REFRESH_REUSE_GRACE_S` 10, presence 60/20/10 s, typing 5/3 s, call 45/30/20 s + 2 ICE restart, `ICE_DISCONNECTED_GRACE_MS` 3 s, TURN 1 h/5 phút, outbox 200/1-2-4-8 s/30 s/24 h, `GROUP_ADD_BATCH_MAX` 50, E2EE 100/20/5 thiết bị/7 ngày, rate limit đúng `RATE_LIMITS`.
 - [x] **FR/AC tham chiếu bằng ID:** 56 FR của registry kiến trúc (Phụ lục B) đều có mục ở §3, cộng 2 FR mới được phép bổ sung: `FR-CHAT-011` (SYSTEM message) và `FR-CALL-011` (âm báo cuộc gọi). Mỗi FR liệt kê AC và EC; 102 AC (AC-001..AC-122, có khoảng trống đánh số để chèn sau) đều chỉ ra FR gốc; Test ID `TC-AC-<số>`.
-- [x] **Edge case có ID trong ma trận:** ma trận §5 có đúng 105 dòng, trùng 1-1 với registry kiến trúc Phụ lục C (AUTH 8, NET 10, MSG 17, GROUP 7, PRES 5, CALL-SIG 16, CALL-MEDIA 13, CALL-NET 10, INFRA 3, SEC 8, E2EE 8); mỗi dòng có hành vi server/client, trạng thái UI, mã lỗi, Test ID `TC-*`. Các yêu cầu AC tối thiểu (chat 13 trường hợp, call 16, E2EE 4) đều có AC tương ứng.
+- [x] **Edge case có ID trong ma trận:** ma trận §5 có đúng 106 dòng, trùng 1-1 với registry kiến trúc Phụ lục C (AUTH 8, NET 10, MSG 17, GROUP 7, PRES 5, CALL-SIG 16, CALL-MEDIA 13, CALL-NET 10, INFRA 3, SEC 9, E2EE 8); mỗi dòng có hành vi server/client, trạng thái UI, mã lỗi, Test ID `TC-*`. Các yêu cầu AC tối thiểu (chat 13 trường hợp, call 16, E2EE 4) đều có AC tương ứng.
 - [x] **Không có secret thật, không chỗ trống:** không có giá trị secret; email/user ví dụ là dữ liệu seed; không có "TODO" hay "tương tự như trên".
 - [x] **Không mâu thuẫn với `system_architecture.md` — các điểm đã đối chiếu:**
   - D-03 glare gộp (FR-CALL-005, AC-077); D-04 caller là offerer (FR-CALL-006); D-06 đang đổ chuông tính là bận (FR-CALL-004); D-07 từ chối một tab là từ chối tất cả (AC-072); D-08 gọi người offline (AC-088); D-10 rate limit khi Redis down (AC-109); D-11 một SECRET mỗi cặp (FR-E2EE-004); D-16 không sửa tin SECRET (EC-MSG-017); D-17 đếm code point (AC-036); D-19 grace refresh (AC-007); D-21 chặn hai chiều (FR-USER-003); D-22 không gọi nhóm (AC-086); D-23 OWNER rời nhóm (AC-053).

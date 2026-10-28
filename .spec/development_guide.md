@@ -5,13 +5,13 @@
 | Version | 1.0.0 |
 | Status | Draft — chờ review (file 6/6) |
 | Ngày | 2026-10-27 |
-| Phạm vi | Môi trường phát triển, hạ tầng local, biến môi trường, quy trình chạy và test, lộ trình milestone M0–M7, quy ước code, troubleshooting, Traceability Matrix toàn bộ FR |
+| Phạm vi | Môi trường phát triển, hạ tầng local, biến môi trường, quy trình chạy và test, lộ trình milestone M0–M7 (gồm M6.5 Deploy), quy ước code, triển khai production, troubleshooting, Traceability Matrix toàn bộ FR |
 
 **File liên quan:**
 
 | File | Quan hệ với file này |
 |---|---|
-| `system_architecture.md` | Cây thư mục §4.1 (file nào nằm ở đâu), cổng §3, cấu hình Socket.IO §6.4, TURN §9.5, độ tin cậy §10, biến môi trường Phụ lục D, AC kiến trúc `AC-ARCH-001..015` §12 |
+| `system_architecture.md` | Cây thư mục §4.1 (file nào nằm ở đâu), cổng §3, cấu hình Socket.IO §6.4, TURN §9.5, độ tin cậy §10, biến môi trường Phụ lục D, AC kiến trúc `AC-ARCH-001..017` §12 |
 | `product_requirements.md` | FR, AC (`TC-AC-*`), ma trận edge case (`TC-<NHÓM>-*`), NFR §6, Definition of Done §7 — dùng làm gate của từng milestone |
 | `database_schema.md` | `npm run db:indexes` §6.3, `db:migrate` §6.4, `db:seed` §6.5, test database `TC-DB-001..026` §7 |
 | `ui_ux_spec.md` | Màn hình và chuỗi UI kiểm tra trong E2E; file client bổ sung §8 |
@@ -41,7 +41,7 @@ Quy ước Test ID cho AC kiến trúc `[NEW]`: `AC-ARCH-0NN` ↔ `TC-ARCH-0NN` 
 | Node.js | 22 LTS (`.nvmrc` = `22`) | `node -v` → `v22.x` | Cần `--env-file`, `process.loadEnvFile`, Web Crypto, `fetch` có sẵn |
 | npm | 10.x | `npm -v` | Đi kèm Node 22; workspaces |
 | Docker | Docker Engine 24+ hoặc Docker Desktop (Windows dùng backend WSL2), có Compose v2 | `docker compose version` | Cần lệnh `docker compose up --wait` |
-| mkcert | bản ổn định mới nhất | `mkcert -version` | Sinh chứng chỉ HTTPS tin cậy cho `localhost` và LAN-IP |
+| mkcert | bản ổn định mới nhất | `mkcert -version` | **Tùy chọn**: chỉ cần khi bật HTTPS local (`VITE_HTTPS=1`) — test từ điện thoại trong LAN (mục 5.5) hoặc `turns:` của coturn local (T-09) |
 | Git | 2.40+ | `git --version` | Bật `core.autocrlf=false` trên Windows (xem 1.4) |
 | Trình duyệt | Chrome/Edge, Firefox (2 bản ổn định gần nhất), Safari 17+ khi test tay | — | Theo NFR-10 |
 | Playwright browsers | theo phiên bản `@playwright/test` trong lockfile | `npx playwright install --with-deps` (chạy trong `client/`) | Cho `npm run test:e2e` |
@@ -55,7 +55,7 @@ Cài mkcert:
 | macOS | `brew install mkcert nss` |
 | Ubuntu/Debian | `sudo apt install mkcert libnss3-tools` |
 
-Sau khi cài: chạy `mkcert -install` **một lần** để thêm CA cục bộ vào kho tin cậy của hệ điều hành và Firefox.
+Sau khi cài: chạy `mkcert -install` **một lần** để thêm CA cục bộ vào kho tin cậy của hệ điều hành và Firefox. Không cài mkcert vẫn chạy dev, test và E2E bình thường qua `http://localhost:5173`.
 
 ### 1.2 Vì sao phải chạy HTTPS ngay cả ở local
 
@@ -68,12 +68,14 @@ Sau khi cài: chạy `mkcert -install` **một lần** để thêm CA cục bộ
 | `http://192.168.1.23:5173` (điện thoại vào máy dev qua LAN) | **Không** | `navigator.mediaDevices` là `undefined` → UI "Không gian không an toàn" (EC-CALL-MEDIA-009) |
 | `https://192.168.1.23:5173` với chứng chỉ mkcert đã tin cậy | Có | Gọi được từ điện thoại |
 
-Thêm lý do:
-- Cookie refresh có cờ `Secure` và `SameSite=Strict` (kiến trúc §6.3). Chạy HTTPS ngay từ dev giúp hành vi cookie giống production, tránh lỗi "chỉ hỏng trên production".
-- WebSocket đi qua cùng origin HTTPS (`wss://`), tránh lỗi mixed content.
-- TURN over TLS (`turns:`) cần chứng chỉ; coturn local dùng lại chứng chỉ mkcert.
+Quyết định thiết kế (DG-01, sửa đổi 2026-10-28): **dev mặc định chạy `http://localhost:5173`** — `localhost` là secure context nên `getUserMedia` vẫn chạy trên chính máy dev; dev, integration test, E2E và CI **không cần** cài root CA. Vite proxy `/api` và `/socket.io` tới Express `http://localhost:4000`; trình duyệt chỉ thấy một origin nên không có vấn đề CORS hay cookie bên thứ ba.
 
-Quyết định thiết kế (DG-01): **dev mặc định chạy HTTPS** qua Vite (`https://localhost:5173`), Vite proxy `/api` và `/socket.io` tới Express `http://localhost:4000`. Trình duyệt chỉ thấy một origin nên không có vấn đề CORS hay cookie bên thứ ba.
+Bật HTTPS local bằng `VITE_HTTPS=1` (trong `client/.env` hoặc biến môi trường) khi đã có chứng chỉ mkcert (`npm run certs`). **Bắt buộc** HTTPS khi:
+- Test từ điện thoại/máy khác trong LAN (mục 5.5) — `http://<LAN-IP>` không phải secure context (EC-CALL-MEDIA-009).
+- Kiểm tra `turns:` của coturn local (T-09).
+- Muốn tái hiện hành vi cookie `Secure` giống production (đặt thêm `COOKIE_SECURE=true`).
+
+Hệ quả cho cookie: ở `http://localhost`, `server/.env` dùng `COOKIE_SECURE=false` (mặc định trong `.env.example`). Luật trong `config/env.ts` (mục 4.4, EC-SEC-009): `COOKIE_SECURE=false` chỉ hợp lệ khi `NODE_ENV` ∈ {`development`, `test`}; `NODE_ENV=production` mà `COOKIE_SECURE=false` → process thoát ngay. Production luôn HTTPS qua nginx (mục 9.3).
 
 ### 1.3 Ghi chú cho Windows
 
@@ -149,7 +151,8 @@ Quy tắc phụ thuộc: `client` và `server` được import `@hustalo/shared`
     "dev:server": "npm run dev -w server",
     "build": "npm run build -w server && npm run build -w client && node scripts/check-bundle-secrets.mjs",
     "test": "npm run test:unit && npm run test:integration",
-    "test:unit": "npm run test:unit --workspaces --if-present",
+    "test:unit": "npm run test:scripts && npm run test:unit --workspaces --if-present",
+    "test:scripts": "node --test \"scripts/__tests__/*.test.mjs\"",
     "test:integration": "npm run test:integration -w server",
     "test:e2e": "npm run test:e2e -w client",
     "lint": "eslint . --max-warnings 0 && prettier --check . && redocly lint .spec/api_spec.yaml --config .redocly.yaml",
@@ -257,7 +260,7 @@ fund=false
 
 | Dịch vụ | Cổng host | Bind | URL / ghi chú |
 |---|---|---|---|
-| Client (Vite HTTPS) | 5173 | `0.0.0.0` | `https://localhost:5173`, `https://<LAN-IP>:5173` |
+| Client (Vite) | 5173 | `0.0.0.0` | `http://localhost:5173`; `https://localhost:5173`, `https://<LAN-IP>:5173` khi `VITE_HTTPS=1` |
 | Server (Express + Socket.IO) | 4000 | `0.0.0.0` (dev) | `http://localhost:4000/api/v1`; trình duyệt dùng qua proxy Vite |
 | Metrics | 9464 | `127.0.0.1` | `http://localhost:9464/metrics` |
 | MongoDB (rs0) | 27017 | `127.0.0.1` | `mongodb://localhost:27017/hustalo?replicaSet=rs0&directConnection=true` |
@@ -482,7 +485,7 @@ PORT=4000
 TRUST_PROXY=1
 # Origin được phép (CORS REST + Socket.IO), phân tách bằng dấu phẩy, không có dấu "/" cuối.
 # Thêm https://<LAN-IP>:5173 khi test từ điện thoại.
-CORS_ORIGINS=https://localhost:5173
+CORS_ORIGINS=http://localhost:5173
 # trace | debug | info | warn | error | fatal (production: info)
 LOG_LEVEL=debug
 # Cổng /metrics, chỉ bind 127.0.0.1 (kiến trúc §11.1)
@@ -506,8 +509,9 @@ JWT_ISSUER=hustalo-api
 JWT_AUDIENCE=hustalo-web
 # Pepper HMAC-SHA256 cho tokenHash của refresh token, >= 32 byte (base64url)
 REFRESH_TOKEN_PEPPER=replace-with-output-of-npm-run-secrets
-# true: cookie có cờ Secure (khuyến nghị cả ở dev vì dev chạy HTTPS). false chỉ hợp lệ khi NODE_ENV=development.
-COOKIE_SECURE=true
+# false: dev/E2E qua http://localhost (DG-01). true: khi bật VITE_HTTPS=1 hoặc ở production.
+# false chỉ hợp lệ khi NODE_ENV là development hoặc test; production + false → env.ts từ chối khởi động (EC-SEC-009).
+COOKIE_SECURE=false
 
 # ---------- Mã hóa lưu trữ AES-256-GCM (kiến trúc §9.2) ----------
 # JSON {"<keyId>":"<base64 của đúng 32 byte>"}; keyId khớp ^[A-Za-z0-9_-]{1,32}$
@@ -561,6 +565,12 @@ SEED_PASSWORD=hustalo-dev-2026
 VITE_API_URL=/api/v1
 # URL Socket.IO. "/" = cùng origin với trang; path cố định /socket.io (kiến trúc §6.4).
 VITE_SOCKET_URL=/
+# 1 = Vite dev server chạy HTTPS bằng chứng chỉ infra/certs (cần npm run certs). Bỏ trống = http://localhost:5173 (DG-01).
+# Chỉ vite.config.ts đọc biến này; không phải secret.
+# VITE_HTTPS=1
+# Playwright: URL đích của E2E (không phải biến VITE_, không vào bundle). Bỏ trống = http://localhost:5173.
+# Đặt https://<domain> để chạy smoke @smoke trên môi trường đã deploy (mục 9.7).
+# E2E_BASE_URL=https://hustalo.example.com
 ```
 
 Quyết định DG-09: client dùng URL **tương đối** để REST, cookie và WebSocket luôn cùng origin với trang (localhost hay LAN-IP đều chạy, không cần build lại).
@@ -633,7 +643,7 @@ const EnvSchema = z
   })
   .superRefine((e, ctx) => {
     const fail = (path: string, message: string) => ctx.addIssue({ code: z.ZodIssueCode.custom, path: [path], message });
-    if (e.NODE_ENV !== 'development' && !e.COOKIE_SECURE) fail('COOKIE_SECURE', 'chỉ được false khi NODE_ENV=development');
+    if (e.NODE_ENV === 'production' && !e.COOKIE_SECURE) fail('COOKIE_SECURE', 'chỉ được false khi NODE_ENV là development hoặc test'); // EC-SEC-009
     if ((e.XIRSYS_IDENT === '') !== (e.XIRSYS_SECRET === '')) fail('XIRSYS_SECRET', 'XIRSYS_IDENT và XIRSYS_SECRET phải cùng có hoặc cùng trống');
     if (e.TURN_FALLBACK_URLS.length > 0 && (e.TURN_FALLBACK_USERNAME === '' || e.TURN_FALLBACK_CREDENTIAL === ''))
       fail('TURN_FALLBACK_CREDENTIAL', 'có TURN_FALLBACK_URLS thì phải có username và credential');
@@ -798,9 +808,9 @@ console.log(`[bundle-secrets] OK — đã quét ${secrets.length} giá trị bí
 ### 5.1 Lần đầu
 
 ```bash
-# 1. Chứng chỉ HTTPS (localhost + LAN-IP)
-mkcert -install
-npm run certs
+# 1. (Tùy chọn) Chứng chỉ HTTPS — chỉ khi cần VITE_HTTPS=1 (mục 1.2, 5.5)
+# mkcert -install
+# npm run certs
 
 # 2. File env
 cp infra/.env.example infra/.env
@@ -816,7 +826,7 @@ npm run db:indexes
 npm run db:seed            # alice, bob, carol
 
 # 5. Chạy app
-npm run dev                # server :4000 + client https://localhost:5173
+npm run dev                # server :4000 + client http://localhost:5173 (VITE_HTTPS=1 → https)
 ```
 
 PowerShell không có `cp`-alias khác hành vi đáng kể; nếu dùng `cmd`, thay `cp` bằng `copy`.
@@ -831,7 +841,7 @@ PowerShell không có `cp`-alias khác hành vi đáng kể; nếu dùng `cmd`, 
 
 ```ts
 // client/vite.config.ts
-import { defineConfig } from 'vite';
+import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -839,26 +849,31 @@ import { fileURLToPath } from 'node:url';
 const certFile = fileURLToPath(new URL('../infra/certs/localhost+lan.pem', import.meta.url));
 const keyFile = fileURLToPath(new URL('../infra/certs/localhost+lan-key.pem', import.meta.url));
 
-if (!existsSync(certFile) || !existsSync(keyFile)) {
-  throw new Error('Thiếu chứng chỉ HTTPS trong infra/certs. Chạy: mkcert -install && npm run certs');
-}
-
 const API_TARGET = 'http://localhost:4000';
 
-export default defineConfig({
-  plugins: [react()],
-  server: {
-    host: true,           // lắng nghe 0.0.0.0 để điện thoại trong LAN truy cập được
-    port: 5173,
-    strictPort: true,
-    https: { cert: readFileSync(certFile), key: readFileSync(keyFile) },
-    proxy: {
-      '/api': { target: API_TARGET, changeOrigin: false, xfwd: true },
-      '/socket.io': { target: API_TARGET, ws: true, changeOrigin: false, xfwd: true },
+export default defineConfig(({ command, mode }) => {
+  // DG-01: HTTP mặc định; HTTPS chỉ khi VITE_HTTPS=1 (client/.env hoặc biến môi trường). `vite build` không cần chứng chỉ.
+  const env = { ...loadEnv(mode, process.cwd(), 'VITE_'), ...process.env };
+  const https = command === 'serve' && env.VITE_HTTPS === '1';
+  if (https && (!existsSync(certFile) || !existsSync(keyFile))) {
+    throw new Error('VITE_HTTPS=1 nhưng thiếu chứng chỉ trong infra/certs. Chạy: mkcert -install && npm run certs');
+  }
+
+  return {
+    plugins: [react()],
+    server: {
+      host: true,           // lắng nghe 0.0.0.0 để điện thoại trong LAN truy cập được (cần VITE_HTTPS=1)
+      port: 5173,
+      strictPort: true,
+      ...(https ? { https: { cert: readFileSync(certFile), key: readFileSync(keyFile) } } : {}),
+      proxy: {
+        '/api': { target: API_TARGET, changeOrigin: false, xfwd: true },
+        '/socket.io': { target: API_TARGET, ws: true, changeOrigin: false, xfwd: true },
+      },
     },
-  },
-  preview: { port: 4173, strictPort: true },
-  build: { sourcemap: true, target: 'es2022' },
+    preview: { port: 4173, strictPort: true },
+    build: { sourcemap: true, target: 'es2022' },
+  };
 });
 ```
 
@@ -879,20 +894,20 @@ Kèm một DIRECT alice–bob có 3 tin mẫu. Seed idempotent theo email; chạ
 | Bước | Lệnh / thao tác | Kỳ vọng |
 |---|---|---|
 | Health | `curl http://localhost:4000/api/v1/health` | `{"status":"ok","mongo":"up","redis":"up"}` |
-| Health qua proxy | Mở `https://localhost:5173/api/v1/health` | Như trên, ổ khóa HTTPS hợp lệ |
+| Health qua proxy | Mở `http://localhost:5173/api/v1/health` | Như trên (với `VITE_HTTPS=1`: `https://…`, ổ khóa hợp lệ) |
 | Metrics | `curl http://localhost:9464/metrics` | Có `hustalo_http_request_duration_seconds` |
-| Đăng nhập | Mở `https://localhost:5173/login`, đăng nhập alice | Vào `/chats`, thấy DIRECT với bob và "Nhóm HUSTALO" |
-| Socket | DevTools → Network → WS | Một kết nối `wss://localhost:5173/socket.io/?EIO=4&transport=websocket` |
+| Đăng nhập | Mở `http://localhost:5173/login`, đăng nhập alice | Vào `/chats`, thấy DIRECT với bob và "Nhóm HUSTALO" |
+| Socket | DevTools → Network → WS | Một kết nối `ws://localhost:5173/socket.io/?EIO=4&transport=websocket` (`wss://` khi `VITE_HTTPS=1`) |
 | Realtime | Cửa sổ ẩn danh/profile khác đăng nhập bob, gửi tin | alice nhận tin ngay, bubble bob ✓ → ✓✓ |
 
 ### 5.5 Test từ điện thoại trong LAN
 
 1. Máy dev và điện thoại cùng mạng Wi-Fi. Lấy LAN-IP (Windows: `ipconfig`; macOS: `ipconfig getifaddr en0`; Linux: `hostname -I`).
-2. `npm run certs` (chứng chỉ có LAN-IP).
+2. `mkcert -install` (một lần) rồi `npm run certs` (chứng chỉ có LAN-IP).
 3. Cài CA của mkcert lên điện thoại: file `rootCA.pem` trong thư mục `mkcert -CAROOT`.
    - iOS: gửi file sang máy (AirDrop/email) → cài profile → Cài đặt → Cài đặt chung → Giới thiệu → Cài đặt tin cậy chứng nhận → bật tin cậy hoàn toàn.
    - Android: Cài đặt → Bảo mật → Mã hóa và thông tin xác thực → Cài đặt chứng chỉ → Chứng chỉ CA. `// Xác minh theo hãng máy: đường dẫn menu khác nhau giữa các bản Android.`
-4. `server/.env`: thêm `https://<LAN-IP>:5173` vào `CORS_ORIGINS`; đổi `localhost` trong `TURN_FALLBACK_URLS` thành LAN-IP. `infra/.env`: `TURN_EXTERNAL_IP=<LAN-IP>`. Restart: `npm run infra:up` (tạo lại coturn) và `npm run dev`.
+4. `client/.env`: `VITE_HTTPS=1`. `server/.env`: thêm `https://localhost:5173,https://<LAN-IP>:5173` vào `CORS_ORIGINS`, có thể đặt `COOKIE_SECURE=true`; đổi `localhost` trong `TURN_FALLBACK_URLS` thành LAN-IP. `infra/.env`: `TURN_EXTERNAL_IP=<LAN-IP>`. Restart: `npm run infra:up` (tạo lại coturn) và `npm run dev`.
 5. Mở firewall (mục 1.3). Trên điện thoại vào `https://<LAN-IP>:5173`.
 
 Không bao giờ test cuộc gọi qua `http://<LAN-IP>` — sẽ rơi vào EC-CALL-MEDIA-009 (đúng hành vi, không phải bug).
@@ -907,9 +922,9 @@ Mỗi người dùng cần một **profile trình duyệt riêng** (cookie, `loc
 
 | Hệ điều hành | Mở Chrome profile tạm cho alice (bob: đổi tên thư mục) |
 |---|---|
-| Windows (PowerShell) | `& "C:\Program Files\Google\Chrome\Application\chrome.exe" --user-data-dir="$env:TEMP\hustalo-alice" --use-fake-device-for-media-stream --use-fake-ui-for-media-stream https://localhost:5173` |
-| macOS | `open -na "Google Chrome" --args --user-data-dir=/tmp/hustalo-alice --use-fake-device-for-media-stream --use-fake-ui-for-media-stream https://localhost:5173` |
-| Linux | `google-chrome --user-data-dir=/tmp/hustalo-alice --use-fake-device-for-media-stream --use-fake-ui-for-media-stream https://localhost:5173` |
+| Windows (PowerShell) | `& "C:\Program Files\Google\Chrome\Application\chrome.exe" --user-data-dir="$env:TEMP\hustalo-alice" --use-fake-device-for-media-stream --use-fake-ui-for-media-stream http://localhost:5173` |
+| macOS | `open -na "Google Chrome" --args --user-data-dir=/tmp/hustalo-alice --use-fake-device-for-media-stream --use-fake-ui-for-media-stream http://localhost:5173` |
+| Linux | `google-chrome --user-data-dir=/tmp/hustalo-alice --use-fake-device-for-media-stream --use-fake-ui-for-media-stream http://localhost:5173` |
 
 Cờ Chrome:
 
@@ -991,8 +1006,8 @@ export default defineConfig({
   retries: process.env.CI ? 1 : 0,
   reporter: [['list'], ['html', { open: 'never' }]],
   use: {
-    baseURL: 'https://localhost:5173',
-    ignoreHTTPSErrors: true,       // profile Playwright có thể không tin CA mkcert
+    baseURL: process.env.E2E_BASE_URL ?? 'http://localhost:5173', // DG-01; smoke production: https://<domain> (mục 9.7)
+    ignoreHTTPSErrors: false,
     trace: 'retain-on-failure',
     video: 'retain-on-failure',
   },
@@ -1017,19 +1032,22 @@ export default defineConfig({
       grepInvert: /@media/,
     },
   ],
-  webServer: {
-    command: 'npm run dev',
-    cwd: '..',
-    url: 'https://localhost:5173/api/v1/health',
-    ignoreHTTPSErrors: true,
-    reuseExistingServer: !process.env.CI,
-    timeout: 120_000,
-  },
+  // Chạy với E2E_BASE_URL (môi trường đã deploy) thì không tự khởi động dev server.
+  webServer: process.env.E2E_BASE_URL
+    ? undefined
+    : {
+        command: 'npm run dev',
+        cwd: '..',
+        url: 'http://localhost:5173/api/v1/health',
+        reuseExistingServer: !process.env.CI,
+        timeout: 120_000,
+      },
 });
 ```
 
 Quy ước E2E:
 - Tên test bắt đầu bằng Test ID và tag: `test('TC-AC-070 gọi thoại thành công @media', …)`.
+- Tag `@smoke`: tập spec chạy được trên môi trường đã deploy (không dùng `dockerCompose`, không cần seed ngoài 2 tài khoản smoke) — `TC-ARCH-017` (mục 9.7).
 - `e2e/fixtures.ts` cung cấp: `loginAs(page, 'alice')` (gọi REST login, nạp token qua `/auth/refresh` như reload thật), `twoUsers()` (2 browser context độc lập), `mockGetUserMediaError(page, name, kinds)` (dùng `page.addInitScript` ném `DOMException(name)` — phục vụ AC-078, AC-080, EC-CALL-MEDIA-001/003/005/013 vì thiết bị giả luôn tồn tại), `setIcePolicyRelay()` (đọc env test của server — E2E mạng chạy với một server riêng khởi bởi `call-network.spec.ts` có `ICE_TRANSPORT_POLICY=relay`), `dockerCompose(cmd, service)` (pause/unpause/stop/start).
 - Kiểm tra media bằng `page.evaluate` gọi `pc.getStats()` thông qua hook test `window.__hustaloTest` — hook chỉ được gắn khi `import.meta.env.MODE === 'test'` hoặc `import.meta.env.DEV`; build production không có hook (kiểm trong `check-bundle-secrets` không cần; kiểm bằng unit test của `peer-session.ts`).
 - Accessibility: mỗi spec màn hình chính gọi `new AxeBuilder({ page }).analyze()` và assert 0 vi phạm `serious`/`critical` (NFR-11).
@@ -1048,9 +1066,9 @@ Quy ước E2E:
 ## 7. Lộ trình milestone
 
 Nguyên tắc:
-- Làm tuần tự M0 → M7. Một milestone chỉ đóng khi **Definition of Done** (`product_requirements.md` §7) thỏa và mọi Test ID trong **Gate** có test tự động pass.
+- Làm tuần tự M0 → M6 → M6.5 → M7. Một milestone chỉ đóng khi **Definition of Done** (`product_requirements.md` §7) thỏa và mọi Test ID trong **Gate** có test tự động pass.
 - "(phần …)" nghĩa là AC được kiểm một phần ở milestone này; phần còn lại kiểm ở milestone ghi trong ngoặc.
-- Mỗi milestone: chạy `npm run typecheck && npm run lint && npm test`, `npm run test:e2e` (nếu Gate có tầng E), `npm run trace:check -- --milestone Mx`.
+- Mỗi milestone: chạy `npm run typecheck && npm run lint && npm test`, `npm run test:e2e` (nếu Gate có tầng E), `npm run trace:check -- --milestone Mx` (`Mx` ∈ M0..M7 hoặc `M6.5`).
 - Chuỗi "Mã hóa đầu-cuối" không xuất hiện trong UI trước khi M7 đóng (CLAUDE.md).
 
 ### M0 — Nền tảng
@@ -1066,7 +1084,7 @@ Checklist:
 - [ ] Client: Vite + React + Tailwind, `styles/index.css` (design tokens `ui_ux_spec.md` §1), `tailwind.config.ts`, `public/theme-init.js`, `routes/router.tsx` + guards, `components/layout/AppShell.tsx`, `components/ui/*`, `i18n/vi.ts`, `i18n/errors.ts`, `lib/api/http.ts`, `lib/device/device-id.ts`, `test/setup.ts`.
 - [ ] CI `.github/workflows/ci.yml` `[NEW]` (mục 8.7).
 
-Gate: `TC-ARCH-001`, `TC-ARCH-002`, `TC-ARCH-003`, `TC-ARCH-004`, `TC-ARCH-011`, `TC-AC-107`, `TC-DB-001`, `TC-DB-004`, `TC-MSG-001` (phần U: chuẩn hóa text), `TC-MSG-002` (phần U), `TC-MSG-003` (phần U), `TC-AC-100` (phần U: AES-GCM với AAD sai ném lỗi), `TC-SEC-006`.
+Gate: `TC-ARCH-001`, `TC-ARCH-002`, `TC-ARCH-003`, `TC-ARCH-004`, `TC-ARCH-011`, `TC-AC-107`, `TC-DB-001`, `TC-DB-004`, `TC-MSG-001` (phần U: chuẩn hóa text), `TC-MSG-002` (phần U), `TC-MSG-003` (phần U), `TC-AC-100` (phần U: AES-GCM với AAD sai ném lỗi), `TC-SEC-006`, `TC-SEC-009` (U: `config/env.ts` từ chối `COOKIE_SECURE=false` khi `NODE_ENV=production`, chấp nhận ở development/test).
 
 ### M1 — Auth và hồ sơ người dùng
 
@@ -1144,6 +1162,21 @@ Checklist:
 - [ ] Toàn bộ Gate M0–M5 chạy lại xanh trên 3 project Playwright.
 
 Gate: `TC-AC-104`, `TC-AC-105`, `TC-AC-107`, `TC-AC-109`, `TC-ARCH-009`, `TC-ARCH-010`, `TC-ARCH-011`, `TC-ARCH-012`, `TC-SEC-006`, `TC-SEC-007`, `TC-INFRA-002`, `TC-DB-026`, và `npm run trace:check -- --strict` cho mọi Test ID của FR ngoài nhóm E2EE.
+
+### M6.5 — Deploy `[NEW]`
+
+Mục tiêu: triển khai được lên môi trường thật bằng Docker + CI/CD (yêu cầu môn học Ex4 CI/CD-Docker, Lec10 Deployment). Toàn bộ chi tiết ở mục 9.
+
+FR: FR-SEC-001 (HTTPS/HSTS ở production, cookie `Secure`).
+
+Checklist:
+- [ ] `server/Dockerfile`, `client/Dockerfile` (multi-stage, non-root), `.dockerignore` theo mục 9.2; xác minh `argon2` chạy trên image runtime.
+- [ ] `infra/docker-compose.prod.yml`, `infra/mongo/init-prod.js`, `infra/nginx/nginx.conf`, `infra/.env.prod.example`, `server/.env.prod.example` theo mục 9.3–9.4; `.gitignore` thêm `!.env.*.example`, `infra/mongo/keyfile`.
+- [ ] `.github/workflows/cicd-docker.yml` theo mục 9.5 (Docker Hub: `docker/login-action`, `docker/build-push-action`); secret chỉ đọc từ GitHub Secrets, không in ra log.
+- [ ] `client/playwright.config.ts` đọc `E2E_BASE_URL`; spec smoke gắn tag `@smoke`.
+- [ ] Hạ tầng theo mục 9.1 (VM + domain + Let's Encrypt); chạy đủ bảng mục 9.7 trên môi trường đã deploy; ghi URL, commit SHA đã deploy và kết quả vào `docs/STATUS.md`.
+
+Gate: `TC-ARCH-016`, `TC-ARCH-017`.
 
 ### M7 — E2EE (Secret Chat)
 
@@ -1328,8 +1361,6 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
-      - run: sudo apt-get update && sudo apt-get install -y mkcert libnss3-tools
-      - run: mkcert -install && npm run certs
       - run: node scripts/ci-env.mjs
       - run: npm run infra:up
       - run: npm run db:indexes && npm run db:seed
@@ -1346,11 +1377,13 @@ jobs:
 
 - Redis của job `verify` không có mật khẩu (container dịch vụ CI tạm thời); `REDIS_URL_TEST` khớp. `// Xác minh với tài liệu GitHub Actions: phiên bản major hiện hành của actions/checkout, setup-node, upload-artifact.`
 - `scripts/ci-env.mjs` `[NEW]`: sinh `infra/.env`, `server/.env`, `client/.env` từ các file `.env.example` với secret ngẫu nhiên (dùng lại logic `gen-secrets.mjs`), không in giá trị ra log.
+- Job `e2e` không cài mkcert: E2E chạy `http://localhost:5173` (DG-01), `COOKIE_SECURE=false` với `NODE_ENV=test`. coturn khởi động không có chứng chỉ thì chỉ tắt listener TLS 5349; healthcheck STUN 3478 vẫn pass.
+- Build/push image và deploy nằm ở workflow riêng `cicd-docker.yml` (mục 9.5), chỉ chạy sau khi `ci` xanh trên `main`.
 
 ### 8.8 Truy vết test — `scripts/check-traceability.mjs` `[NEW]`
 
 - Đọc `.spec/development_guide.md`; thu mọi Test ID khớp `/TC-(?:AC|ARCH|DB|AUTH|NET|MSG|GROUP|PRES|CALL-SIG|CALL-MEDIA|CALL-NET|INFRA|SEC|E2EE)-\d{3}/g`.
-  - `--milestone M3`: chỉ lấy ID trong đoạn từ tiêu đề `### M3` tới tiêu đề `###` kế tiếp.
+  - `--milestone M3`: chỉ lấy ID trong đoạn từ tiêu đề `### M3` tới tiêu đề `###` kế tiếp. Giá trị hợp lệ khớp `^M\d(\.5)?$` (M0..M7 và `M6.5`); sai dạng → exit 2. Test: `scripts/__tests__/check-traceability.test.mjs` (`node --test`, chạy trong `npm run test:unit`).
   - Mặc định: lấy ID ở bảng Traceability Matrix.
 - Quét `packages/shared/src`, `server/src`, `client/src`, `client/e2e` tìm chuỗi `'TC-…'` hoặc `"TC-…"` hoặc `` `TC-…`` ở **đầu tên** `it(`/`test(`/`describe(`.
 - In ID thiếu test. `--strict`: exit 1 nếu thiếu. Không có `--strict`: exit 0 (dùng khi đang làm dở milestone).
@@ -1374,13 +1407,183 @@ jobs:
 
 ---
 
-## 9. Troubleshooting
+## 9. Triển khai (production) `[NEW]`
+
+Áp dụng từ milestone M6.5. `infra/docker-compose.yml` (mục 3) **chỉ** dùng cho local; production dùng `infra/docker-compose.prod.yml`.
+
+### 9.1 Kiến trúc triển khai và hạ tầng cho sinh viên
+
+```text
+Internet ──443/80──▶ nginx (TLS termination, HSTS, CSP, phục vụ client/dist)
+                       ├─ /api/       ─▶ server:4000 (Express)
+                       ├─ /socket.io/ ─▶ server:4000 (WebSocket Upgrade)
+                       └─ /           ─▶ SPA (try_files → /index.html)
+server ─▶ mongo:27017 (rs0, auth, keyFile) · redis:6379 (requirepass)   — mạng nội bộ compose, không publish cổng
+```
+
+- Một VM Linux chạy Docker Engine + Compose v2. Chỉ mở cổng 22 (SSH, giới hạn IP nếu được), 80, 443 trong security group/firewall; mở thêm 3478/5349 + dải relay UDP chỉ khi tự host coturn (mục 3.4 — cấu hình production). Mongo, Redis, `METRICS_PORT` không publish ra Internet (TB-4, kiến trúc §11.1).
+- `TRUST_PROXY=1` (một hop nginx). `CORS_ORIGINS=https://<domain>`.
+
+Phương án hạ tầng cho sinh viên (chọn một, ghi lựa chọn vào `docs/STATUS.md`):
+
+| Thành phần | Phương án | Ghi chú |
+|---|---|---|
+| VM | AWS EC2 free tier (`t2.micro`/`t3.micro`, Ubuntu LTS), hoặc VM sinh viên của Azure/GCP, hoặc VPS giá rẻ | 1 GB RAM là sát: bật swap 2 GB; giới hạn cache WiredTiger (`--wiredTigerCacheSizeGB 0.25`). `// Xác minh với tài liệu chính thức của AWS: điều kiện và thời hạn free tier hiện hành.` |
+| Domain | Tên miền riêng (Namecheap, Tên miền .id.vn cho sinh viên…) **hoặc** subdomain miễn phí (DuckDNS, nip.io/sslip.io trỏ theo IP) | Let's Encrypt cần một tên miền phân giải công khai tới IP của VM; **không** cấp chứng chỉ cho địa chỉ IP trần. `// Xác minh với tài liệu chính thức của Let's Encrypt và nhà cung cấp subdomain: giới hạn rate limit và hỗ trợ HTTP-01.` |
+| Chứng chỉ | Let's Encrypt qua certbot (HTTP-01, webroot do nginx phục vụ `/.well-known/acme-challenge/`) | Gia hạn tự động (cron/systemd timer `certbot renew` + `nginx -s reload`) |
+
+**Không có HTTPS thì không có cuộc gọi:** truy cập bằng `http://<IP>` hoặc `http://<domain>` không phải secure context → trình duyệt không cấp `navigator.mediaDevices`, camera/micro bị chặn (EC-CALL-MEDIA-009), cookie `Secure` không được gửi nên đăng nhập không giữ phiên. Không deploy production thiếu HTTPS.
+
+### 9.2 Docker image
+
+- `.dockerignore` (gốc repo, build context là gốc vì là monorepo): `node_modules`, `**/node_modules`, `**/dist`, `.git`, `.env*` (trừ `!**/.env.example`), `infra/certs`, `infra/mongo/keyfile`, `coverage`, `client/playwright-report`, `client/test-results`, `.claude`, `docs`.
+- `server/Dockerfile` (build từ gốc: `docker build -f server/Dockerfile .`):
+  - stage `deps`: `node:22-alpine`, copy `package.json`, `package-lock.json`, `packages/shared/package.json`, `server/package.json` → `npm ci -w server -w packages/shared --include-workspace-root`.
+  - stage `build`: copy source `packages/shared`, `server`, `tsconfig.base.json` → `npm run build -w server` (tsup bundle `@hustalo/shared`).
+  - stage `runtime`: `node:22-alpine`, `NODE_ENV=production`, `npm ci --omit=dev -w server`, copy `server/dist`; `USER node`; `EXPOSE 4000`; `HEALTHCHECK CMD wget -qO- http://127.0.0.1:4000/api/v1/health || exit 1`; `CMD ["node", "dist/main.js"]`. Không copy file `.env` nào vào image; env truyền lúc chạy.
+  - `// Xác minh: gói argon2 (native addon, prebuild qua node-gyp-build) có bản dựng cho linux-musl trên node:22-alpine — chạy thử hashPassword/verifyPassword trong container. Nếu không: stage deps và runtime dùng node:22-slim (glibc), không cài toolchain build trong runtime.`
+- `client/Dockerfile`:
+  - stage `build`: `node:22-alpine`, `npm ci -w client -w packages/shared --include-workspace-root`, `npm run build -w client`, rồi `node scripts/check-bundle-secrets.mjs` (AC-105).
+  - stage `runtime`: `nginx:alpine` (hoặc `nginxinc/nginx-unprivileged:alpine` để chạy non-root cổng 8080), copy `client/dist` → `/usr/share/nginx/html`. Image này chỉ phục vụ file tĩnh; TLS và proxy nằm ở nginx biên (mục 9.3). `// Xác minh với tài liệu chính thức của nginxinc/nginx-unprivileged: tag và cổng mặc định.`
+- Tag (Docker Hub, như bài Ex4): `<dockerhub-user>/hustalo-server:<git-sha>` và `<dockerhub-user>/hustalo-server:latest`; tương tự `<dockerhub-user>/hustalo-client:<git-sha>` và `:latest`. Production chạy theo tag SHA (`IMAGE_TAG`), `latest` chỉ để tham khảo.
+
+### 9.3 `infra/docker-compose.prod.yml`, MongoDB và nginx
+
+Service:
+
+| Service | Image | Ghi chú |
+|---|---|---|
+| `nginx` | `nginx:alpine` | Publish 80, 443; mount `infra/nginx/nginx.conf:ro`, `/etc/letsencrypt:ro`, webroot ACME; volume tĩnh lấy từ image `hustalo-client` (hoặc proxy sang container client) |
+| `client` | `${DOCKERHUB_USERNAME}/hustalo-client:${IMAGE_TAG}` | Không publish cổng |
+| `server` | `${DOCKERHUB_USERNAME}/hustalo-server:${IMAGE_TAG}` | `env_file: ../server/.env.prod`; `depends_on` mongo-init `service_completed_successfully`, redis `service_healthy`; `restart: unless-stopped` |
+| `mongo` | `mongo:7.0` | `command: ["--replSet","rs0","--bind_ip_all","--keyFile","/etc/mongo/keyfile","--auth"]`; mount `./mongo/keyfile:/etc/mongo/keyfile:ro`; environment `MONGO_INITDB_ROOT_USERNAME=${MONGO_ROOT_USERNAME}`, `MONGO_INITDB_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}` (biến của image mongo, giá trị từ `infra/.env.prod`); volume dữ liệu có tên; không publish cổng |
+| `mongo-init` | `mongo:7.0` | One-shot: `mongosh "mongodb://$MONGO_ROOT_USERNAME:$MONGO_ROOT_PASSWORD@mongo:27017/admin?directConnection=true" /scripts/init-prod.js`; `restart: "no"` |
+| `redis` | `redis:7.2-alpine` | `--requirepass ${REDIS_PASSWORD}`, `--appendonly yes`; không publish cổng |
+
+MongoDB replica set có auth **bắt buộc keyFile** (xác thực nội bộ giữa các member, kể cả khi chỉ 1 node):
+
+```bash
+# Trên VM, trong DEPLOY_PATH (một lần; KHÔNG commit keyfile — đã có trong .gitignore)
+openssl rand -base64 756 > infra/mongo/keyfile
+chmod 400 infra/mongo/keyfile
+sudo chown 999:999 infra/mongo/keyfile   # uid/gid user mongodb trong image mongo chính thức
+```
+
+`// Xác minh với tài liệu chính thức của image mongo trên Docker Hub: uid 999, hành vi MONGO_INITDB_ROOT_* khi có --replSet/--keyFile (script /docker-entrypoint-initdb.d chạy trên mongod tạm không có replSet, nên rs.initiate đặt trong service mongo-init thay vì initdb.d).`
+
+`infra/mongo/init-prod.js` (idempotent, chạy lại mỗi lần `up` không lỗi):
+1. `rs.status()` lỗi `NotYetInitialized` → `rs.initiate({ _id: 'rs0', members: [{ _id: 0, host: 'mongo:27017' }] })`; chờ tới khi `db.hello().isWritablePrimary`.
+2. User root do `MONGO_INITDB_ROOT_*` tạo ở lần khởi động đầu (localhost exception). Không dùng root cho app.
+3. Nếu chưa có user `MONGO_APP_USERNAME` trong DB `hustalo` → `db.getSiblingDB('hustalo').createUser({ user, pwd, roles: [{ role: 'readWrite', db: 'hustalo' }] })`. Đọc user/mật khẩu từ `process.env` (mongosh), không ghi cứng.
+
+`MONGODB_URI` của server production: `mongodb://<app-user>:<app-pass>@mongo:27017/hustalo?replicaSet=rs0&authSource=hustalo` (không `directConnection`, host `mongo:27017` phân giải được trong mạng compose).
+
+`infra/nginx/nginx.conf` (yêu cầu bắt buộc):
+- `server { listen 80; }`: phục vụ `/.well-known/acme-challenge/` từ webroot; mọi đường dẫn khác `return 301 https://$host$request_uri;`.
+- `server { listen 443 ssl; http2 on; }`: `ssl_certificate /etc/letsencrypt/live/<domain>/fullchain.pem`, `ssl_certificate_key …/privkey.pem`; `ssl_protocols TLSv1.2 TLSv1.3`; `add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;`; CSP và header theo kiến trúc §9.6; `client_max_body_size` ≥ giới hạn REST body.
+- `location /api/` → `proxy_pass http://server:4000;` + `proxy_set_header Host $host; X-Forwarded-For $proxy_add_x_forwarded_for; X-Forwarded-Proto $scheme; X-Request-Id $request_id`.
+- `location /socket.io/` → `proxy_pass http://server:4000;` + `proxy_http_version 1.1; proxy_set_header Upgrade $http_upgrade; proxy_set_header Connection "upgrade"; proxy_read_timeout 75s;` (> ping interval + timeout của Socket.IO, kiến trúc §6.4; T-07).
+- `location /` → `root /usr/share/nginx/html; try_files $uri $uri/ /index.html;` (SPA fallback cho `/chats/:id`, `/call/:callId`…); `/assets/*` → `Cache-Control: public, max-age=31536000, immutable`; `index.html` → `Cache-Control: no-cache`.
+- `// Xác minh với tài liệu chính thức của nginx: cú pháp "http2 on" (nginx ≥ 1.25.1) so với "listen 443 ssl http2" ở bản cũ.`
+
+### 9.4 Biến môi trường production
+
+Hai file, chỉ tồn tại trên VM (chmod 600), được workflow ghi từ GitHub Secrets; repo chỉ có bản `*.example` với giá trị `replace-…`:
+
+```bash
+# infra/.env.prod.example — biến cho docker-compose.prod.yml. Copy thành infra/.env.prod trên VM.
+DOCKERHUB_USERNAME=replace-with-dockerhub-user
+# SHA commit đã build (workflow ghi); rollback = đặt SHA cũ
+IMAGE_TAG=replace-with-git-sha
+DOMAIN=hustalo.example.com
+MONGO_ROOT_USERNAME=root
+MONGO_ROOT_PASSWORD=replace-with-random
+MONGO_APP_USERNAME=hustalo
+MONGO_APP_PASSWORD=replace-with-random
+# Trùng mật khẩu trong REDIS_URL của server/.env.prod
+REDIS_PASSWORD=replace-with-random
+```
+
+`server/.env.prod.example`: cùng danh sách biến với mục 4.2, khác ở:
+
+| Biến | Giá trị production |
+|---|---|
+| `NODE_ENV` | `production` |
+| `CORS_ORIGINS` | `https://<domain>` |
+| `COOKIE_SECURE` | `true` — `false` làm `config/env.ts` từ chối khởi động (EC-SEC-009) |
+| `TRUST_PROXY` | `1` |
+| `LOG_LEVEL` | `info` |
+| `MONGODB_URI` | URI user app như mục 9.3 |
+| `REDIS_URL` | `redis://:<REDIS_PASSWORD>@redis:6379/0` |
+| `TURN_FALLBACK_URLS` | coturn production nếu tự host; nếu không, cần `XIRSYS_IDENT`/`XIRSYS_SECRET` (env.ts yêu cầu ít nhất một nguồn TURN) |
+| `SEED_PASSWORD`, `DEV_CALL_RING_TIMEOUT_MS`, `REDIS_URL_TEST` | **không đặt** |
+| `JWT_ACCESS_SECRET`, `REFRESH_TOKEN_PEPPER`, `DATA_ENCRYPTION_KEYS` | sinh riêng cho production (`npm run secrets` trên máy tin cậy), **khác** giá trị dev |
+
+### 9.5 CI/CD — `.github/workflows/cicd-docker.yml`
+
+GitHub Secrets (Settings → Secrets and variables → Actions):
+
+```bash
+# Tên secret = nội dung
+DOCKERHUB_USERNAME=<tài khoản Docker Hub>
+# Access token Docker Hub (Read & Write), không dùng mật khẩu tài khoản
+DOCKERHUB_TOKEN=<token>
+DEPLOY_HOST=<IP hoặc domain của VM>
+DEPLOY_USER=<user SSH, ví dụ ubuntu>
+# Private key SSH (ed25519) chỉ dùng cho deploy; public key nằm trong ~/.ssh/authorized_keys của VM
+DEPLOY_SSH_KEY=<private key>
+# Thư mục trên VM chứa infra/ và server/.env.prod
+DEPLOY_PATH=/opt/hustalo
+PROD_DOMAIN=hustalo.example.com
+# Nội dung đầy đủ của infra/.env.prod và server/.env.prod (mục 9.4), trừ IMAGE_TAG do workflow ghi
+PROD_INFRA_ENV=<nội dung>
+PROD_SERVER_ENV=<nội dung>
+```
+
+Luồng workflow:
+1. Trigger: `workflow_run` của workflow `ci` kết thúc `success` trên `main` (và `workflow_dispatch` để deploy tay).
+2. Job `build-push`: `actions/checkout` (ref = SHA của lần chạy `ci`), `docker/setup-buildx-action`, `docker/login-action` (`username: ${{ secrets.DOCKERHUB_USERNAME }}`, `password: ${{ secrets.DOCKERHUB_TOKEN }}`), `docker/build-push-action` hai lần (`file: server/Dockerfile` và `client/Dockerfile`, `context: .`, `push: true`, tag `<sha>` + `latest`, cache `type=gha`).
+3. Job `deploy` (`needs: build-push`, `environment: production`): SSH vào VM (key từ `DEPLOY_SSH_KEY`), đồng bộ `infra/docker-compose.prod.yml`, `infra/nginx/`, `infra/mongo/init-prod.js`; ghi `infra/.env.prod` (từ `PROD_INFRA_ENV` + `IMAGE_TAG=<sha>`) và `server/.env.prod` (từ `PROD_SERVER_ENV`) với `umask 077`; chạy lệnh mục 9.6.
+4. Job `verify`: chạy bảng mục 9.7 (health, redirect, HSTS, smoke `@smoke` với `E2E_BASE_URL=https://${{ secrets.PROD_DOMAIN }}`). Fail → workflow đỏ, ghi SHA trước đó để rollback.
+- Không `echo` secret; không bật `set -x` trong bước có secret. `// Xác minh với tài liệu chính thức của GitHub Actions và docker/*-action: phiên bản major hiện hành của login-action, build-push-action, setup-buildx-action và cú pháp workflow_run.`
+
+### 9.6 Lệnh deploy và rollback
+
+```bash
+cd /opt/hustalo
+docker compose --env-file infra/.env.prod -f infra/docker-compose.prod.yml pull
+docker compose --env-file infra/.env.prod -f infra/docker-compose.prod.yml up -d --wait
+# Index (idempotent) sau mỗi lần deploy có thay đổi model
+docker compose --env-file infra/.env.prod -f infra/docker-compose.prod.yml exec server node dist/infra/db/indexes.js
+```
+
+- Lần đầu: tạo `infra/mongo/keyfile` (mục 9.3) và lấy chứng chỉ Let's Encrypt **trước** khi bật block 443 (chạy nginx chỉ với block 80 → `certbot certonly --webroot` → bật 443 → `nginx -s reload`).
+- Rollback: sửa `IMAGE_TAG=<sha cũ>` trong `infra/.env.prod` rồi chạy lại `pull` + `up -d --wait`. Migration dữ liệu (`database_schema.md` §6.4) phải tương thích ngược một phiên bản để rollback an toàn.
+- Không chạy `db:seed` ở production (env.ts cấm `SEED_PASSWORD`). Tài khoản smoke tạo bằng `POST /auth/register` một lần, mật khẩu lưu trong GitHub Secrets nếu workflow cần.
+
+### 9.7 Kiểm tra sau deploy
+
+| Bước | Lệnh | Kỳ vọng | Test ID |
+|---|---|---|---|
+| Health qua nginx | `curl -fsS https://<domain>/api/v1/health` | 200 `{"status":"ok","mongo":"up","redis":"up"}` | `TC-ARCH-016` |
+| Redirect | `curl -sI http://<domain>/` | `301`, `Location: https://<domain>/` | `TC-ARCH-016` |
+| HSTS | `curl -sI https://<domain>/` | Có `Strict-Transport-Security: max-age=31536000; includeSubDomains` | `TC-ARCH-016` |
+| SPA fallback | `curl -s -o /dev/null -w '%{http_code}' https://<domain>/chats/abc` | `200` (trả `index.html`) | — |
+| Smoke E2E | `E2E_BASE_URL=https://<domain> npm run test:e2e -- --project=chromium --grep @smoke` | Pass: đăng nhập 2 user, gửi/nhận tin, socket `wss://` transport websocket | `TC-ARCH-017` |
+| Cổng nội bộ | Từ máy ngoài: `nc -zv <domain> 27017`, `6379`, `9464` | Đều bị từ chối/timeout | — |
+| Log | `docker compose ... logs server --tail=200` | Không có token, mật khẩu, nội dung tin (kiến trúc §11.3) | — |
+
+`TC-ARCH-016` hiện thực bằng script/Vitest gọi URL đích từ `E2E_BASE_URL` (bỏ qua khi biến không đặt); `TC-ARCH-017` là spec Playwright tag `@smoke`.
+
+---
+
+## 10. Troubleshooting
 
 | ID | Triệu chứng | Nguyên nhân | Cách xử lý |
 |---|---|---|---|
 | T-01 | Server thoát: "MongoDB phải chạy replica set (rs0) để dùng transaction"; hoặc lỗi `Transaction numbers are only allowed on a replica set member or mongos` | Replica set chưa khởi tạo, hoặc URI thiếu `replicaSet=rs0` | `docker compose --env-file infra/.env -f infra/docker-compose.yml ps` → mongo phải `healthy`. Chưa healthy sau 60 s: `docker compose ... logs mongo`, rồi chạy tay `docker compose ... exec mongo mongosh --quiet /scripts/init-replica.js`. Kiểm tra `MONGODB_URI` có `replicaSet=rs0&directConnection=true` |
 | T-02 | `MongoServerSelectionError: getaddrinfo ENOTFOUND mongo` | Driver khám phá topology và nhận host `mongo:27017` không phân giải được từ host | Thêm `directConnection=true` vào `MONGODB_URI` (DG-05) |
-| T-03 | Đăng nhập được nhưng reload trang bị đá về `/login`; `/auth/refresh` trả 401 | Cookie `hustalo_rt` không được gửi: trang mở qua origin khác (ví dụ `http://localhost:4000` thay vì `https://localhost:5173`), hoặc `Secure` cookie trên HTTP LAN | Luôn mở app qua `https://localhost:5173` hoặc `https://<LAN-IP>:5173`. Trong DevTools → Application → Cookies kiểm tra `hustalo_rt` có `Path=/api/v1/auth` |
+| T-03 | Đăng nhập được nhưng reload trang bị đá về `/login`; `/auth/refresh` trả 401 | Cookie `hustalo_rt` không được gửi: trang mở qua origin khác (ví dụ `http://localhost:4000` thay vì `http://localhost:5173`), hoặc `COOKIE_SECURE=true` trong khi trang chạy HTTP (WebKit/LAN) | Mở app qua `http://localhost:5173` với `COOKIE_SECURE=false`, hoặc `https://localhost:5173` / `https://<LAN-IP>:5173` (`VITE_HTTPS=1`). Trong DevTools → Application → Cookies kiểm tra `hustalo_rt` có `Path=/api/v1/auth` |
 | T-04 | `/auth/refresh` trả 403 | Thiếu/sai header `X-CSRF-Token` (cookie `hustalo_csrf` không đọc được, ví dụ đã xóa cookie) | Đăng nhập lại để server cấp cặp cookie mới; kiểm tra `lib/api/http.ts` gửi header từ `document.cookie` |
 | T-05 | Request bị CORS chặn / socket `connect_error` xhr poll error | Origin không có trong `CORS_ORIGINS` (thường gặp khi mở bằng LAN-IP) | Thêm `https://<LAN-IP>:5173` vào `CORS_ORIGINS`, restart server. Không thêm `*` (cookie credentials không cho phép) |
 | T-06 | Socket không kết nối: `connect_error` với `UNAUTHENTICATED` | Access token hết hạn/thu hồi, hoặc `deviceId` handshake khác claim `did` (đổi `localStorage` thủ công) | Đăng xuất/đăng nhập lại; không sửa `hustalo.deviceId` bằng tay. Nếu lỗi `TOKEN_EXPIRED`: client phải refresh rồi reconnect (D-18) — kiểm tra `useSessionLifecycle.ts` |
@@ -1388,7 +1591,7 @@ jobs:
 | T-08 | `iceConnectionState` → `failed`, cuộc gọi kết thúc `NETWORK_FAILURE` | Không có cặp candidate dùng được: hai bên sau NAT đối xứng mà không có TURN; credential TURN sai; firewall chặn UDP 49160–49200 | `GET /calls/ice-servers` phải có TURN. Kiểm tra `TURN_FALLBACK_*` trùng `infra/.env`. `docker compose ... logs coturn` tìm `401` (sai credential). Test relay riêng (mục 6.3). Với relay↔relay cùng máy: đặt `TURN_EXTERNAL_IP=<LAN-IP>` |
 | T-09 | `turns:` không kết nối được | Chứng chỉ trong `infra/certs` thiếu hoặc không chứa host trong URL | `npm run certs`, `docker compose ... restart coturn`; URL `turns:` phải dùng `localhost` hoặc LAN-IP có trong chứng chỉ |
 | T-10 | `NotReadableError` / "Thiết bị đang được ứng dụng khác sử dụng" | Camera/micro bị Zoom/Teams/OBS hoặc trình duyệt khác giữ (Windows khóa camera độc quyền) | Đóng ứng dụng kia; khi test hai người trên một máy dùng `--use-fake-device-for-media-stream` (mục 6.1). Đây là EC-CALL-MEDIA-005 |
-| T-11 | `navigator.mediaDevices` là `undefined` | Không phải secure context (mở bằng `http://<LAN-IP>`) | Dùng `https://<LAN-IP>:5173` với CA mkcert đã cài trên thiết bị (mục 5.5) |
+| T-11 | `navigator.mediaDevices` là `undefined` | Không phải secure context (mở bằng `http://<LAN-IP>` hoặc production thiếu HTTPS) | Local: `VITE_HTTPS=1` + `https://<LAN-IP>:5173` với CA mkcert đã cài trên thiết bị (mục 5.5). Production: bật HTTPS Let's Encrypt (mục 9.1) |
 | T-12 | Console báo Mixed Content; socket gọi `ws://` | `VITE_SOCKET_URL`/`VITE_API_URL` đặt URL tuyệt đối `http://...` trong khi trang là HTTPS | Dùng giá trị tương đối mặc định (`/api/v1`, `/`) — DG-09 |
 | T-13 | Không nghe nhạc chuông | Autoplay bị chặn khi trang chưa có tương tác | Đúng thiết kế (EC-CALL-MEDIA-010): bấm "Chạm để bật âm thanh" |
 | T-14 | `npm run db:indexes` chạy xong nhưng không làm gì trên Windows | Entry script so `import.meta.url` với `file://${argv[1]}` (sai trên Windows) | Dùng `isMainModule(import.meta.url)` (DG-02) |
@@ -1398,6 +1601,13 @@ jobs:
 | T-18 | `[bundle-secrets] Biến client bị cấm: VITE_…` khi build | Đặt biến nhạy cảm có tiền tố `VITE_` | Xóa biến khỏi `client/.env*`; secret chỉ thuộc server (AC-105) |
 | T-19 | coturn không khởi động: lỗi đọc `turnserver.conf` | File có CRLF hoặc thiếu `infra/.env` biến `TURN_*` | Kiểm tra `.gitattributes` (mục 1.4), `git add --renormalize .`; điền `infra/.env` |
 | T-20 | Mọi người dùng hiển thị "không xác định" (presence) | Redis down hoặc mất kết nối (EC-PRES-005 / EC-INFRA-002) | `docker compose ... ps redis`; `REDIS_URL` đúng mật khẩu. Trạng thái tự hồi phục sau ≤ 1 chu kỳ heartbeat |
+| T-21 | `npm run dev` báo "VITE_HTTPS=1 nhưng thiếu chứng chỉ trong infra/certs" | Bật `VITE_HTTPS=1` khi chưa sinh chứng chỉ | `mkcert -install && npm run certs`, hoặc bỏ `VITE_HTTPS` để chạy `http://localhost:5173` (DG-01) |
+| T-22 | Server production thoát: `[env] COOKIE_SECURE: chỉ được false khi NODE_ENV là development hoặc test` | `server/.env.prod` để `COOKIE_SECURE=false` (copy từ dev) | Đặt `COOKIE_SECURE=true` (EC-SEC-009, mục 9.4) |
+| T-23 | Container mongo production restart liên tục, log `permissions on /etc/mongo/keyfile are too open` hoặc `Unable to acquire security key` | keyFile quyền rộng hơn 400, sai chủ sở hữu, hoặc file có CRLF/khoảng trắng lạ | `chmod 400`, `chown 999:999` (mục 9.3); sinh lại bằng `openssl rand -base64 756` trên VM Linux, không tạo trên Windows rồi copy |
+| T-24 | Server production: `MongoServerError: Authentication failed` / `command find requires authentication` | Sai user/mật khẩu app, thiếu `authSource=hustalo`, hoặc `mongo-init` chưa tạo user app | `docker compose ... logs mongo-init`; kiểm tra `MONGO_APP_*` trong `infra/.env.prod` khớp `MONGODB_URI`; chạy lại `docker compose ... up mongo-init` (idempotent) |
+| T-25 | `mongo-init` lỗi `NotYetInitialized` / `no replset config has been received` lặp, hoặc server `ReplicaSetNoPrimary` | `rs.initiate` chưa chạy hoặc host trong config không phải `mongo:27017` | `docker compose ... exec mongo mongosh -u root -p --authenticationDatabase admin --eval "rs.status()"`; host member phải là `mongo:27017`; xóa volume chỉ khi chưa có dữ liệu thật |
+| T-26 | Socket production chỉ long-polling; `wss://` trả 400/502 | nginx thiếu `Upgrade`/`Connection` cho `/socket.io/` hoặc `proxy_read_timeout` quá ngắn | Kiểm tra block `/socket.io/` theo mục 9.3; `nginx -t && nginx -s reload` |
+| T-27 | certbot báo lỗi challenge HTTP-01 | Domain chưa trỏ về IP VM, cổng 80 bị chặn, hoặc nginx redirect cả `/.well-known/acme-challenge/` | `dig +short <domain>`; mở cổng 80 ở security group; block 80 phải phục vụ webroot ACME trước khi redirect (mục 9.3) |
 
 ---
 
@@ -1405,11 +1615,11 @@ jobs:
 
 - [x] **Enum, event, mã lỗi, hằng số khớp mục 2 và 3:** file này không định nghĩa enum/event/mã lỗi mới; các hằng số được dùng đúng tên/giá trị của `constants.ts` (kiến trúc §4.4.1): `CALL_RING_TIMEOUT_MS` 45 s (giá trị mặc định env và ràng buộc DG-08), `SOCKET_PING_INTERVAL_MS` 25 s, `SOCKET_PING_TIMEOUT_MS` 20 s, `CALL_MAX_ICE_RESTARTS` 2, `TURN_CREDENTIAL_TTL_S` 1 h, `PASSWORD_MIN/MAX` 8..128 (seed password). Tên event `call:*`, `session:*`, `e2ee:prekeys-low` dùng đúng danh sách 35 event; không có `message:ack` hay `call:initiate`.
 - [x] **FR/AC được tham chiếu bằng ID:** mỗi milestone liệt kê FR và Gate theo `TC-AC-*`; Traceability Matrix phủ đủ 58 FR (56 FR trong registry kiến trúc Phụ lục B + `FR-CHAT-011`, `FR-CALL-011` do PRD bổ sung).
-- [x] **Edge case có ID:** đủ 105 EC (`TC-AUTH-001..008`, `TC-NET-001..010`, `TC-MSG-001..017`, `TC-GROUP-001..007`, `TC-PRES-001..005`, `TC-CALL-SIG-001..016`, `TC-CALL-MEDIA-001..013`, `TC-CALL-NET-001..010`, `TC-INFRA-001..003`, `TC-SEC-001..008`, `TC-E2EE-001..008`) đều nằm trong Gate của đúng một hoặc nhiều milestone và trong Traceability Matrix; 26 test database `TC-DB-001..026` và 15 `TC-ARCH-*` cũng được phân vào milestone.
+- [x] **Edge case có ID:** đủ 106 EC (`TC-AUTH-001..008`, `TC-NET-001..010`, `TC-MSG-001..017`, `TC-GROUP-001..007`, `TC-PRES-001..005`, `TC-CALL-SIG-001..016`, `TC-CALL-MEDIA-001..013`, `TC-CALL-NET-001..010`, `TC-INFRA-001..003`, `TC-SEC-001..009`, `TC-E2EE-001..008`) đều nằm trong Gate của đúng một hoặc nhiều milestone và trong Traceability Matrix; 26 test database `TC-DB-001..026` và 17 `TC-ARCH-*` (016–017 ở M6.5) cũng được phân vào milestone.
 - [x] **Không có secret thật, không chỗ trống:** mọi file `.env.example` dùng giá trị mẫu `replace-…`; `SEED_PASSWORD` là mật khẩu dev cục bộ, bị env.ts cấm ở production; chỗ chưa chắc chắn về công cụ bên thứ ba đều có `// Xác minh với tài liệu chính thức của …` (tsx `--env-file`, tag image coturn/mongo-express, Xirsys base URL và quota, Playwright `setOffline`, GitHub Actions, menu Android).
 - [x] **Không mâu thuẫn với file đã sinh — các điểm đã đối chiếu:**
   - Cây thư mục kiến trúc §4.1: dùng đúng `infra/docker-compose.yml`, `infra/mongo/init-replica.js` (host `mongo:27017`), `infra/coturn/turnserver.conf`, `infra/certs/localhost+lan*.pem`, `scripts/gen-secrets.mjs` (có `--data-key` như §9.2.4), `scripts/check-bundle-secrets.mjs`, `server/src/infra/db/{indexes,seed}.ts`, `jobs/reencrypt-messages.ts`, `test/{global-setup,fake-clock}.ts`, `client/{vite,playwright}.config.ts`, `client/e2e/*`.
-  - File `[NEW]` bổ sung (không đổi cấu trúc): `.gitattributes`, `.npmrc`, `.prettierignore`, `infra/.env.example`, `scripts/make-certs.mjs`, `scripts/check-traceability.mjs`, `scripts/ci-env.mjs`, `server/src/infra/runtime/is-main.ts`, `server/src/jobs/user-lock.ts`, `.github/workflows/ci.yml`, `load/*.js`.
+  - File `[NEW]` bổ sung (không đổi cấu trúc): `.gitattributes`, `.npmrc`, `.prettierignore`, `infra/.env.example`, `scripts/make-certs.mjs`, `scripts/check-traceability.mjs`, `scripts/ci-env.mjs`, `server/src/infra/runtime/is-main.ts`, `server/src/jobs/user-lock.ts`, `.github/workflows/ci.yml`, `load/*.js`; M6.5: `.dockerignore`, `server/Dockerfile`, `client/Dockerfile`, `.github/workflows/cicd-docker.yml`, `infra/docker-compose.prod.yml`, `infra/mongo/init-prod.js`, `infra/nginx/nginx.conf`, `infra/.env.prod.example`, `server/.env.prod.example` (mục 9).
   - Cổng (kiến trúc §3): 5173, 4000, 9464, 27017, 6379, 3478/5349, 8081 — khớp.
   - Biến môi trường: đủ danh sách gốc + Phụ lục D (`NODE_ENV`, `METRICS_PORT`, `REDIS_KEY_PREFIX`, `REDIS_URL_TEST`, `SOCKET_ADAPTER`, `TRUST_PROXY`) + `SEED_PASSWORD` (`database_schema.md` §6.5).
   - Cookie/CSRF (kiến trúc §6.3), Socket.IO path/ping (§6.4), ICE servers/Xirsys/fallback/`ICE_TRANSPORT_POLICY` (§9.5), Redis/Mongo down (§10.1–10.2), `db:indexes`/`db:migrate`/`db:seed` (`database_schema.md` §6.3–6.5), `user:lock`/`user:unlock` (PRD FR-AUTH-006), `job:reencrypt` (kiến trúc §9.2.4), lint OpenAPI bằng `@redocly/cli` (`api_spec.yaml` header), DoD (PRD §7), NFR-05/09/11/13/14 (PRD §6).
@@ -1466,7 +1676,7 @@ Cột "Test ID" liệt kê test bắt buộc; `npm run trace:check -- --strict` 
 | FR-CALL-009 | AC-078, AC-079, AC-080 | EC-CALL-MEDIA-001, EC-CALL-MEDIA-002, EC-CALL-MEDIA-003, EC-CALL-MEDIA-004, EC-CALL-MEDIA-005, EC-CALL-MEDIA-006, EC-CALL-MEDIA-007, EC-CALL-MEDIA-008, EC-CALL-MEDIA-009, EC-CALL-MEDIA-010, EC-CALL-MEDIA-011, EC-CALL-MEDIA-012, EC-CALL-MEDIA-013 | `call:end` (`MEDIA_FAILURE`); không gửi `call:invite` khi lỗi trước khi gọi | `callHistory` | §3.7 MediaErrorPanel, ma trận UI §4.4 | TC-AC-078, TC-AC-079, TC-AC-080, TC-CALL-MEDIA-001, TC-CALL-MEDIA-002, TC-CALL-MEDIA-003, TC-CALL-MEDIA-004, TC-CALL-MEDIA-005, TC-CALL-MEDIA-006, TC-CALL-MEDIA-007, TC-CALL-MEDIA-008, TC-CALL-MEDIA-009, TC-CALL-MEDIA-010, TC-CALL-MEDIA-011, TC-CALL-MEDIA-012, TC-CALL-MEDIA-013 | M5 |
 | FR-CALL-010 | AC-086 | EC-CALL-SIG-012 | `call:invite` → ACK `VALIDATION_ERROR` "Cuộc gọi nhóm chưa được hỗ trợ" | `conversations` (`type`) | §3.3 ChatHeader (ẩn nút gọi trong nhóm) | TC-AC-086, TC-CALL-SIG-012 | M5 |
 | FR-CALL-011 | AC-093 | EC-CALL-MEDIA-010 | `call:incoming` | — | §3.5 IncomingCallScreen, AutoplayUnlockButton | TC-AC-093, TC-CALL-MEDIA-010 | M5 |
-| FR-SEC-001 | AC-107 | EC-CALL-MEDIA-009 | Toàn bộ REST/WSS qua HTTPS; DTLS-SRTP | — | §4.4 "không gian không an toàn" | TC-AC-107, TC-CALL-MEDIA-009 | M0, M6 |
+| FR-SEC-001 | AC-107, AC-ARCH-016, AC-ARCH-017 | EC-CALL-MEDIA-009, EC-SEC-009 | Toàn bộ REST/WSS qua HTTPS (nginx production, mục 9.3); DTLS-SRTP; `config/env.ts` (`COOKIE_SECURE`) | — | §4.4 "không gian không an toàn" | TC-AC-107, TC-ARCH-016, TC-ARCH-017, TC-CALL-MEDIA-009, TC-SEC-009 | M0, M6, M6.5 |
 | FR-SEC-002 | AC-100, AC-ARCH-005 | — | `message:send`, `message:edit`, `GET …/messages` (giải mã khi trả DTO) | `messages` (`contentEnc`) | — | TC-AC-100, TC-ARCH-005, TC-ARCH-004, TC-DB-005 | M0 (crypto), M3 |
 | FR-SEC-003 | AC-101 | — | `npm run job:reencrypt -w server` | `messages` (index `reencrypt_keyId`) | — | TC-AC-101, TC-DB-020 | M3 |
 | FR-SEC-004 | AC-108 | EC-SEC-005 | `POST /auth/register`, `/auth/login`, `/auth/change-password` | `users` (`passwordHash`, `select: false`) | — | TC-AC-108, TC-SEC-005, TC-DB-003 | M1 |

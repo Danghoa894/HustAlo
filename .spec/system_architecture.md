@@ -168,7 +168,7 @@ Các con số dưới đây là mục tiêu đo được; `product_requirements.
  ┌──────────────────────────────────────────────────────────┐              │       ▼
  │ Reverse proxy / TLS termination                          │              │  ┌──────────────────┐
  │  Prod: Nginx/Caddy (HSTS, CSP, phục vụ client/dist)      │              │  │ stun.l.google.com│
- │  Local: Vite dev server HTTPS (mkcert) proxy /api,       │              │  └──────────────────┘
+ │  Local: Vite dev (HTTP; HTTPS khi VITE_HTTPS=1) /api,    │              │  └──────────────────┘
  │         /socket.io → http://localhost:4000               │              │
  └───────────────────────────┬──────────────────────────────┘              │  ┌──────────────────────┐
                              │ HTTP nội bộ (cùng host/VPC)                 └─▶│ TURN (Xirsys)        │
@@ -211,7 +211,7 @@ Các con số dưới đây là mục tiêu đo được; `product_requirements.
 
 | Dịch vụ | Cổng | Ghi chú |
 |---|---|---|
-| Client (Vite, HTTPS mkcert) | 5173 | `https://localhost:5173`, hoặc `https://<LAN-IP>:5173` từ điện thoại |
+| Client (Vite) | 5173 | `http://localhost:5173` (mặc định); `https://localhost:5173` / `https://<LAN-IP>:5173` khi `VITE_HTTPS=1` + chứng chỉ mkcert (bắt buộc khi test từ điện thoại) |
 | Server (Express + Socket.IO) | 4000 | `http://localhost:4000/api/v1`, socket path `/socket.io` |
 | Metrics | 9464 | `http://localhost:9464/metrics`, chỉ bind `127.0.0.1` |
 | MongoDB | 27017 | replica set `rs0` |
@@ -237,6 +237,14 @@ hustalo/
 ├── .editorconfig
 ├── .gitignore                        # node_modules/, .env*, !.env.example, infra/certs/, **/dist, coverage
 ├── .nvmrc                            # 22
+├── .npmrc
+├── .gitattributes                    # eol=lf (development_guide.md §1.4)
+├── .prettierignore
+├── .dockerignore                     # [NEW] M6.5: node_modules, **/dist, .env*, infra/certs, .git, coverage
+├── .github/
+│   └── workflows/
+│       ├── ci.yml                    # verify (typecheck, lint, test) + e2e (development_guide.md §8.7)
+│       └── cicd-docker.yml           # [NEW] M6.5: build + push image Docker Hub, deploy qua SSH (development_guide.md §9.5)
 ├── .redocly.yaml                     # [NEW] cấu hình redocly lint cho .spec/api_spec.yaml
 ├── .redocly.lint-ignore.yaml         # [NEW] ngoại lệ có chủ đích (GET /health không có 4xx)
 ├── CLAUDE.md
@@ -247,16 +255,30 @@ hustalo/
 │   ├── ui_ux_spec.md
 │   ├── api_spec.yaml
 │   └── development_guide.md
+├── docs/
+│   ├── STATUS.md                     # tiến độ milestone, kết quả Gate, URL môi trường đã deploy
+│   ├── SPEC_CONFORMANCE.md           # đối chiếu code ↔ spec (lệnh /audit)
+│   └── testcases/                    # bảng test case (Testcase_HustALo.xlsx)
 ├── infra/
-│   ├── docker-compose.yml            # mongo (rs0), redis, coturn, mongo-express (profile tools)
+│   ├── docker-compose.yml            # CHỈ local: mongo (rs0), redis, coturn, mongo-express (profile tools)
+│   ├── docker-compose.prod.yml       # [NEW] M6.5: nginx, server, mongo (rs0 + auth + keyFile), redis (requirepass)
+│   ├── .env.example                  # biến cho compose local (development_guide.md §4.1)
 │   ├── mongo/
-│   │   └── init-replica.js           # rs.initiate({_id:"rs0", members:[{_id:0, host:"mongo:27017"}]})
+│   │   ├── init-replica.js           # rs.initiate({_id:"rs0", members:[{_id:0, host:"mongo:27017"}]})
+│   │   └── init-prod.js              # [NEW] M6.5: rs.initiate + tạo user root/app (development_guide.md §9.3)
+│   ├── nginx/
+│   │   └── nginx.conf                # [NEW] M6.5: TLS, HSTS, CSP; /api, /socket.io (Upgrade); SPA fallback
 │   ├── coturn/
 │   │   └── turnserver.conf           # cấu hình test, user tĩnh từ TURN_FALLBACK_*
 │   └── certs/                        # mkcert output (gitignored): localhost+lan.pem, localhost+lan-key.pem
 ├── scripts/
 │   ├── gen-secrets.mjs               # in ra JWT_ACCESS_SECRET, REFRESH_TOKEN_PEPPER, DATA_ENCRYPTION_KEYS
 │   ├── check-bundle-secrets.mjs      # quét client/dist tìm chuỗi XIRSYS_/SECRET/PEPPER (EC-SEC-006)
+│   ├── check-traceability.mjs        # npm run trace:check (development_guide.md §8.8)
+│   ├── make-certs.mjs                # npm run certs: mkcert localhost + LAN-IP → infra/certs
+│   ├── ci-env.mjs                    # sinh file .env cho CI từ .env.example (development_guide.md §8.7)
+│   ├── __tests__/
+│   │   └── check-traceability.test.mjs  # node:test — tham số --milestone (M0..M7, M6.5)
 │   └── spec-check.mjs                # [NEW] đối chiếu chéo .spec/ (npm run spec:check)
 ├── packages/
 │   └── shared/
@@ -294,12 +316,17 @@ hustalo/
 │   ├── tsup.config.ts
 │   ├── vitest.config.ts              # unit: src/**/*.test.ts trừ *.int.test.ts
 │   ├── vitest.integration.config.ts  # integration: src/**/*.int.test.ts, globalSetup mongo-memory replset
+│   ├── Dockerfile                    # [NEW] M6.5: multi-stage (deps → build tsup → runtime), USER node, HEALTHCHECK /api/v1/health
 │   ├── .env.example
 │   └── src/
 │       ├── main.ts                   # bootstrap: env → logger → mongo → redis → app → gateway → jobs → listen; SIGTERM
 │       ├── app.ts                    # createApp(deps): express + middleware + router + error handler
 │       ├── config/
 │       │   └── env.ts                # Zod parse process.env, fail-fast; export const env
+│       ├── __tests__/                # test kiến trúc toàn server (không thuộc module nào)
+│       │   ├── arch.test.ts                # hợp đồng chỉ định nghĩa ở @hustalo/shared (AC-ARCH-002)
+│       │   ├── eslint-arch.test.ts         # import/no-cycle + ràng buộc import theo thư mục (AC-ARCH-001)
+│       │   └── bundle-secrets.test.ts      # check-bundle-secrets.mjs (EC-SEC-006)
 │       ├── infra/
 │       │   ├── db/
 │       │   │   ├── mongo.ts                # connect (replicaSet bắt buộc), health ping
@@ -322,6 +349,8 @@ hustalo/
 │       │   │   └── random.ts               # randomToken(32), hmacSha256(pepper, value), timingSafeEqual
 │       │   ├── jwt/
 │       │   │   └── jwt.ts                  # signAccessToken / verifyAccessToken (jose, HS256)
+│       │   ├── runtime/
+│       │   │   └── is-main.ts              # isMainModule(import.meta.url) — entry script chạy đúng trên Windows (DG-02)
 │       │   ├── logger/
 │       │   │   └── logger.ts               # pino + redact (mục 11.3)
 │       │   ├── metrics/
@@ -438,17 +467,22 @@ hustalo/
 │       │       ├── health.schema.ts
 │       │       └── health.test.ts
 │       ├── jobs/
+│       │   ├── user-lock.ts                # npm run user:lock / user:unlock -w server (FR-AUTH-006, DG-03)
+│       │   ├── user-lock.int.test.ts
 │       │   ├── reencrypt-messages.ts       # job xoay khóa (mục 9.2.4): npm run job:reencrypt -w server
 │       │   └── reconcile-calls.ts          # chạy lúc boot: callHistory non-terminal mồ côi → FAILED/SERVER_RESTART
 │       └── test/
 │           ├── global-setup.ts             # MongoMemoryReplSet (1 node), REDIS_URL_TEST
+│           ├── test-env.ts                 # biến môi trường cố định cho test
 │           ├── factories.ts                # createUser, createConversation, loginAs
 │           ├── socket-client.ts            # connectAs(user, deviceId) → typed client + emitWithAck
 │           └── fake-clock.ts
 └── client/
     ├── package.json                  # name "@hustalo/client"
     ├── tsconfig.json
-    ├── vite.config.ts                # https mkcert, proxy /api + /socket.io → :4000 (ws: true)
+    ├── vite.config.ts                # http mặc định; https mkcert khi VITE_HTTPS=1; proxy /api + /socket.io → :4000 (ws: true)
+    ├── vitest.config.ts              # jsdom, setupFiles src/test/setup.ts
+    ├── Dockerfile                    # [NEW] M6.5: multi-stage (vite build → nginx:alpine non-root phục vụ dist)
     ├── tailwind.config.ts            # theme.extend từ ui_ux_spec.md
     ├── postcss.config.js
     ├── playwright.config.ts          # projects chromium/firefox/webkit; launch args fake media
@@ -457,6 +491,7 @@ hustalo/
     ├── public/
     │   ├── sounds/ringtone.mp3       # nhạc chuông cuộc gọi đến
     │   ├── sounds/ringback.mp3       # âm chờ cuộc gọi đi
+    │   ├── theme-init.js             # đặt class theme trước khi React mount (tránh nháy màu)
     │   └── favicon.svg
     ├── e2e/
     │   ├── fixtures.ts               # login nhanh qua API, 2 context (alice/bob)
@@ -507,6 +542,10 @@ hustalo/
         │   └── time/
         │       ├── server-clock.ts   # ước lượng lệch giờ từ occurredAt (median 5 mẫu gần nhất)
         │       └── format.ts         # định dạng giờ/ngày tiếng Việt
+        ├── i18n/
+        │   ├── vi.ts                 # chuỗi UI tiếng Việt (ui_ux_spec.md)
+        │   ├── errors.ts             # ErrorCode → thông điệp hiển thị
+        │   └── errors.test.ts
         ├── stores/
         │   ├── auth.store.ts         # accessToken (chỉ RAM), user, expiresAt
         │   ├── socket.store.ts       # connectionState: connecting|connected|reconnecting|offline|expired
@@ -587,6 +626,8 @@ hustalo/
         └── test/
             └── setup.ts               # vitest jsdom, fake-indexeddb
 ```
+
+Quy ước test client: unit test `*.test.ts(x)` đặt **cạnh file nguồn** (ví dụ `lib/api/http.test.ts`, `routes/guards/guards.test.tsx`); `src/test/` chỉ chứa setup dùng chung. Cây trên không liệt kê từng file test client.
 
 ### 4.2 Quy ước file
 
@@ -1163,7 +1204,7 @@ Set-Cookie: hustalo_rt=<token>; HttpOnly; Secure; SameSite=Strict; Path=/api/v1/
 Set-Cookie: hustalo_csrf=<random 32 byte base64url>; Secure; SameSite=Strict; Path=/; Max-Age=2592000
 ```
 
-- `COOKIE_SECURE=false` chỉ cho phép khi `NODE_ENV=development` và origin `http://localhost` (dev mặc định vẫn dùng HTTPS mkcert, nên khuyến nghị `true`).
+- `COOKIE_SECURE=false` chỉ cho phép khi `NODE_ENV` ∈ {`development`, `test`} (dev/E2E mặc định chạy `http://localhost`, WebKit có thể không lưu cookie `Secure` qua HTTP); `server/.env.example` mặc định `false`. `NODE_ENV=production` và `COOKIE_SECURE=false` → `config/env.ts` từ chối khởi động (EC-SEC-009). Khi bật `VITE_HTTPS=1` có thể đặt `true` để giống production.
 - CSRF: `POST /auth/refresh` và `POST /auth/logout` yêu cầu header `X-CSRF-Token` bằng giá trị cookie `hustalo_csrf` (so sánh `timingSafeEqual`). Endpoint dùng Bearer không cần CSRF (Bearer không tự gửi theo trình duyệt).
 - Access token lưu **chỉ trong RAM** (`auth.store.ts`). Reload trang → gọi `/auth/refresh` để lấy lại.
 
@@ -1735,7 +1776,7 @@ Văn bản dưới đây là chuỗi chính; `ui_ux_spec.md` dùng đúng các c
 
 | Kênh | Bảo vệ | Ghi chú |
 |---|---|---|
-| REST | HTTPS (TLS 1.2+), HSTS `max-age=31536000; includeSubDomains` ở production | Local: Vite HTTPS bằng mkcert; server Express HTTP sau proxy Vite |
+| REST | HTTPS (TLS 1.2+), HSTS `max-age=31536000; includeSubDomains` ở production (nginx, `development_guide.md` §9.3) | Local: Vite `http://localhost` mặc định, HTTPS mkcert khi `VITE_HTTPS=1`; server Express HTTP sau proxy Vite |
 | Socket.IO | WSS (hoặc HTTPS long-polling) | Cùng origin với SPA qua proxy; `CORS_ORIGINS` whitelist |
 | Media | DTLS-SRTP (bắt buộc bởi WebRTC) | Không tắt được; fingerprint DTLS nằm trong SDP đi qua signaling WSS |
 | TURN | `turn:` (UDP/TCP 3478) và `turns:` (TLS 443) | Media vẫn là SRTP đã mã hóa; TURN chỉ thấy metadata |
@@ -2036,6 +2077,8 @@ redact: {
 | AC-ARCH-013 | **Given** hai tab của cùng user cùng gọi `/auth/refresh` trong 1 s, **When** hoàn tất, **Then** cả hai tab có access token hợp lệ và family **không** bị thu hồi (D-19). |
 | AC-ARCH-014 | **Given** socket kết nối với token hết hạn trong 1 phút, **When** tới `exp`, **Then** client nhận `session:expired`, socket bị ngắt sau 5 s nếu chưa reconnect, client refresh và reconnect thành công, không mất event `message:new` (sync REST bù). |
 | AC-ARCH-015 | **Given** hai user gọi nhau cùng lúc (glare), **When** cả hai `call:invite` tới server trong vòng 50 ms, **Then** chỉ tồn tại đúng một `callHistory` cho cặp đó ở trạng thái ACCEPTED rồi CONNECTED. |
+| AC-ARCH-016 | **Given** stack production đã deploy bằng `infra/docker-compose.prod.yml` (`development_guide.md` §9), **When** gọi `GET https://<domain>/api/v1/health` và `GET http://<domain>/`, **Then** health trả 200 `{"status":"ok","mongo":"up","redis":"up"}` qua nginx, có header `Strict-Transport-Security`, và HTTP trả 301 sang HTTPS. |
+| AC-ARCH-017 | **Given** môi trường đã deploy và tài khoản smoke, **When** chạy Playwright `@smoke` với `E2E_BASE_URL=https://<domain>`, **Then** hai user đăng nhập, gửi/nhận tin realtime, và kết nối Socket.IO dùng `wss://` transport websocket (không chỉ polling). |
 
 ---
 
@@ -2277,6 +2320,7 @@ Ma trận edge case trong `product_requirements.md` phải chứa **đúng** cá
 | EC-SEC-006 | Secret lọt vào bundle | `check-bundle-secrets.mjs` trong build | 9.5 |
 | EC-SEC-007 | Log lộ token | pino redact + test | 11.3 |
 | EC-SEC-008 | Lời mời gọi spam diện rộng | `callInvite` theo user + metric cảnh báo `hustalo_rate_limited_total{rule="callInvite"}` | 4.4.1 |
+| EC-SEC-009 | Production cấu hình cookie không `Secure` | `NODE_ENV=production` + `COOKIE_SECURE=false` → `config/env.ts` từ chối khởi động; `false` chỉ hợp lệ khi `NODE_ENV` ∈ {development, test} | 6.3 |
 
 ### E2EE
 
@@ -2291,7 +2335,7 @@ Ma trận edge case trong `product_requirements.md` phải chứa **đúng** cá
 | EC-E2EE-007 | Đăng nhập thiết bị mới không đọc lịch sử SECRET cũ | Hành vi thiết kế | 7(h) |
 | EC-E2EE-008 | Danh sách thiết bị đổi giữa lúc gửi | `CONFLICT` → tải lại bundle, mã hóa lại | 7(h) |
 
-Tổng: 105 edge case.
+Tổng: 106 edge case.
 
 ---
 
@@ -2320,8 +2364,8 @@ Giá trị nhạy cảm (`JWT_ACCESS_SECRET`, `REFRESH_TOKEN_PEPPER`, `DATA_ENCR
   - 20 mã lỗi khớp danh sách gốc (4.4.3); ánh xạ HTTP chỉ dùng 400/401/403/404/409/413/422/429/503/500 (và 200 cho `DUPLICATE_MESSAGE` vốn không phải lỗi).
   - 35 event khớp danh sách 3.3 gốc; không có `message:ack`, không có `call:initiate` (4.5). ACK `message:send` qua callback.
   - Mọi hằng số gốc giữ giá trị: `MESSAGE_MAX_LENGTH=4000`, `GROUP_MAX_MEMBERS=100`, `GROUP_TITLE_MAX=100`, `DISPLAY_NAME_MAX=80`, `HISTORY_PAGE_DEFAULT=30`, `HISTORY_PAGE_MAX=100`, access 15m, refresh 30d, presence 60s/20s/10s, typing 5s/3s, call 45s/30s/20s/2 restart, TURN 1h/5', outbox 200/backoff/30s/24h, rate limit 6 rule gốc, Socket.IO 25s/20s/2'.
-- [x] **FR/AC được tham chiếu bằng ID:** Registry FR (Phụ lục B) cấp sẵn 56 FR ID cho PRD; AC kiến trúc `AC-ARCH-001..015` (mục 12); AC nghiệp vụ `AC-xxx` do PRD cấp.
-- [x] **Edge case có ID:** 105 EC ID ở Phụ lục C phủ đủ 11 nhóm của mục 7 yêu cầu gốc (AUTH, NET, MSG, GROUP, PRES, CALL-SIG, CALL-MEDIA, CALL-NET, INFRA, SEC, E2EE); mỗi EC có quyết định chốt và mục tham chiếu; Test ID theo quy ước `TC-*`.
+- [x] **FR/AC được tham chiếu bằng ID:** Registry FR (Phụ lục B) cấp sẵn 56 FR ID cho PRD; AC kiến trúc `AC-ARCH-001..017` (mục 12; 016–017 bổ sung cho triển khai M6.5); AC nghiệp vụ `AC-xxx` do PRD cấp.
+- [x] **Edge case có ID:** 106 EC ID ở Phụ lục C phủ đủ 11 nhóm của mục 7 yêu cầu gốc (AUTH, NET, MSG, GROUP, PRES, CALL-SIG, CALL-MEDIA, CALL-NET, INFRA, SEC, E2EE); mỗi EC có quyết định chốt và mục tham chiếu; Test ID theo quy ước `TC-*`.
 - [x] **Không có secret thật, không chỗ trống:** ví dụ dùng `<ngắn hạn>`, `tr.example.net`, `<host>`; không có "TODO"/"..." thay nội dung; các điểm chưa chắc chắn về API bên thứ ba đều ghi `// Xác minh với tài liệu chính thức của …` kèm giả định (Socket.IO `skipMiddlewares`/`tryAllTransports`/adapter, Xirsys API, libsignal TS, rate-limiter-flexible, OWASP Argon2).
 - [x] **Sửa 8 mâu thuẫn của bản nháp:** (1) cấu trúc server chốt `modules/ realtime/ infra/ http/` (D-01); (2) tên event theo 3.3; (3) một enum `CallStatus` cho state machine/DB/UI (8.1); (4) người tạo nhóm là OWNER; (5) `message:edit/delete` có quy tắc 15 phút, chỉ người gửi, placeholder thu hồi (FR-CHAT-007/008); (6) AES-256-GCM (9.2) và E2EE (7(h), 9.3) đặc tả mức code; (7) không lồng code block; (8) glare, đổ chuông đa thiết bị, chặn người dùng, OWNER rời nhóm, gọi nhóm bị từ chối đều có quyết định (D-03, D-07, D-21, D-22, D-23).
 - [x] **Không mâu thuẫn với file đã sinh trước:** đây là file đầu tiên (1/6). Các điểm các file sau phải đối chiếu: cây thư mục 4.1 (`development_guide.md`, `ui_ux_spec.md`), endpoint 4.6 gồm 4 endpoint `[NEW]` (`api_spec.yaml`), payload event 4.5 (`api_spec.yaml` `x-socket-events`), Redis key Phụ lục A và collection list (`database_schema.md`), chuỗi UI 8.6 (`ui_ux_spec.md`), FR/EC registry (`product_requirements.md`), biến môi trường Phụ lục D (`development_guide.md`).

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // scripts/check-traceability.mjs — đối chiếu Test ID trong spec với tên test (development_guide.md §8.8)
 //   node scripts/check-traceability.mjs                       → ID của Traceability Matrix
-//   node scripts/check-traceability.mjs --milestone M3        → ID trong mục "### M3" của lộ trình
+//   node scripts/check-traceability.mjs --milestone M3        → ID trong mục "### M3" của lộ trình (M0..M7, M6.5)
 //   --strict                                                  → exit 1 nếu còn ID thiếu test
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
@@ -15,8 +15,8 @@ const args = process.argv.slice(2);
 const strict = args.includes('--strict');
 const msIndex = args.indexOf('--milestone');
 const milestone = msIndex >= 0 ? args[msIndex + 1] : undefined;
-if (msIndex >= 0 && !/^M\d$/.test(milestone ?? '')) {
-  console.error('[trace] --milestone cần giá trị dạng M0..M7');
+if (msIndex >= 0 && !/^M\d(\.5)?$/.test(milestone ?? '')) {
+  console.error('[trace] --milestone cần giá trị dạng M0..M7 hoặc M6.5');
   process.exit(2);
 }
 
@@ -24,7 +24,8 @@ const guide = readFileSync(join(root, '.spec', 'development_guide.md'), 'utf8');
 
 function sectionIds() {
   if (milestone) {
-    const start = guide.search(new RegExp(`^### ${milestone}\\b`, 'm'));
+    // `(?![\d.])`: "### M6" không được khớp nhầm "### M6.5" và ngược lại.
+    const start = guide.search(new RegExp(`^### ${milestone.replace('.', '\\.')}(?![\\d.])`, 'm'));
     if (start < 0) throw new Error(`Không tìm thấy mục "### ${milestone}"`);
     const rest = guide.slice(start + 4);
     const next = rest.search(/^#{2,3} /m);

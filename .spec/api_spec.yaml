@@ -34,7 +34,7 @@ info:
     url: https://hustalo.local
 servers:
   - url: http://localhost:4000/api/v1
-    description: Local (server Express trực tiếp; trình duyệt đi qua proxy HTTPS của Vite tại https://localhost:5173/api/v1)
+    description: Local (server Express trực tiếp; trình duyệt đi qua proxy của Vite tại http://localhost:5173/api/v1, hoặc https khi VITE_HTTPS=1)
 security:
   - bearerAuth: []
 tags:
