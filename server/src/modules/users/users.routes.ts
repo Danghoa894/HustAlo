@@ -14,6 +14,7 @@ export function usersRoutes(service: UsersService, checker: RevocationChecker, l
   router.use('/users', authenticate(checker), rateLimit(limiters, 'rest', subjects.user));
   router.get('/users/search', validate({ query: UserSearchQuerySchema }), c.search);
   router.patch('/users/me', validate({ body: UpdateMeRequestSchema }), c.updateMe);
+  router.get('/users/blocked', c.listBlocked);
   router.post('/users/:userId/block', validate({ params: UserIdParamsSchema }), c.block);
   router.delete('/users/:userId/block', validate({ params: UserIdParamsSchema }), c.unblock);
   return router;

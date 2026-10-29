@@ -144,6 +144,17 @@ export const usersService = {
     return new Map(docs.map((u) => [String(u._id), { user: toUserPublic(u), active: u.status === UserStatus.ACTIVE }]));
   },
 
+  /** GET /users/blocked (FR-USER-003): người mình đã chặn, theo thứ tự chặn, tối đa BLOCKED_LIST_MAX. */
+  async listBlocked(meId: string): Promise<UserPublic[]> {
+    const ids = (await usersRepository.blockedIdsOf(meId)).map(String);
+    if (ids.length === 0) return [];
+    const byId = new Map((await usersRepository.findManyByIds(ids)).map((u) => [String(u._id), toUserPublic(u)]));
+    return ids.flatMap((id) => {
+      const u = byId.get(id);
+      return u ? [u] : [];
+    });
+  },
+
   /** Trong `ids`, những người `meId` đã chặn. */
   blockedByMeAmong: (meId: string, ids: string[]) =>
     ids.length === 0

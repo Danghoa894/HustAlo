@@ -1,6 +1,6 @@
 // server/src/main.ts — bootstrap: env → logger → key ring → mongo → redis → app → gateway → listen; SIGTERM (kiến trúc §10.3)
 // createRuntime() ghép mọi thành phần (dùng chung cho process thật và integration test).
-import { createServer, type Server as HttpServer } from 'node:http';
+import { createServer, type RequestListener, type Server as HttpServer } from 'node:http';
 import type { Logger } from 'pino';
 import { env } from './config/env';
 import { createApp } from './app';
@@ -14,11 +14,13 @@ import { isMainModule } from './infra/runtime/is-main';
 import { createAuthRepository } from './modules/auth/auth.repository';
 import { createAuthService, type AuthService } from './modules/auth/auth.service';
 import { createConversationsService, type ConversationsService } from './modules/conversations/conversations.service';
-import { messagesService } from './modules/messages/messages.service';
+import { createMessagesService, messagesCore, type MessagesService } from './modules/messages/messages.service';
+import { createReceiptsService } from './modules/messages/receipts.service';
 import { usersService } from './modules/users/users.service';
 import { createEmitter, type Emitter } from './realtime/emitter';
 import { createGateway, type HustaloServer } from './realtime/gateway';
 import { registerConversationHandlers } from './realtime/handlers/conversation.handler';
+import { registerMessageHandlers } from './realtime/handlers/message.handler';
 import { createSessionNotifier, subscribeUserLocked } from './realtime/handlers/session.handler';
 
 const HTTP_DRAIN_TIMEOUT_MS = 10_000;
@@ -30,6 +32,7 @@ export interface Runtime {
   emitter: Emitter;
   auth: AuthService;
   conversations: ConversationsService;
+  messages: MessagesService;
   redis: RedisHandle;
   setDraining(v: boolean): void;
   close(): Promise<void>;
@@ -38,6 +41,8 @@ export interface Runtime {
 export interface RuntimeOptions {
   redis: RedisHandle;
   logger: Logger;
+  /** Chỉ test: hook trong transaction gửi tin (TC-DB-007). */
+  messageHooks?: { afterInsert?: () => Promise<void> };
 }
 
 export async function createRuntime(opts: RuntimeOptions): Promise<Runtime> {
@@ -45,7 +50,15 @@ export async function createRuntime(opts: RuntimeOptions): Promise<Runtime> {
   let draining = false;
 
   // Thứ tự phá vòng phụ thuộc: http server → gateway (socket-auth chỉ cần repository) → emitter → service → app.
-  const httpServer = createServer();
+  // Listener 'request' phải có TRƯỚC khi Socket.IO attach: engine.io bọc các listener sẵn có và chỉ tự xử lý
+  // /socket.io/*. Gắn Express sau sẽ làm request long-polling rơi vào Express (404) — EC-NET-010.
+  let handleRequest: RequestListener = (_req, res) => {
+    res.statusCode = 503;
+    res.end();
+  };
+  const httpServer = createServer((req, res) => {
+    handleRequest(req, res);
+  });
   const authRepo = createAuthRepository(redis);
   const io = createGateway(httpServer, {
     path: env.SOCKET_PATH,
@@ -60,8 +73,16 @@ export async function createRuntime(opts: RuntimeOptions): Promise<Runtime> {
   const emitter = createEmitter(io);
   const auth = createAuthService({ repo: authRepo, notifier: createSessionNotifier(emitter) });
   const rateLimiters = createRateLimiters(redis.client);
-  const conversations = createConversationsService({ emitter, users: usersService, messages: messagesService, redis });
+  const conversations = createConversationsService({ emitter, users: usersService, messages: messagesCore, redis });
+  const messages = createMessagesService({
+    conversations,
+    users: usersService,
+    emitter,
+    ...(opts.messageHooks ? { hooks: opts.messageHooks } : {}),
+  });
+  const receipts = createReceiptsService({ conversations, emitter });
   registerConversationHandlers(io, { conversations, logger: opts.logger, rateLimiters });
+  registerMessageHandlers(io, { messages, receipts, logger: opts.logger, rateLimiters });
 
   const app = createApp({
     logger: opts.logger,
@@ -69,9 +90,9 @@ export async function createRuntime(opts: RuntimeOptions): Promise<Runtime> {
     trustProxy: env.TRUST_PROXY,
     production: env.NODE_ENV === 'production',
     health: { pingMongo, isRedisHealthy: () => redis.isHealthy(), isDraining: () => draining },
-    modules: { auth, users: usersService, conversations, rateLimiters },
+    modules: { auth, users: usersService, conversations, messages, receipts, rateLimiters },
   });
-  httpServer.on('request', app);
+  handleRequest = app;
 
   // Kết nối Redis riêng cho Pub/Sub (DG-03); Redis down lúc boot → thử lại theo retryStrategy.
   // duplicate() kế thừa lazyConnect + enableOfflineQueue=false của client chính → SUBSCRIBE bị từ chối ngay vì
@@ -97,6 +118,7 @@ export async function createRuntime(opts: RuntimeOptions): Promise<Runtime> {
     emitter,
     auth,
     conversations,
+    messages,
     redis,
     setDraining: (v) => {
       draining = v;

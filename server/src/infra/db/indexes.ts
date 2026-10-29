@@ -9,6 +9,7 @@ import { RefreshSessionModel } from '../../modules/auth/refreshSession.model';
 import { ConversationModel } from '../../modules/conversations/conversation.model';
 import { ConversationMemberModel } from '../../modules/conversations/conversationMember.model';
 import { MessageModel } from '../../modules/messages/message.model';
+import { MessageReceiptModel } from '../../modules/messages/messageReceipt.model';
 import { UserModel } from '../../modules/users/user.model';
 import { UserBlockModel } from '../../modules/users/userBlock.model';
 
@@ -25,6 +26,7 @@ export const ALL_MODELS: readonly IndexedModel[] = [
   ConversationModel,
   ConversationMemberModel,
   MessageModel,
+  MessageReceiptModel,
 ];
 
 export async function ensureIndexes(models: readonly IndexedModel[] = ALL_MODELS): Promise<void> {

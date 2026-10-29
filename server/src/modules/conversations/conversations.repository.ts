@@ -33,7 +33,9 @@ export interface MemberRecord {
   joinedAt: Date;
   leftAt: Date | null;
   lastDeliveredMessageId: Types.ObjectId | null;
+  lastDeliveredMessageAt: Date | null;
   lastReadMessageId: Types.ObjectId | null;
+  lastReadMessageAt: Date | null;
 }
 
 const oid = (id: string | Types.ObjectId) => (typeof id === 'string' ? new Types.ObjectId(id) : id);
@@ -51,13 +53,13 @@ export const conversationsRepository = {
   findByIdempotencyKey: (createdBy: string, idempotencyKey: string) =>
     ConversationModel.findOne({ createdBy, idempotencyKey, type: 'GROUP' }).lean<ConversationRecord>().exec(),
 
-  /** DB §4.3: upsert theo (type, directKey); `created` = bản ghi vừa được chèn. */
-  async upsertPair(type: 'DIRECT' | 'SECRET', directKey: string, createdBy: string, session: ClientSession) {
+  /** DB §4.3: upsert theo (type, directKey) — nguyên tử nhờ unique index; `created` = bản ghi vừa được chèn. */
+  async upsertPair(type: 'DIRECT' | 'SECRET', directKey: string, createdBy: string) {
     // Xác minh với tài liệu chính thức của Mongoose 8: tùy chọn includeResultMetadata (thay rawResult).
     const res = (await ConversationModel.findOneAndUpdate(
       { type, directKey },
       { $setOnInsert: { type, directKey, createdBy: oid(createdBy), memberCount: 2, lastMessageAt: new Date() } },
-      { upsert: true, new: true, session, includeResultMetadata: true, lean: true },
+      { upsert: true, new: true, includeResultMetadata: true, lean: true },
     ).exec()) as unknown as { value: ConversationRecord | null; lastErrorObject?: { upserted?: unknown } };
     const conv = res.value;
     if (!conv) throw new Error('upsertPair không trả về hội thoại');
@@ -116,8 +118,13 @@ export const conversationsRepository = {
 
   activeMembershipsOf: (userId: string) =>
     ConversationMemberModel.find({ userId: oid(userId), leftAt: null })
-      .select('conversationId lastDeliveredMessageId lastReadMessageId role')
-      .lean<Pick<MemberRecord, 'conversationId' | 'lastDeliveredMessageId' | 'lastReadMessageId' | 'role'>[]>()
+      .select('conversationId lastDeliveredMessageId lastReadMessageId lastReadMessageAt role')
+      .lean<
+        Pick<
+          MemberRecord,
+          'conversationId' | 'lastDeliveredMessageId' | 'lastReadMessageId' | 'lastReadMessageAt' | 'role'
+        >[]
+      >()
       .exec(),
 
   /** Thành viên còn lại (khác `userId`) của các hội thoại DIRECT/SECRET — dựng `peer`. */
@@ -144,6 +151,50 @@ export const conversationsRepository = {
       .limit(limit + 1)
       .lean<ConversationRecord[]>()
       .exec();
+  },
+
+  /**
+   * DB §4.5: tiến cursor delivered/read của thành viên chỉ khi mốc mới lớn hơn (theo tuple thời gian, _id).
+   * true = đã tiến (modifiedCount 1); không bao giờ lùi (AC-025, TC-DB-010).
+   */
+  async advanceCursor(
+    id: Types.ObjectId,
+    userId: string,
+    field: 'Delivered' | 'Read',
+    to: { at: Date; id: Types.ObjectId },
+    session?: ClientSession,
+  ): Promise<boolean> {
+    const atKey = `last${field}MessageAt`;
+    const idKey = `last${field}MessageId`;
+    const res = await ConversationMemberModel.updateOne(
+      {
+        conversationId: id,
+        userId: oid(userId),
+        leftAt: null,
+        $or: [{ [atKey]: null }, { [atKey]: { $lt: to.at } }, { [atKey]: to.at, [idKey]: { $lt: to.id } }],
+      },
+      { $set: { [atKey]: to.at, [idKey]: to.id } },
+      session ? { session } : {},
+    ).exec();
+    return res.modifiedCount === 1;
+  },
+
+  /** DB §3.2: "đã xem bởi X/Y" cho một tin GROUP — thành viên hiện tại khác người gửi. */
+  async groupReadStats(id: Types.ObjectId, msg: { _id: Types.ObjectId; createdAt: Date; senderId: Types.ObjectId }) {
+    const base = { conversationId: id, leftAt: null, userId: { $ne: msg.senderId } };
+    const reached = (f: 'Read' | 'Delivered') => ({
+      ...base,
+      $or: [
+        { [`last${f}MessageAt`]: { $gt: msg.createdAt } },
+        { [`last${f}MessageAt`]: msg.createdAt, [`last${f}MessageId`]: { $gte: msg._id } },
+      ],
+    });
+    const [total, read, delivered] = await Promise.all([
+      ConversationMemberModel.countDocuments(base).exec(),
+      ConversationMemberModel.countDocuments(reached('Read')).exec(),
+      ConversationMemberModel.countDocuments(reached('Delivered')).exec(),
+    ]);
+    return { total, read, delivered };
   },
 
   setTitle: (id: Types.ObjectId, title: string, session: ClientSession) =>
@@ -180,6 +231,17 @@ export const conversationsRepository = {
 
   softDelete: (id: Types.ObjectId, session: ClientSession) =>
     ConversationModel.updateOne({ _id: id }, { $set: { deletedAt: new Date() } }, { session }).exec(),
+
+  /** Đảm bảo hai người của DIRECT/SECRET là thành viên — idempotent (upsert theo conv_user_unique, không đổi bản đã có). */
+  async ensurePairMembers(id: Types.ObjectId, userIds: [string, string]) {
+    for (const userId of userIds) {
+      await ConversationMemberModel.updateOne(
+        { conversationId: id, userId: oid(userId) },
+        { $setOnInsert: { conversationId: id, userId: oid(userId), role: 'MEMBER', joinedAt: new Date() } },
+        { upsert: true },
+      ).exec();
+    }
+  },
 
   /** Thêm mới hoặc thêm lại người đã rời, giữ cursor cũ (DB §2.5). */
   async upsertMembers(id: Types.ObjectId, userIds: string[], addedBy: string, session: ClientSession) {

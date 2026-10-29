@@ -23,11 +23,17 @@ export interface TestServer {
   close(): Promise<void>;
 }
 
-export async function startTestServer(opts: { redisUrl?: string } = {}): Promise<TestServer> {
+export async function startTestServer(
+  opts: { redisUrl?: string; messageHooks?: { afterInsert?: () => Promise<void> } } = {},
+): Promise<TestServer> {
   await connectMongo(process.env.MONGODB_URI ?? '');
   const redis = createRedis(opts.redisUrl ?? process.env.REDIS_URL ?? '');
   if (!opts.redisUrl) await redis.client.connect();
-  const runtime = await createRuntime({ redis, logger: createLogger({ level: 'silent' }) });
+  const runtime = await createRuntime({
+    redis,
+    logger: createLogger({ level: 'silent' }),
+    ...(opts.messageHooks ? { messageHooks: opts.messageHooks } : {}),
+  });
   await new Promise<void>((resolve) => runtime.httpServer.listen(0, '127.0.0.1', resolve));
   const { port } = runtime.httpServer.address() as AddressInfo;
   const url = `http://127.0.0.1:${port}`;

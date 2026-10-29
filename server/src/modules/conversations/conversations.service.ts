@@ -26,7 +26,7 @@ import type { RedisHandle } from '../../infra/redis/redis';
 import { keys } from '../../infra/redis/keys';
 import type { Emitter } from '../../realtime/emitter';
 import { convRoom, userRoom } from '../../realtime/rooms';
-import type { MessagePreviewRecord, MessagesService, SystemInput } from '../messages/messages.service';
+import type { CursorField, MessagePreviewRecord, MessagesCore, SystemInput } from '../messages/messages.service';
 import type { UsersService } from '../users/users.service';
 import { directKeyOf } from './conversation.model';
 import {
@@ -52,10 +52,13 @@ const isDuplicateKey = (err: unknown, index?: string): boolean =>
 
 const dedupe = (ids: string[]) => [...new Set(ids)];
 
+const readCursorOf = (m: { lastReadMessageAt?: Date | null; lastReadMessageId?: Types.ObjectId | null } | undefined) =>
+  m?.lastReadMessageAt && m.lastReadMessageId ? { at: m.lastReadMessageAt, id: m.lastReadMessageId } : null;
+
 export interface ConversationsDeps {
   emitter: Emitter;
   users: Pick<UsersService, 'getPublicMany' | 'isBlockedEitherWay' | 'blockedByMeAmong' | 'blockersOf'>;
-  messages: Pick<MessagesService, 'createSystemMessage' | 'previewsFor'>;
+  messages: Pick<MessagesCore, 'createSystemMessage' | 'previewsFor' | 'countUnread' | 'textPreview'>;
   redis: RedisHandle;
 }
 
@@ -185,25 +188,18 @@ export function createConversationsService(deps: ConversationsDeps) {
     };
   }
 
-  /** DB §4.3: DIRECT/SECRET duy nhất theo cặp, an toàn khi đua (D-11). */
+  /**
+   * DB §4.3: DIRECT/SECRET duy nhất theo cặp, an toàn khi đua (D-11). Upsert hội thoại là thao tác một document nguyên tử
+   * (unique index type_directKey_unique); thành viên được đảm bảo idempotent ở mỗi lần gọi, nên không cần transaction —
+   * tránh hàng loạt WriteConflict khi nhiều request cùng cặp đến đồng thời (TC-DB-008).
+   */
   async function getOrCreatePair(type: 'DIRECT' | 'SECRET', me: string, other: string) {
     const directKey = directKeyOf(me, other);
     for (let attempt = 0; ; attempt += 1) {
       try {
-        return await withTxn(async (session) => {
-          const { conv, created } = await repo.upsertPair(type, directKey, me, session);
-          if (created) {
-            await repo.insertMembers(
-              conv._id,
-              [
-                { userId: me, role: 'MEMBER', addedBy: null },
-                { userId: other, role: 'MEMBER', addedBy: null },
-              ],
-              session,
-            );
-          }
-          return { id: String(conv._id), created };
-        });
+        const { conv, created } = await repo.upsertPair(type, directKey, me);
+        await repo.ensurePairMembers(conv._id, [me, other]);
+        return { id: String(conv._id), created };
       } catch (err) {
         // Hai upsert đồng thời: một bên E11000 trên type_directKey_unique → thử lại sẽ tìm thấy bản đã có.
         if (isDuplicateKey(err) && attempt < 2) continue;
@@ -292,13 +288,55 @@ export function createConversationsService(deps: ConversationsDeps) {
       return toDTO(conv, me);
     },
 
-    /** Socket join hội thoại: AUTHZ-2; số chưa đọc (M3) và typing (M4) chưa có → 0 / []. */
+    /** Socket join hội thoại: AUTHZ-2 + số chưa đọc; typing (M4) chưa có → []. */
     async join(me: string, conversationId: string) {
-      const { conv } = await assertMember(conversationId, me);
-      return { conversation: await toDTO(conv, me), unreadCount: 0, typingUserIds: [] as string[] };
+      const { conv, member } = await assertMember(conversationId, me);
+      const unreadCount = await messages.countUnread(conv._id, me, readCursorOf(member));
+      return { conversation: await toDTO(conv, me), unreadCount, typingUserIds: [] as string[] };
     },
 
-    /** FR-CHAT-009 (DB §4.1). `unreadCount` thật ở M3. */
+    // ---- port cho module messages (kiến trúc §5.2: assertMember, listMemberIds, cursor receipt — DB §2.5) ----
+    async activeMemberIds(conversationId: Types.ObjectId, session?: ClientSession): Promise<string[]> {
+      return (await repo.activeMembers(conversationId, session)).map((m) => String(m.userId));
+    },
+
+    touchLastMessage: (
+      conversationId: Types.ObjectId,
+      last: { messageId: Types.ObjectId; senderId: Types.ObjectId; type: 'TEXT'; createdAt: Date },
+      session: ClientSession,
+    ) => repo.setLastMessage(conversationId, last, session),
+
+    async advanceCursors(
+      conversationId: Types.ObjectId,
+      userId: string,
+      to: { at: Date; id: Types.ObjectId },
+      fields: CursorField[],
+      session?: ClientSession,
+    ): Promise<CursorField[]> {
+      const advanced: CursorField[] = [];
+      for (const f of fields) {
+        if (await repo.advanceCursor(conversationId, userId, f, to, session)) advanced.push(f);
+      }
+      return advanced;
+    },
+
+    async memberCursors(conversationId: Types.ObjectId, userId: string) {
+      const m = await repo.findMember(conversationId, userId);
+      const tuple = (at: Date | null | undefined, id: Types.ObjectId | null | undefined) =>
+        at && id ? { at, id } : null;
+      return {
+        delivered: tuple(m?.lastDeliveredMessageAt, m?.lastDeliveredMessageId),
+        read: tuple(m?.lastReadMessageAt, m?.lastReadMessageId),
+      };
+    },
+
+    /** DB §3.2 (TC-DB-014): X/Y đã đọc / đã nhận cho một tin GROUP. */
+    groupReadStats: (
+      conversationId: Types.ObjectId,
+      msg: { _id: Types.ObjectId; createdAt: Date; senderId: Types.ObjectId },
+    ) => repo.groupReadStats(conversationId, msg),
+
+    /** FR-CHAT-009 (DB §4.1). */
     async list(me: string, query: { cursor?: string | undefined; limit: number }): Promise<ConversationPage> {
       let cursor: { at: Date; id: Types.ObjectId } | null = null;
       if (query.cursor) {
@@ -339,6 +377,15 @@ export function createConversationsService(deps: ConversationsDeps) {
       ]);
       const mine = new Set(blockedByMe);
       const theirs = new Set(blockers);
+      // DB §4.1 bước 4: số chưa đọc song song, mỗi hội thoại dừng ở 100.
+      const unread = new Map(
+        await Promise.all(
+          page.map(
+            async (c) =>
+              [String(c._id), await messages.countUnread(c._id, me, readCursorOf(byConv.get(String(c._id))))] as const,
+          ),
+        ),
+      );
 
       const items: ConversationSummary[] = page.map((c) => {
         const id = String(c._id);
@@ -355,7 +402,7 @@ export function createConversationsService(deps: ConversationsDeps) {
                 displayName: profiles.get(String(msg.senderId))?.user.displayName ?? '',
               },
               type: msg.type,
-              preview: null, // TEXT (giải mã) ở M3; SYSTEM: client dựng từ `system`
+              preview: messages.textPreview(msg), // SYSTEM: null, client dựng từ `system`
               system: systemPreview(msg, profiles),
               createdAt: msg.createdAt.toISOString(),
               deletedAt: msg.deletedAt ? msg.deletedAt.toISOString() : null,
@@ -371,7 +418,7 @@ export function createConversationsService(deps: ConversationsDeps) {
           memberCount: c.memberCount,
           lastMessage,
           lastMessageAt: c.lastMessageAt.toISOString(),
-          unreadCount: 0,
+          unreadCount: unread.get(id) ?? 0,
           myLastDeliveredMessageId: membership?.lastDeliveredMessageId
             ? String(membership.lastDeliveredMessageId)
             : null,

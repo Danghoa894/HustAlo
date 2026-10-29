@@ -24,6 +24,10 @@ export function usersController(service: UsersService) {
       res.status(200).json(await service.updateMe(getAuth(res).userId, valid(res).body as UpdateMeRequest));
     }),
 
+    listBlocked: handle(async (_req, res) => {
+      res.status(200).json({ items: await service.listBlocked(getAuth(res).userId) });
+    }),
+
     block: handle(async (_req, res) => {
       await service.block(getAuth(res).userId, (valid(res).params as UserIdParams).userId);
       res.status(204).end();

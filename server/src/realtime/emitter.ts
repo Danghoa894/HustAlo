@@ -6,7 +6,9 @@ import type { Server } from 'socket.io';
 import { convRoom, deviceRoom, presenceRoom, sessionRoom, tabRoom, userRoom } from './rooms';
 
 export type ServerEventName = keyof ServerToClientEvents;
-export type ServerEventPayload<E extends ServerEventName> = Omit<
+/** Omit phân phối qua union (payload như message:status có nhiều dạng theo `scope`). */
+type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
+export type ServerEventPayload<E extends ServerEventName> = DistributiveOmit<
   Parameters<ServerToClientEvents[E]>[0],
   keyof ServerEventMeta
 >;

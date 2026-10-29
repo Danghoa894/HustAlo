@@ -2,6 +2,8 @@
 // Test trong modules/<m>/ không import model của module khác (AC-ARCH-001) → truy cập chéo module đi qua đây.
 import type { UserStatus } from '@hustalo/shared';
 import { RefreshSessionModel, type RefreshSession } from '../modules/auth/refreshSession.model';
+import { ConversationMemberModel } from '../modules/conversations/conversationMember.model';
+import { ConversationModel } from '../modules/conversations/conversation.model';
 import { MessageModel } from '../modules/messages/message.model';
 import { UserModel, type User } from '../modules/users/user.model';
 
@@ -31,6 +33,13 @@ export const testDb = {
         .lean<{ system: SystemSnapshot | null }[]>()
         .exec()
     ).map((m) => m.system),
+  /** Đánh dấu thành viên đã rời (giả lập bị xóa khỏi nhóm từ nơi khác). */
+  setMemberLeft: async (conversationId: string, userId: string) => {
+    await ConversationMemberModel.updateOne({ conversationId, userId }, { $set: { leftAt: new Date() } }).exec();
+  },
+  lastMessageIdOf: async (conversationId: string) =>
+    (await ConversationModel.findById(conversationId).lean<{ lastMessage: { messageId: unknown } | null }>().exec())
+      ?.lastMessage?.messageId ?? null,
   countMessages: (conversationId: string) => MessageModel.countDocuments({ conversationId }).exec(),
   findRefreshSession: (userId: string, select = '') =>
     RefreshSessionModel.findOne({ userId }).select(select).lean<RefreshSession>().exec(),
