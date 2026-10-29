@@ -301,6 +301,7 @@ Quy ước nguồn dữ liệu: `Q[key]` = TanStack Query key; `S.x` = Zustand s
 | `['conversation', id]` | `GET /conversations/{id}` | `E:conversation:updated`, `E:conversation:member-removed`, `E:message:status` (GROUP_AGGREGATE) |
 | `['messages', id]` (infinite, hai chiều) | `GET /conversations/{id}/messages` | `E:message:new`, `E:message:edit`, `E:message:delete`, `E:message:status` |
 | `['users', 'search', q]` | `GET /users/search` | — (staleTime 30 s) |
+| `['users', 'blocked']` | `GET /users/blocked` | invalidate sau chặn / bỏ chặn |
 | `['calls']` (infinite) | `GET /calls` | invalidate khi nhận `E:call:state` terminal |
 | `['e2ee', 'devices']` | `GET /e2ee/devices` | — |
 | `['ice-servers']` | `GET /calls/ice-servers` | — (giữ tới `expiresAt - TURN_REFRESH_BEFORE_S`) |
@@ -449,7 +450,7 @@ features/conversations/ChatListPane.tsx
 |---|---|
 | Tên | GROUP: `title`; DIRECT/SECRET: `peer.displayName`; SECRET thêm icon `Lock` (aria-label "Trò chuyện bí mật") |
 | Thời gian | Cùng ngày: `HH:mm`; hôm qua: "Hôm qua"; trong 7 ngày: "T2"…"T7", "CN"; cùng năm: `DD/MM`; khác năm: `DD/MM/YYYY` |
-| Preview | Ưu tiên: đang có người gõ → "đang soạn tin…" (DIRECT/SECRET) hoặc "{tên} đang soạn tin…" / "{A}, {B} đang soạn tin…" / "Nhiều người đang soạn tin…" (GROUP), màu `primary`, nghiêng; ngược lại `lastMessage.preview` (tiền tố "Bạn: " nếu do mình gửi; GROUP thêm "{tên}: " cho người khác); SYSTEM → chuỗi FR-CHAT-011 dựng từ `lastMessage.system` (không tiền tố; actor/target là mình → "Bạn"; quá 3 target → "{A}, {B}, {C} và {n} người khác"); thu hồi → "Tin nhắn đã bị thu hồi"; SECRET → "Tin nhắn được mã hóa"; chưa có tin → "Chưa có tin nhắn" |
+| Preview | Ưu tiên: đang có người gõ → "đang soạn tin…" (DIRECT/SECRET) hoặc "{tên} đang soạn tin…" / "{A}, {B} đang soạn tin…" / "Nhiều người đang soạn tin…" (GROUP), màu `primary`, nghiêng; ngược lại `lastMessage.preview` (tiền tố "Bạn: " nếu do mình gửi; GROUP thêm "{tên}: " cho người khác, tên lấy từ `lastMessage.sender.displayName`); SYSTEM → chuỗi FR-CHAT-011 dựng từ `lastMessage.system` (không tiền tố; actor/target là mình → "Bạn"; quá 3 target → "{A}, {B}, {C} và {n} người khác"); thu hồi → "Tin nhắn đã bị thu hồi"; SECRET → "Tin nhắn được mã hóa"; chưa có tin → "Chưa có tin nhắn" |
 | Badge | `unreadCount > 0` → số; `> 99` → "99+"; tên và preview đậm khi có badge |
 | Chấm online | DIRECT/SECRET khi `S.presence[peer].status = ONLINE` và không `degraded`; GROUP không có |
 | Trạng thái tin cuối của mình | DIRECT: icon `Check`/`CheckCheck` nhỏ trước preview |
@@ -844,7 +845,7 @@ features/settings/SettingsPage.tsx
 ├── ProfileSection (features/settings/ProfileSection.tsx) — displayName (đếm /80), avatarUrl, username (chỉ đọc), email (chỉ đọc)
 ├── PrivacySection (features/settings/PrivacySection.tsx) — Switch "Hiển thị lần truy cập gần nhất" + mô tả "Nếu tắt, bạn cũng sẽ không thấy lần truy cập của người khác."
 ├── DevicesSection (features/settings/DevicesSection.tsx) — Q['e2ee','devices'], nút "Thu hồi" (DELETE /e2ee/devices/{deviceId})
-├── BlockedSection [NEW] (features/settings/BlockedSection.tsx) — từ Q['me'].blockedUserIds, nút "Bỏ chặn" (M3: `/auth/me` chỉ trả id, tên hiển thị phải lấy từ nguồn khác — chốt khi làm M3)
+├── BlockedSection [NEW] (features/settings/BlockedSection.tsx) — Q['users','blocked'] = `GET /users/blocked` (M3), nút "Bỏ chặn"
 ├── ThemeSection (features/settings/ThemeSection.tsx) — radio "Theo hệ thống" / "Sáng" / "Tối"
 ├── SecuritySection [NEW] (features/settings/SecuritySection.tsx) — đổi mật khẩu (POST /auth/change-password)
 └── SafetyNumberDialog (features/settings/SafetyNumberDialog.tsx) — mở từ RoomMenu của SECRET

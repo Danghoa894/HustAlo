@@ -437,6 +437,33 @@ paths:
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
 
+  /users/blocked:
+    get:
+      tags: [Users]
+      operationId: listBlockedUsers
+      summary: Danh sách người mình đã chặn (Cài đặt › Người đã chặn)
+      description: |
+        Hồ sơ công khai của người mình đã chặn, sắp theo thời điểm chặn tăng dần, tối đa `BLOCKED_LIST_MAX` (1000).
+        Nguồn tên cho BlockedSection (`GET /auth/me` chỉ trả `blockedUserIds`).
+      x-rate-limit: rest
+      x-requirements: [FR-USER-003]
+      responses:
+        '200':
+          description: Người đã chặn
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/XRequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BlockedUsersResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
   /users/{userId}/block:
     parameters:
       - $ref: '#/components/parameters/UserIdPath'
@@ -2087,6 +2114,16 @@ components:
           nullable: true
         privacy:
           $ref: '#/components/schemas/Privacy'
+    BlockedUsersResponse:
+      type: object
+      required: [items]
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          maxItems: 1000
+          items:
+            $ref: '#/components/schemas/UserPublic'
     UserSearchResponse:
       type: object
       required: [items]
@@ -2209,13 +2246,17 @@ components:
           maxLength: 80
     LastMessagePreview:
       type: object
-      required: [id, senderId, type, preview, createdAt, deletedAt]
+      required: [id, senderId, sender, type, preview, createdAt, deletedAt]
       additionalProperties: false
       properties:
         id:
           $ref: '#/components/schemas/ObjectId'
         senderId:
           $ref: '#/components/schemas/ObjectId'
+        sender:
+          allOf:
+            - $ref: '#/components/schemas/UserRef'
+          description: 'Tên người gửi hiện tại — UI dùng cho tiền tố "{tên}: " của tin TEXT trong GROUP.'
         type:
           $ref: '#/components/schemas/MessageType'
         preview:
@@ -3863,7 +3904,7 @@ x-socket-events:
 #       CALL-MEDIA, CALL-NET, INFRA, SEC, E2EE).
 # - [x] Không có secret thật: token/credential/khóa trong example là chuỗi minh họa không hợp lệ; domain tr.example.net.
 # - [x] Không mâu thuẫn với file trước — điểm đã đối chiếu:
-#       * Kiến trúc §4.6: đủ 27 endpoint gồm 4 endpoint [NEW] (/auth/change-password, PATCH members/{userId},
+#       * Kiến trúc §4.6: đủ 28 endpoint gồm 5 endpoint [NEW] (thêm GET /users/blocked ở M3) (/auth/change-password, PATCH members/{userId},
 #         GET /e2ee/devices, DELETE /e2ee/devices/{deviceId}); cookie/CSRF theo §6.3; ICE servers theo §9.5.
 #       * PRD: blockedUserIds trong UserMe, blockedByMe/canMessage/myLast*MessageId trong ConversationSummary,
 #         direction trong CallRecord, skipped với CONFLICT/NOT_FOUND/USER_BLOCKED, OWNER rời nhóm → 409,

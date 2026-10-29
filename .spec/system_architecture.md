@@ -397,7 +397,7 @@ hustalo/
 │       │   │   ├── auth.test.ts            # unit: rotation/reuse logic
 │       │   │   └── auth.int.test.ts        # integration Supertest
 │       │   ├── users/
-│       │   │   ├── users.routes.ts         # /users/search, /users/me, /users/{userId}/block
+│       │   │   ├── users.routes.ts         # /users/search, /users/me, /users/blocked, /users/{userId}/block
 │       │   │   ├── users.controller.ts
 │       │   │   ├── users.service.ts        # search, updateMe, block/unblock, isBlockedEitherWay
 │       │   │   ├── users.repository.ts
@@ -1090,6 +1090,7 @@ Chi tiết schema ở `api_spec.yaml`. Endpoint đánh dấu `[NEW]` là bổ su
 | POST | `/auth/change-password` `[NEW]` | bearer | changePassword | Đổi mật khẩu; thu hồi mọi family khác (EC-AUTH-006); `currentPassword` sai → 422 `VALIDATION_ERROR` (EC-AUTH-008) |
 | GET | `/users/search?q=` | bearer | rest | Theo tiền tố username/displayName hoặc email chính xác; tối đa `USER_SEARCH_LIMIT` |
 | PATCH | `/users/me` | bearer | rest | `displayName`, `avatarUrl`, `privacy.showLastSeen` |
+| GET | `/users/blocked` | bearer | rest | `[NEW]` Người mình đã chặn (`UserPublic[]`, tối đa `BLOCKED_LIST_MAX`) cho Cài đặt › Người đã chặn |
 | POST | `/users/{userId}/block` | bearer | rest | Idempotent; 204 |
 | DELETE | `/users/{userId}/block` | bearer | rest | Idempotent; 204 |
 | GET | `/conversations?cursor=&limit=` | bearer | rest | `ConversationSummary[]` theo `lastMessageAt` giảm dần |
