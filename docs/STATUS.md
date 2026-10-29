@@ -1,41 +1,42 @@
 # HUSTALO — Trạng thái dự án
 
-- **Ngày kiểm tra:** 2026-10-28 (sau khi hoàn thành client M1)
+- **Ngày kiểm tra:** 2026-10-29 (sau khi hoàn thành M2)
 - **Nhánh:** `main` (chưa push)
-- **Commit:** server M1 đã commit (`feat(m1): server auth and users`); client M1 commit theo phần (chore → core → pages → e2e → docs)
+- **Commit:** M2 commit theo phần: spec → shared → server → client → e2e → docs
 - **Phạm vi:** kết quả lệnh tự động ở mục 2 là số chạy thật trên working tree trùng với HEAD sau các commit này. Cột "% checklist" chưa audit lại toàn bộ (chi tiết audit ở `docs/SPEC_CONFORMANCE.md`).
 
 ## 1. Tổng quan milestone
 
-| Milestone               | Trạng thái                                | % checklist                                          | Test Gate có test pass / tổng            | Ghi chú                                                                                                       |
-| ----------------------- | ----------------------------------------- | ---------------------------------------------------- | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| M0 — Nền tảng           | **Đang làm** (chưa đạt DoD)               | 7/7 (mục `infra:up`: 3 container healthy)            | 14/14                                    | Gate thêm `TC-SEC-009` (EC-SEC-009). typecheck, lint, unit, integration xanh; `TC-ARCH-003` pass 3/3 lần chạy |
-| M1 — Auth & hồ sơ       | **Xong phần code** (chờ DoD chung với M0) | 3/3 (`BlockedSection` chuyển sang M3, spec đã duyệt) | 30/30 (U/I) + E2E 8 test × 3 trình duyệt | Auth, refresh Web Locks, socket, `SessionModal`, `ConnectionBanner`, Settings (Hồ sơ, Bảo mật, Đăng xuất)     |
-| M2 — Hội thoại & nhóm   | Chưa bắt đầu                              | 0/2                                                  | 0/20                                     |                                                                                                               |
-| M3 — Tin nhắn & receipt | Chưa bắt đầu                              | 0/2                                                  | 5/70                                     | Các phần U làm sẵn từ M0                                                                                      |
-| M4 — Presence & typing  | Chưa bắt đầu                              | 0/2                                                  | 0/15                                     |                                                                                                               |
-| M5 — Cuộc gọi 1-1       | Chưa bắt đầu                              | 0/3                                                  | 0/74                                     |                                                                                                               |
-| M6 — Hardening          | Chưa bắt đầu                              | 0/7                                                  | 3/12                                     | `TC-AC-107`, `TC-ARCH-011`, `TC-SEC-006`                                                                      |
-| M6.5 — Deploy           | Chưa bắt đầu (spec mới)                   | 0/5                                                  | 0/2                                      | `TC-ARCH-016`, `TC-ARCH-017`; xem development_guide.md §9                                                     |
-| M7 — E2EE               | Chưa bắt đầu                              | 0/4                                                  | 0/25                                     |                                                                                                               |
+| Milestone               | Trạng thái                                | % checklist                                          | Test Gate có test pass / tổng            | Ghi chú                                                                                                                                                                    |
+| ----------------------- | ----------------------------------------- | ---------------------------------------------------- | ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| M0 — Nền tảng           | **Đang làm** (chưa đạt DoD)               | 7/7 (mục `infra:up`: 3 container healthy)            | 14/14                                    | Gate thêm `TC-SEC-009` (EC-SEC-009). typecheck, lint, unit, integration xanh; `TC-ARCH-003` pass 3/3 lần chạy                                                              |
+| M1 — Auth & hồ sơ       | **Xong phần code** (chờ DoD chung với M0) | 3/3 (`BlockedSection` chuyển sang M3, spec đã duyệt) | 30/30 (U/I) + E2E 8 test × 3 trình duyệt | Auth, refresh Web Locks, socket, `SessionModal`, `ConnectionBanner`, Settings (Hồ sơ, Bảo mật, Đăng xuất)                                                                  |
+| M2 — Hội thoại & nhóm   | **Xong phần code** (chờ DoD chung)        | 2/2                                                  | 20/20 (I) + E2E 6 test × 3 trình duyệt   | DIRECT idempotent, nhóm (tạo/thêm/xóa/rời/đổi tên/phân quyền/chuyển OWNER), SYSTEM, danh sách hội thoại, `conversation:join/leave`, RoomNotFound. `unreadCount` = 0 tới M3 |
+| M3 — Tin nhắn & receipt | Chưa bắt đầu                              | 0/2                                                  | 6/70                                     | Các phần U làm sẵn từ M0; `TC-NET-002` mới phủ phần banner trễ 2 s (M1), chưa phủ sync debounce                                                                            |
+| M4 — Presence & typing  | Chưa bắt đầu                              | 0/2                                                  | 0/15                                     |                                                                                                                                                                            |
+| M5 — Cuộc gọi 1-1       | Chưa bắt đầu                              | 0/3                                                  | 0/74                                     |                                                                                                                                                                            |
+| M6 — Hardening          | Chưa bắt đầu                              | 0/7                                                  | 3/12                                     | `TC-AC-107`, `TC-ARCH-011`, `TC-SEC-006`                                                                                                                                   |
+| M6.5 — Deploy           | Chưa bắt đầu (spec mới)                   | 0/5                                                  | 0/2                                      | `TC-ARCH-016`, `TC-ARCH-017`; xem development_guide.md §9                                                                                                                  |
+| M7 — E2EE               | Chưa bắt đầu                              | 0/4                                                  | 0/25                                     |                                                                                                                                                                            |
 
 > "Test Gate có test pass" = số Test ID trong Gate có test (theo `trace:check`) và mọi test đó pass trong lần chạy ở mục 2 (unit và integration lần này không có test skip/todo). `trace:check` tự nó chỉ kiểm có tên test, không kiểm pass.
 
 ## 2. Kết quả kiểm tra tự động
 
-| Lệnh                                  | Kết quả           | Chi tiết                                                                                             |
-| ------------------------------------- | ----------------- | ---------------------------------------------------------------------------------------------------- |
-| `npm run typecheck`                   | ✅ PASS           | 0 lỗi (shared, server, client)                                                                       |
-| `npm run lint`                        | ✅ PASS           | ESLint 0 lỗi/0 cảnh báo · Prettier sạch · Redocly valid (1 ngoại lệ có chủ đích)                     |
-| `npm run test:unit`                   | ✅ PASS           | scripts 5/5 (node:test) · shared 25/25 · server 45/45 · client 90/90                                 |
-| `npm run test:integration`            | ✅ PASS           | 9/9 file · 59/59 test, 0 skip                                                                        |
-| `npm run test:e2e`                    | ✅ PASS           | `e2e/auth.spec.ts` 24/24 (8 test × chromium, firefox, webkit) trên http://localhost:5173; chạy 2 lần |
-| `npm run spec:check`                  | ✅ PASS           | `FR 58 · AC 102 · EC 106 · event 35 · endpoint 27 · hằng số 71`                                      |
-| `trace:check --milestone M0 --strict` | ✅                | 14/14 ID có test                                                                                     |
-| `trace:check --milestone M1 --strict` | ✅                | 30/30 ID có test                                                                                     |
-| `trace:check` M2..M7 (không strict)   | ❌ (đúng kỳ vọng) | M2 0/20 · M3 5/70 · M4 0/15 · M5 0/74 · M6 3/12 · M6.5 0/2 · M7 0/25                                 |
-| `npm run build`                       | ✅ PASS           | server tsup OK · client vite 119.27 kB gzip JS · bundle-secrets OK (6 giá trị)                       |
-| Vite dev (DG-01)                      | ✅                | Không có `VITE_HTTPS` → phục vụ `http://localhost` (HTTP 200), không cần chứng chỉ                   |
+| Lệnh                                  | Kết quả           | Chi tiết                                                                                                  |
+| ------------------------------------- | ----------------- | --------------------------------------------------------------------------------------------------------- |
+| `npm run typecheck`                   | ✅ PASS           | 0 lỗi (shared, server, client)                                                                            |
+| `npm run lint`                        | ✅ PASS           | ESLint 0 lỗi/0 cảnh báo · Prettier sạch · Redocly valid (1 ngoại lệ có chủ đích)                          |
+| `npm run test:unit`                   | ✅ PASS           | scripts 5/5 (node:test) · shared 33/33 · server 45/45 · client 132/132                                    |
+| `npm run test:integration`            | ✅ PASS           | 10/10 file · 83/83 test, 0 skip; chạy 3 lần đều xanh (có test đua đồng thời TC-AC-017/058, TC-DB-008/012) |
+| `npm run test:e2e`                    | ✅ PASS           | 42/42: `auth.spec.ts` 8 + `group.spec.ts` 6, × chromium, firefox, webkit (http://localhost:5173)          |
+| `npm run spec:check`                  | ✅ PASS           | `FR 58 · AC 102 · EC 106 · event 35 · endpoint 27 · hằng số 71`                                           |
+| `trace:check --milestone M0 --strict` | ✅                | 14/14 ID có test                                                                                          |
+| `trace:check --milestone M1 --strict` | ✅                | 30/30 ID có test                                                                                          |
+| `trace:check --milestone M2 --strict` | ✅                | 20/20 ID có test                                                                                          |
+| `trace:check` M3..M7 (không strict)   | ❌ (đúng kỳ vọng) | M3 6/70 · M4 0/15 · M5 0/74 · M6 3/12 · M6.5 0/2 · M7 0/25                                                |
+| `npm run build`                       | ✅ PASS           | server tsup OK · client vite 129.40 kB gzip JS · bundle-secrets OK (6 giá trị)                            |
+| Vite dev (DG-01)                      | ✅                | Không có `VITE_HTTPS` → phục vụ `http://localhost` (HTTP 200), không cần chứng chỉ                        |
 
 Docker: `hustalo-redis-1`, `hustalo-mongo-1`, `hustalo-coturn-1` đều healthy. Trước E2E đã chạy `npm run db:indexes` và `npm run db:seed` (DG §2: điều kiện của `test:e2e`; DB dev trước đó chưa có unique index `email_unique`/`username_unique`).
 
@@ -43,7 +44,9 @@ Console trình duyệt ở `/login`, `/register`, `/chats`: không còn cảnh b
 
 ## 3. Việc cần làm tiếp
 
-> 2026-10-29: đã duyệt và sửa spec — `BlockedSection` chuyển sang checklist M3; bổ sung 7 chuỗi UI mới vào `ui_ux_spec.md`; đoạn `webServer` trong DG §6.6 khớp `client/playwright.config.ts`.
+> 2026-10-29: spec M2 đã duyệt và sửa — preview SYSTEM có `lastMessage.system` (kèm tên), `system.role` cho ROLE_CHANGED, `RoomMenu`/`RenameGroupDialog` ở M2, SECRET trả 422 tới M7, ma trận §5.2 cho `conversations` gọi `messages.previewsFor/countUnread`.
+>
+> 2026-10-29 (trước M2): đã duyệt và sửa spec — `BlockedSection` chuyển sang checklist M3; bổ sung 7 chuỗi UI mới vào `ui_ux_spec.md`; đoạn `webServer` trong DG §6.6 khớp `client/playwright.config.ts`.
 
 | #   | Mức      | Việc                                                                                                                                                                                                        | File liên quan                                | ID spec                         |
 | --- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------- | ------------------------------- |
@@ -53,4 +56,5 @@ Console trình duyệt ở `/login`, `/register`, `/chats`: không còn cảnh b
 | 7   | **Thấp** | `trace:check` đếm cả `it.skip`/`it.todo` là "có test" → nên kiểm thêm pass                                                                                                                                  | `scripts/check-traceability.mjs`              | DG §8.8                         |
 | 8   | **TB**   | E2E còn thiếu: AC-011 tầng E (hết hạn token giữa phiên — cần fake clock/TTL ngắn, phần sync ở M3), khóa tài khoản (EC-AUTH-005) và REFRESH_REUSE (EC-AUTH-004) mới có unit test client + integration server | `client/e2e/`                                 | AC-011, EC-AUTH-004/005         |
 | 9   | **TB**   | `npm audit`: 5 lỗ hổng có sẵn từ trước (vitest/tinypool, react-router open redirect qua `\`, zod, esbuild dev server Windows); `safeNext` đã chặn `/\`. Nâng version cần duyệt (không tự đổi tech stack)    | `package-lock.json`                           | —                               |
+| 11  | **TB**   | M3: tiền tố "{tên}: " cho tin TEXT của người khác trong preview GROUP cần tên người gửi, nhưng `LastMessagePreview` chỉ có `senderId` — cần chốt spec khi làm M3 (cùng nguồn tên cho `BlockedSection`)      | `.spec/api_spec.yaml`, `ui_ux_spec.md` §3.2   | FR-CHAT-009                     |
 | 10  | **Sau**  | M6.5 Deploy: Dockerfile, compose prod, nginx, `cicd-docker.yml`, VM + domain                                                                                                                                | development_guide.md §9                       | AC-ARCH-016, AC-ARCH-017        |
