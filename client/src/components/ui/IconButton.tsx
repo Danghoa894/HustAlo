@@ -1,14 +1,18 @@
 // client/src/components/ui/IconButton.tsx — nút chỉ có icon: bắt buộc aria-label (ui_ux_spec.md §1.4)
-import type { ButtonHTMLAttributes, ReactNode } from 'react';
+import { forwardRef, type ButtonHTMLAttributes, type ReactNode } from 'react';
 
 export interface IconButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'aria-label'> {
   label: string;
   icon: ReactNode;
 }
 
-export function IconButton({ label, icon, className = '', type = 'button', ...rest }: IconButtonProps) {
+export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(function IconButton(
+  { label, icon, className = '', type = 'button', ...rest },
+  ref,
+) {
   return (
     <button
+      ref={ref}
       type={type}
       aria-label={label}
       title={label}
@@ -18,4 +22,4 @@ export function IconButton({ label, icon, className = '', type = 'button', ...re
       {icon}
     </button>
   );
-}
+});

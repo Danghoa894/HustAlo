@@ -1,6 +1,6 @@
 // client/src/i18n/vi.ts — toàn bộ chuỗi UI tiếng Việt (development_guide.md §8.4, ui_ux_spec.md §5.1).
 // Bổ sung theo milestone; không viết chuỗi UI trực tiếp trong component.
-import { DISPLAY_NAME_MAX } from '@hustalo/shared';
+import { DISPLAY_NAME_MAX, GROUP_MAX_MEMBERS, GROUP_TITLE_MAX } from '@hustalo/shared';
 
 export const vi = {
   app: {
@@ -24,6 +24,87 @@ export const vi = {
   },
   chat: {
     emptyRoom: 'Chọn một cuộc trò chuyện để bắt đầu nhắn tin',
+    // ui_ux_spec.md §2, §3.3
+    roomNotFound: 'Không tìm thấy cuộc trò chuyện',
+    notMember: 'Bạn không còn là thành viên của cuộc trò chuyện này',
+    removedFromGroup: (name: string) => `Bạn đã bị xóa khỏi nhóm ${name}`,
+    backToList: 'Quay lại danh sách',
+    memberCount: (n: number) => `${n} thành viên`,
+    roomOptions: 'Tùy chọn',
+  },
+  // ui_ux_spec.md §3.2
+  conversations: {
+    newChat: 'Trò chuyện mới',
+    settings: 'Cài đặt',
+    search: 'Tìm kiếm',
+    empty: 'Chưa có cuộc trò chuyện nào',
+    startChat: 'Bắt đầu trò chuyện',
+    loadError: 'Không tải được danh sách trò chuyện',
+    noResults: (q: string) => `Không tìm thấy kết quả cho “${q}”`,
+    sectionConversations: 'Cuộc trò chuyện',
+    sectionUsers: 'Người dùng',
+    noMessages: 'Chưa có tin nhắn',
+    unread: (n: number) => `${n} tin chưa đọc`,
+    youPrefix: 'Bạn: ',
+    revoked: 'Tin nhắn đã bị thu hồi',
+    encrypted: 'Tin nhắn được mã hóa',
+    cannotMessage: 'Không thể gửi tin nhắn tới người này',
+    youBlocked: 'Bạn đã chặn người này',
+    message: 'Nhắn tin',
+    messageTo: (name: string) => `Nhắn tin cho ${name}`,
+    createGroup: 'Tạo nhóm',
+    yesterday: 'Hôm qua',
+    weekdays: ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'] as const,
+  },
+  // FR-CHAT-011, ui_ux_spec.md §5.3 (+ "và {n} người khác" khi preview có > 3 target)
+  system: {
+    you: 'Bạn',
+    others: (names: string, n: number) => `${names} và ${n} người khác`,
+    GROUP_CREATED: (actor: string) => `${actor} đã tạo nhóm`,
+    MEMBER_ADDED: (actor: string, targets: string) => `${actor} đã thêm ${targets}`,
+    MEMBER_REMOVED: (actor: string, target: string) => `${actor} đã xóa ${target} khỏi nhóm`,
+    MEMBER_LEFT: (actor: string) => `${actor} đã rời nhóm`,
+    ROLE_ADMIN: (actor: string, target: string) => `${actor} đã đặt ${target} làm quản trị viên`,
+    ROLE_MEMBER: (actor: string, target: string) => `${actor} đã gỡ quyền quản trị viên của ${target}`,
+    OWNER_TRANSFERRED: (actor: string, target: string) => `${actor} đã chuyển quyền trưởng nhóm cho ${target}`,
+    TITLE_CHANGED: (actor: string, title: string) => `${actor} đã đổi tên nhóm thành “${title}”`,
+    CALL_MISSED_VOICE: 'Cuộc gọi thoại nhỡ',
+    CALL_MISSED_VIDEO: 'Cuộc gọi video nhỡ',
+    CALL_ENDED_VOICE: (d: string) => `Cuộc gọi thoại · ${d}`,
+    CALL_ENDED_VIDEO: (d: string) => `Cuộc gọi video · ${d}`,
+  },
+  // ui_ux_spec.md §3.4
+  groups: {
+    create: 'Tạo nhóm',
+    title: 'Tên nhóm',
+    titleCounter: (n: number) => `${n}/${GROUP_TITLE_MAX}`,
+    addMembers: 'Thêm thành viên',
+    searchUsers: 'Tìm theo tên, username, email',
+    selected: (n: number, max: number) => `Đã chọn ${n} / ${max}`,
+    removeChip: (name: string) => `Bỏ chọn ${name}`,
+    members: (n: number) => `Thành viên (${n}/${GROUP_MAX_MEMBERS})`,
+    you: '(Bạn)',
+    roles: { OWNER: 'Trưởng nhóm', ADMIN: 'Quản trị viên', MEMBER: 'Thành viên' },
+    memberActions: (name: string) => `Tùy chọn cho ${name}`,
+    makeAdmin: 'Đặt làm quản trị viên',
+    removeAdmin: 'Gỡ quyền quản trị viên',
+    transferOwner: 'Chuyển quyền trưởng nhóm',
+    removeMember: 'Xóa khỏi nhóm',
+    manageMembers: 'Quản lý thành viên',
+    rename: 'Đổi tên nhóm',
+    leave: 'Rời nhóm',
+    confirmRemove: (name: string) => `Xóa ${name} khỏi nhóm?`,
+    remove: 'Xóa',
+    confirmTransfer: (name: string) => `Chuyển quyền trưởng nhóm cho ${name}? Bạn sẽ trở thành quản trị viên.`,
+    transfer: 'Chuyển quyền',
+    confirmLeave: (title: string) => `Rời nhóm ${title}?`,
+    ownerMustTransfer: 'Bạn cần chuyển quyền trưởng nhóm trước khi rời nhóm',
+    added: (n: number) => `Đã thêm ${n} thành viên`,
+    alreadyIn: (m: number) => `. ${m} người đã có trong nhóm`,
+    cannotAdd: (name: string) => `Không thể thêm ${name}`,
+    full: `Nhóm đã đạt tối đa ${GROUP_MAX_MEMBERS} thành viên`,
+    loadError: 'Không tải được danh sách thành viên',
+    forbidden: 'Bạn không có quyền thực hiện thao tác này',
   },
   // ui_ux_spec.md §3.1
   auth: {

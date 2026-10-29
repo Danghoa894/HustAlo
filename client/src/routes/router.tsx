@@ -1,14 +1,17 @@
 // client/src/routes/router.tsx — bảng route ui_ux_spec.md §2.
 // RootLayout bọc mọi route: useSessionLifecycle (socket + refresh + session:*) và SessionModal cần router để điều hướng.
 // Overlay /call/:callId (Routes thứ hai theo backgroundLocation) thêm ở M5.
-import { Navigate, Outlet, createBrowserRouter, type RouteObject } from 'react-router-dom';
+import { Navigate, Outlet, createBrowserRouter, useParams, type RouteObject } from 'react-router-dom';
 import { AppShell } from '../components/layout/AppShell';
 import { ConnectionBanner } from '../components/layout/ConnectionBanner';
 import { LoginPage } from '../features/auth/LoginPage';
 import { RegisterPage } from '../features/auth/RegisterPage';
 import { SessionModal } from '../features/auth/SessionModal';
 import { useSessionLifecycle } from '../features/auth/useSessionLifecycle';
+import { ChatRoomPane } from '../features/chat/ChatRoomPane';
 import { EmptyRoomPlaceholder } from '../features/chat/EmptyRoomPlaceholder';
+import { ChatListPane } from '../features/conversations/ChatListPane';
+import { useConversationEvents } from '../features/conversations/useConversationEvents';
 import { SettingsPage } from '../features/settings/SettingsPage';
 import { RedirectIfAuthed } from './guards/RedirectIfAuthed';
 import { RequireAuth } from './guards/RequireAuth';
@@ -23,6 +26,15 @@ export const ROUTER_FUTURE_FLAGS = {
   v7_skipActionErrorRevalidation: true,
 } as const;
 export const ROUTER_PROVIDER_FUTURE = { v7_startTransition: true } as const;
+
+/** /chats, /chats/:id: cột trái ChatListPane; mobile chỉ hiện phòng khi có :conversationId (ui_ux_spec.md §2). */
+function ChatsLayout() {
+  const { conversationId } = useParams();
+  useConversationEvents();
+  return (
+    <AppShell sidebar={<ChatListPane />} banner={<ConnectionBanner />} detailActive={conversationId !== undefined} />
+  );
+}
 
 function RootLayout() {
   useSessionLifecycle();
@@ -55,12 +67,21 @@ export const routes: RouteObject[] = [
   {
     element: (
       <RequireAuth>
-        <AppShell banner={<ConnectionBanner />} />
+        <ChatsLayout />
       </RequireAuth>
     ),
     children: [
       { path: '/chats', element: <EmptyRoomPlaceholder /> },
-      { path: '/chats/:conversationId', element: <EmptyRoomPlaceholder /> },
+      { path: '/chats/:conversationId', element: <ChatRoomPane /> },
+    ],
+  },
+  {
+    element: (
+      <RequireAuth>
+        <AppShell banner={<ConnectionBanner />} />
+      </RequireAuth>
+    ),
+    children: [
       { path: '/settings', element: <SettingsPage /> },
       { path: '/settings/:section', element: <SettingsPage /> },
     ],
