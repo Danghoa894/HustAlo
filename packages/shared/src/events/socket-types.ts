@@ -2,13 +2,15 @@
 // Event có payload/ACK phụ thuộc DTO domain (Conversation, Message, CallStateEvent, UserPublic) được bổ sung
 // ở milestone tạo DTO đó (M2: conversation, M3: message, M5: call).
 import type { z } from 'zod';
-import type { PresenceStatus, SessionRevokeReason } from '../enums';
+import type { ConversationChange, PresenceStatus, SessionRevokeReason } from '../enums';
+import type { Conversation } from '../schemas/conversation.schema';
 import type { AckError } from '../errors';
 import type {
   PresenceSubscribePayload,
   ReceiptCursorPayload,
   TypingPayload,
   ConversationLeavePayload,
+  ConversationJoinPayload,
 } from '../schemas/socket.schema';
 import type { EVENTS } from './event-names';
 
@@ -32,6 +34,10 @@ export interface ServerEventMeta {
 type S2C<P> = (payload: ServerEventMeta & P) => void;
 
 export interface ClientToServerEvents {
+  [EVENTS.CONVERSATION_JOIN]: C2S<
+    typeof ConversationJoinPayload,
+    { conversation: Conversation; unreadCount: number; typingUserIds: string[] }
+  >;
   [EVENTS.CONVERSATION_LEAVE]: C2S<typeof ConversationLeavePayload, Record<string, never>>;
   [EVENTS.MESSAGE_DELIVERED]: C2S<typeof ReceiptCursorPayload, { advanced: boolean }>;
   [EVENTS.MESSAGE_READ]: C2S<typeof ReceiptCursorPayload, { advanced: boolean; unreadCount: number }>;
@@ -49,6 +55,7 @@ export interface PresenceEntry {
 export interface ServerToClientEvents {
   [EVENTS.SESSION_EXPIRED]: S2C<{ reason: 'TOKEN_EXPIRED'; expiredAt: string }>;
   [EVENTS.SESSION_REVOKED]: S2C<{ reason: SessionRevokeReason }>;
+  [EVENTS.CONVERSATION_UPDATED]: S2C<{ conversation: Conversation; change: ConversationChange }>;
   [EVENTS.CONVERSATION_MEMBER_REMOVED]: S2C<{
     conversationId: string;
     userId: string;

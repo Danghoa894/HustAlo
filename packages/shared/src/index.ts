@@ -11,3 +11,4 @@ export * from './utils/cursor';
 export * from './utils/compare';
 export * from './schemas/user.schema';
 export * from './schemas/auth.schema';
+export * from './schemas/conversation.schema';

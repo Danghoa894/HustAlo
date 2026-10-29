@@ -5,6 +5,16 @@ export type ConversationType = (typeof ConversationType)[keyof typeof Conversati
 export const MemberRole = { OWNER: 'OWNER', ADMIN: 'ADMIN', MEMBER: 'MEMBER' } as const;
 export type MemberRole = (typeof MemberRole)[keyof typeof MemberRole];
 
+// [NEW] lý do conversation:updated (kiến trúc §4.5)
+export const ConversationChange = {
+  CREATED: 'CREATED',
+  TITLE: 'TITLE',
+  MEMBERS: 'MEMBERS',
+  ROLE: 'ROLE',
+  OWNER: 'OWNER',
+} as const;
+export type ConversationChange = (typeof ConversationChange)[keyof typeof ConversationChange];
+
 export const MessageType = { TEXT: 'TEXT', SYSTEM: 'SYSTEM' } as const;
 export type MessageType = (typeof MessageType)[keyof typeof MessageType];
 
