@@ -1135,7 +1135,7 @@ Chỉ gọi qua **service** của module khác, không bao giờ gọi repositor
 |---|---|---|---|---|---|---|---|
 | **auth** | — | ✔ (findByEmail, create, setPassword, lock) | ✘ | ✘ | ✘ | ✔ (endCallsForDevice/User LOGOUT) | ✘ |
 | **users** | ✘ | — | ✔ (shareConversation để lọc search/presence) | ✘ | ✘ | ✘ | ✘ |
-| **conversations** | ✘ | ✔ (isBlockedEitherWay, getPublic) | — | ✔ (createSystemMessage) | ✘ | ✘ | ✔ (hasActiveDevice khi tạo SECRET) |
+| **conversations** | ✘ | ✔ (isBlockedEitherWay, getPublic) | — | ✔ (createSystemMessage; previewsFor, countUnread cho danh sách hội thoại — DB §4.1) | ✘ | ✘ | ✔ (hasActiveDevice khi tạo SECRET) |
 | **messages** | ✘ | ✔ (isBlockedEitherWay) | ✔ (assertMember, listMemberIds, getType) | — | ✘ | ✘ | ✔ (assertEnvelopeRecipients, isDeviceActive) |
 | **presence** | ✘ | ✔ (getPrivacy, setLastSeen) | ✔ (shareConversation, listMemberIds) | ✘ | — | ✘ | ✘ |
 | **calls** | ✘ | ✔ (isBlockedEitherWay, getPublic) | ✔ (assertMember, getType, getOtherMember) | ✔ (createSystemMessage CALL_MISSED/CALL_ENDED) | ✔ (listOnlineDevices) | — | ✘ |
