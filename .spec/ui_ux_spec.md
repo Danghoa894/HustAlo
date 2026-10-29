@@ -438,7 +438,7 @@ features/conversations/ChatListPane.tsx
 │       ├── Tên (+ Lock nếu SECRET) | Thời gian
 │       └── Preview / TypingPreview | UnreadBadge [NEW] (components/ui/UnreadBadge.tsx)
 ├── CallHistoryList (features/calls/CallHistoryList.tsx) — tab "Cuộc gọi"
-└── NewChatDialog (features/conversations/NewChatDialog.tsx) — tìm user, "Nhắn tin", "Trò chuyện bí mật", "Tạo nhóm"
+└── NewChatDialog (features/conversations/NewChatDialog.tsx) — tìm user, "Nhắn tin", "Trò chuyện bí mật" (ẩn tới M7), "Tạo nhóm"
 ```
 
 **Nguồn dữ liệu:** `Q['conversations']`, `S.presence` (sau `E:presence:subscribe` cho peer của các mục đang hiển thị, tối đa 200), `S.typing` (`E:typing:update`), `Q['users','search',q]`, `Q['calls']`.
@@ -449,7 +449,7 @@ features/conversations/ChatListPane.tsx
 |---|---|
 | Tên | GROUP: `title`; DIRECT/SECRET: `peer.displayName`; SECRET thêm icon `Lock` (aria-label "Trò chuyện bí mật") |
 | Thời gian | Cùng ngày: `HH:mm`; hôm qua: "Hôm qua"; trong 7 ngày: "T2"…"T7", "CN"; cùng năm: `DD/MM`; khác năm: `DD/MM/YYYY` |
-| Preview | Ưu tiên: đang có người gõ → "đang soạn tin…" (DIRECT/SECRET) hoặc "{tên} đang soạn tin…" / "{A}, {B} đang soạn tin…" / "Nhiều người đang soạn tin…" (GROUP), màu `primary`, nghiêng; ngược lại `lastMessage.preview` (tiền tố "Bạn: " nếu do mình gửi; GROUP thêm "{tên}: " cho người khác); thu hồi → "Tin nhắn đã bị thu hồi"; SECRET → "Tin nhắn được mã hóa"; chưa có tin → "Chưa có tin nhắn" |
+| Preview | Ưu tiên: đang có người gõ → "đang soạn tin…" (DIRECT/SECRET) hoặc "{tên} đang soạn tin…" / "{A}, {B} đang soạn tin…" / "Nhiều người đang soạn tin…" (GROUP), màu `primary`, nghiêng; ngược lại `lastMessage.preview` (tiền tố "Bạn: " nếu do mình gửi; GROUP thêm "{tên}: " cho người khác); SYSTEM → chuỗi FR-CHAT-011 dựng từ `lastMessage.system` (không tiền tố; actor/target là mình → "Bạn"; quá 3 target → "{A}, {B}, {C} và {n} người khác"); thu hồi → "Tin nhắn đã bị thu hồi"; SECRET → "Tin nhắn được mã hóa"; chưa có tin → "Chưa có tin nhắn" |
 | Badge | `unreadCount > 0` → số; `> 99` → "99+"; tên và preview đậm khi có badge |
 | Chấm online | DIRECT/SECRET khi `S.presence[peer].status = ONLINE` và không `degraded`; GROUP không có |
 | Trạng thái tin cuối của mình | DIRECT: icon `Check`/`CheckCheck` nhỏ trước preview |
@@ -533,7 +533,7 @@ features/chat/ChatRoomPane.tsx
 │   ├── E2eeBadge (features/chat/E2eeBadge.tsx) — chỉ SECRET
 │   ├── IconButton Phone aria-label "Gọi thoại cho {tên}" (ẩn với GROUP — D-22)
 │   ├── IconButton Video aria-label "Gọi video cho {tên}" (ẩn với GROUP)
-│   └── RoomMenu [NEW] (features/chat/RoomMenu.tsx): GROUP: "Quản lý thành viên", "Đổi tên nhóm", "Rời nhóm"; DIRECT: "Chặn"/"Bỏ chặn", "Trò chuyện bí mật"; SECRET: "Xác minh mã an toàn"
+│   └── RoomMenu [NEW] (features/chat/RoomMenu.tsx): GROUP (M2): "Quản lý thành viên", "Đổi tên nhóm" → RenameGroupDialog, "Rời nhóm"; DIRECT: "Chặn"/"Bỏ chặn" (M3), "Trò chuyện bí mật" (M7); SECRET: "Xác minh mã an toàn" (M7)
 ├── IdentityChangedBanner (features/e2ee/IdentityChangedBanner.tsx) — chỉ SECRET khi có identity đổi
 ├── MessageList (features/chat/MessageList.tsx) — role="log", aria-label "Tin nhắn"
 │   ├── DateDivider (features/chat/DateDivider.tsx) — "Hôm nay" / "Hôm qua" / "Thứ Hai, 20/10/2026"
@@ -671,6 +671,7 @@ features/groups/MemberManagerDialog.tsx
 ├── MemberRow [NEW] (features/groups/MemberRow.tsx) × n — Avatar, tên, nhãn vai trò, menu
 ├── TransferOwnerDialog [NEW] (features/groups/TransferOwnerDialog.tsx)
 └── Button "Rời nhóm"
+features/groups/RenameGroupDialog.tsx [NEW] — Modal "Đổi tên nhóm", TextField "Tên nhóm" (đếm "{n}/100"), [Hủy] [Lưu]; PATCH /conversations/{id}
 ```
 
 - **Nguồn dữ liệu:** `Q['conversation', id]` (members + role), `POST /conversations {type:'GROUP'}` (header `Idempotency-Key` sinh một lần khi mở dialog), `POST /conversations/{id}/members`, `PATCH /conversations/{id}/members/{userId}`, `DELETE /conversations/{id}/members/{userId}`, `PATCH /conversations/{id}`; realtime `E:conversation:updated`, `E:conversation:member-removed`.
@@ -1135,7 +1136,7 @@ Các file đánh dấu `[NEW]` trong file này bổ sung vào cây `client/` c�
 | `client/src/features/auth/AuthCard.tsx`, `SessionModal.tsx` | Đăng nhập / phiên |
 | `client/src/features/conversations/ChatListHeader.tsx`, `ConversationList.tsx` | Danh sách chat |
 | `client/src/features/chat/EmptyRoomPlaceholder.tsx`, `RoomMenu.tsx`, `SystemMessage.tsx`, `MessageMeta.tsx`, `MessageActions.tsx`, `ReadByIndicator.tsx`, `BlockedComposerNotice.tsx`, `RoomNotFound.tsx` | Phòng chat (CharCounter, EditingBar là component nội bộ của `Composer.tsx`) |
-| `client/src/features/groups/UserPicker.tsx`, `MemberRow.tsx`, `TransferOwnerDialog.tsx` | Nhóm |
+| `client/src/features/groups/UserPicker.tsx`, `MemberRow.tsx`, `TransferOwnerDialog.tsx`, `RenameGroupDialog.tsx` | Nhóm |
 | `client/src/features/calls/AutoplayUnlockButton.tsx`, `LocalVideo.tsx`, `RemoteVideo.tsx`, `RemoteAudio.tsx`, `CallStatusText.tsx`, `CallTopBar.tsx`, `MediaErrorPanel.tsx` | Cuộc gọi (NetworkQualityBadge, DeviceToast nội bộ trong `CallTopBar.tsx` / `InCallScreen.tsx`) |
 | `client/src/features/settings/SettingsNav.tsx`, `BlockedSection.tsx`, `SecuritySection.tsx` | Cài đặt |
 

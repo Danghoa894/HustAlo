@@ -430,7 +430,7 @@ Model file: `server/src/modules/messages/message.model.ts`.
 | `type` | String | ✔ | — | `MessageType` | TEXT / SYSTEM |
 | `contentEnc` | Object \| null | ✘ | `null` | `{ v: 1, keyId, iv, ct, tag }`; chỉ TEXT trong DIRECT/GROUP | AES-256-GCM (FR-SEC-002) |
 | `ciphertext` | Object \| null | ✘ | `null` | Envelope `{ v: 1, senderDeviceId, recipients: [{ deviceId, type: 1\|3, body }] }`, 1..10 recipients; chỉ SECRET | E2EE (FR-E2EE-004) |
-| `system` | Object \| null | ✘ | `null` | `{ kind: SystemEventKind, actorId, targetUserIds[], title, callId, callType, durationSec }`; `title` 1..`GROUP_TITLE_MAX` (100) code point; chỉ SYSTEM | FR-CHAT-011 |
+| `system` | Object \| null | ✘ | `null` | `{ kind: SystemEventKind, actorId, targetUserIds[], title, role, callId, callType, durationSec }`; `title` 1..`GROUP_TITLE_MAX` (100) code point; `role` (`ADMIN`/`MEMBER`) chỉ với ROLE_CHANGED; chỉ SYSTEM | FR-CHAT-011 |
 | `editedAt` | Date \| null | ✘ | `null` | — | FR-CHAT-007 |
 | `deletedAt` | Date \| null | ✘ | `null` | Khi set: `contentEnc = null`, `ciphertext = null` | Thu hồi (FR-CHAT-008) |
 | `createdAt` | Date | ✔ | service gán | — | Thời điểm server nhận; thành phần tuple cursor |
@@ -517,6 +517,7 @@ const systemSchema = new Schema(
     actorId: { type: Schema.Types.ObjectId, required: true, ref: 'User' },
     targetUserIds: { type: [Schema.Types.ObjectId], default: [], ref: 'User' },
     title: { type: String, default: null, maxlength: GROUP_TITLE_MAX * 2 }, // code point kiểm ở Zod; *2 cho UTF-16
+    role: { type: String, default: null, enum: ['ADMIN', 'MEMBER', null] }, // chỉ ROLE_CHANGED: role mới của target
     callId: { type: Schema.Types.ObjectId, default: null, ref: 'CallHistory' },
     callType: { type: String, default: null, enum: [...Object.values(CallType), null] },
     durationSec: { type: Number, default: null, min: 0 },

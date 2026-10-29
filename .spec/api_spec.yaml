@@ -1045,6 +1045,7 @@ paths:
                       actorId: 6720a1b2c3d4e5f601234563
                       targetUserIds: []
                       title: null
+                      role: null
                       callId: 6720d1b2c3d4e5f601234701
                       callType: VIDEO
                       durationSec: 192
@@ -2161,6 +2162,51 @@ components:
         updatedAt:
           type: string
           format: date-time
+    SystemPreview:
+      type: object
+      required: [kind, actor, targets, targetCount, title, role, callType, durationSec]
+      additionalProperties: false
+      properties:
+        kind:
+          $ref: '#/components/schemas/SystemEventKind'
+        actor:
+          $ref: '#/components/schemas/UserRef'
+        targets:
+          type: array
+          maxItems: 3
+          description: Tối đa 3 người đầu của `targetUserIds`.
+          items:
+            $ref: '#/components/schemas/UserRef'
+        targetCount:
+          type: integer
+          minimum: 0
+          description: Tổng số target (UI dùng khi > 3).
+        title:
+          type: string
+          maxLength: 100
+          nullable: true
+        role:
+          type: string
+          enum: [ADMIN, MEMBER, null]
+          nullable: true
+        callType:
+          type: string
+          enum: [VOICE, VIDEO, null]
+          nullable: true
+        durationSec:
+          type: integer
+          minimum: 0
+          nullable: true
+    UserRef:
+      type: object
+      required: [id, displayName]
+      additionalProperties: false
+      properties:
+        id:
+          $ref: '#/components/schemas/ObjectId'
+        displayName:
+          type: string
+          maxLength: 80
     LastMessagePreview:
       type: object
       required: [id, senderId, type, preview, createdAt, deletedAt]
@@ -2178,9 +2224,13 @@ components:
           nullable: true
           description: |
             TEXT: 100 code point đầu đã giải mã; SECRET: "Tin nhắn được mã hóa"; thu hồi: null (UI hiển thị
-            "Tin nhắn đã bị thu hồi"); SYSTEM: null (UI dựng chuỗi từ `system` của tin, FR-CHAT-011).
-        systemKind:
-          $ref: '#/components/schemas/SystemEventKind'
+            "Tin nhắn đã bị thu hồi"); SYSTEM: null (UI dựng chuỗi từ `system`, FR-CHAT-011).
+        system:
+          type: object
+          allOf:
+            - $ref: '#/components/schemas/SystemPreview'
+          nullable: true
+          description: Chỉ SYSTEM — bản rút gọn kèm tên để dựng preview mà không cần danh sách thành viên.
         createdAt:
           type: string
           format: date-time
@@ -2422,7 +2472,7 @@ components:
             $ref: '#/components/schemas/E2eeRecipient'
     SystemPayload:
       type: object
-      required: [kind, actorId, targetUserIds, title, callId, callType, durationSec]
+      required: [kind, actorId, targetUserIds, title, role, callId, callType, durationSec]
       additionalProperties: false
       properties:
         kind:
@@ -2433,6 +2483,11 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ObjectId'
+        role:
+          type: string
+          enum: [ADMIN, MEMBER, null]
+          nullable: true
+          description: Chỉ ROLE_CHANGED — role mới của target (ADMIN = "đặt làm quản trị viên", MEMBER = "gỡ quyền quản trị viên").
         title:
           type: string
           maxLength: 100

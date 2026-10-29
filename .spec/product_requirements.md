@@ -253,7 +253,7 @@ Mọi FR dùng hằng số trong `packages/shared/src/constants.ts` (kiến trú
 
 #### FR-CHAT-009 — Danh sách hội thoại
 - **Mô tả:** `GET /conversations?cursor=&limit=` trả `ConversationSummary[]`.
-- **Quy tắc:** `limit` 1..`CONVERSATION_PAGE_MAX` (50), mặc định `CONVERSATION_PAGE_DEFAULT` (20); sắp theo `lastMessageAt` giảm dần rồi `_id` giảm dần (cursor theo cặp đó). Mỗi summary: `id, type, title (GROUP) hoặc peer (DIRECT/SECRET), avatarUrl, lastMessage { id, senderId, type, preview, createdAt, deletedAt } | null, unreadCount, myLastDeliveredMessageId, myLastReadMessageId, memberCount, blockedByMe, canMessage`. `preview`: TEXT → tối đa 100 code point đầu đã giải mã; SECRET → "Tin nhắn được mã hóa"; SYSTEM → chuỗi mô tả sự kiện (FR-CHAT-011); thu hồi → "Tin nhắn đã bị thu hồi". `unreadCount` = số tin TEXT và SYSTEM `CALL_MISSED` của người khác, chưa thu hồi, sau read cursor của mình; đếm tối đa 100; UI hiển thị "99+" khi > `UNREAD_COUNT_CAP` (99). Cập nhật realtime qua `message:new`, `message:status`, `message:edit`, `message:delete`, `conversation:*`.
+- **Quy tắc:** `limit` 1..`CONVERSATION_PAGE_MAX` (50), mặc định `CONVERSATION_PAGE_DEFAULT` (20); sắp theo `lastMessageAt` giảm dần rồi `_id` giảm dần (cursor theo cặp đó). Mỗi summary: `id, type, title (GROUP) hoặc peer (DIRECT/SECRET), avatarUrl, lastMessage { id, senderId, type, preview, createdAt, deletedAt } | null, unreadCount, myLastDeliveredMessageId, myLastReadMessageId, memberCount, blockedByMe, canMessage`. `preview`: TEXT → tối đa 100 code point đầu đã giải mã; SECRET → "Tin nhắn được mã hóa"; SYSTEM → `preview: null` kèm `lastMessage.system` rút gọn (`kind`, `actor {id, displayName}`, tối đa 3 `targets` + `targetCount`, `title`, `role`, `callType`, `durationSec`), client dựng chuỗi FR-CHAT-011; thu hồi → "Tin nhắn đã bị thu hồi". `unreadCount` = số tin TEXT và SYSTEM `CALL_MISSED` của người khác, chưa thu hồi, sau read cursor của mình; đếm tối đa 100; UI hiển thị "99+" khi > `UNREAD_COUNT_CAP` (99). Cập nhật realtime qua `message:new`, `message:status`, `message:edit`, `message:delete`, `conversation:*`.
 - **AC:** AC-039. **EC:** EC-MSG-014.
 
 #### FR-CHAT-010 — Đồng bộ sau reconnect
@@ -263,7 +263,7 @@ Mọi FR dùng hằng số trong `packages/shared/src/constants.ts` (kiến trú
 
 #### FR-CHAT-011 — SYSTEM message `[NEW]`
 - **Mô tả:** Server tạo tin `type: SYSTEM` cho sự kiện nhóm và cuộc gọi (`SystemEventKind`).
-- **Quy tắc:** `system: { kind, actorId, targetUserIds?, title?, callId?, callType?, durationSec? }`, không có `content`. Chuỗi hiển thị (client dựng, tên lấy từ danh sách thành viên):
+- **Quy tắc:** `system: { kind, actorId, targetUserIds?, title?, role?, callId?, callType?, durationSec? }` (`role` = role mới của target, chỉ ROLE_CHANGED), không có `content`. Chuỗi hiển thị (client dựng, tên lấy từ danh sách thành viên):
 
 | `kind` | Chuỗi hiển thị |
 |---|---|
