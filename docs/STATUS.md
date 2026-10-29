@@ -30,7 +30,7 @@
 | `npm run test:unit`                   | ✅ PASS           | scripts 5/5 (node:test) · shared 33/33 · server 45/45 · client 132/132                                    |
 | `npm run test:integration`            | ✅ PASS           | 10/10 file · 83/83 test, 0 skip; chạy 3 lần đều xanh (có test đua đồng thời TC-AC-017/058, TC-DB-008/012) |
 | `npm run test:e2e`                    | ✅ PASS           | 42/42: `auth.spec.ts` 8 + `group.spec.ts` 6, × chromium, firefox, webkit (http://localhost:5173)          |
-| `npm run spec:check`                  | ✅ PASS           | `FR 58 · AC 102 · EC 106 · event 35 · endpoint 27 · hằng số 71`                                           |
+| `npm run spec:check`                  | ✅ PASS           | `FR 58 · AC 102 · EC 106 · event 35 · endpoint 28 · hằng số 71`                                           |
 | `trace:check --milestone M0 --strict` | ✅                | 14/14 ID có test                                                                                          |
 | `trace:check --milestone M1 --strict` | ✅                | 30/30 ID có test                                                                                          |
 | `trace:check --milestone M2 --strict` | ✅                | 20/20 ID có test                                                                                          |
@@ -44,6 +44,8 @@ Console trình duyệt ở `/login`, `/register`, `/chats`: không còn cảnh b
 
 ## 3. Việc cần làm tiếp
 
+> 2026-10-29 (sau M2): đã duyệt — `LastMessagePreview.sender { id, displayName }` (đã làm luôn ở M2) và endpoint `GET /users/blocked` cho `BlockedSection` (làm ở M3).
+>
 > 2026-10-29: spec M2 đã duyệt và sửa — preview SYSTEM có `lastMessage.system` (kèm tên), `system.role` cho ROLE_CHANGED, `RoomMenu`/`RenameGroupDialog` ở M2, SECRET trả 422 tới M7, ma trận §5.2 cho `conversations` gọi `messages.previewsFor/countUnread`.
 >
 > 2026-10-29 (trước M2): đã duyệt và sửa spec — `BlockedSection` chuyển sang checklist M3; bổ sung 7 chuỗi UI mới vào `ui_ux_spec.md`; đoạn `webServer` trong DG §6.6 khớp `client/playwright.config.ts`.
@@ -56,5 +58,4 @@ Console trình duyệt ở `/login`, `/register`, `/chats`: không còn cảnh b
 | 7   | **Thấp** | `trace:check` đếm cả `it.skip`/`it.todo` là "có test" → nên kiểm thêm pass                                                                                                                                  | `scripts/check-traceability.mjs`              | DG §8.8                         |
 | 8   | **TB**   | E2E còn thiếu: AC-011 tầng E (hết hạn token giữa phiên — cần fake clock/TTL ngắn, phần sync ở M3), khóa tài khoản (EC-AUTH-005) và REFRESH_REUSE (EC-AUTH-004) mới có unit test client + integration server | `client/e2e/`                                 | AC-011, EC-AUTH-004/005         |
 | 9   | **TB**   | `npm audit`: 5 lỗ hổng có sẵn từ trước (vitest/tinypool, react-router open redirect qua `\`, zod, esbuild dev server Windows); `safeNext` đã chặn `/\`. Nâng version cần duyệt (không tự đổi tech stack)    | `package-lock.json`                           | —                               |
-| 11  | **TB**   | M3: tiền tố "{tên}: " cho tin TEXT của người khác trong preview GROUP cần tên người gửi, nhưng `LastMessagePreview` chỉ có `senderId` — cần chốt spec khi làm M3 (cùng nguồn tên cho `BlockedSection`)      | `.spec/api_spec.yaml`, `ui_ux_spec.md` §3.2   | FR-CHAT-009                     |
 | 10  | **Sau**  | M6.5 Deploy: Dockerfile, compose prod, nginx, `cicd-docker.yml`, VM + domain                                                                                                                                | development_guide.md §9                       | AC-ARCH-016, AC-ARCH-017        |
