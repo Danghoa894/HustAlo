@@ -2513,7 +2513,7 @@ components:
             $ref: '#/components/schemas/E2eeRecipient'
     SystemPayload:
       type: object
-      required: [kind, actorId, targetUserIds, title, role, callId, callType, durationSec]
+      required: [kind, actorId, targetUserIds, targets, title, role, callId, callType, durationSec]
       additionalProperties: false
       properties:
         kind:
@@ -2524,6 +2524,12 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ObjectId'
+        targets:
+          type: array
+          maxItems: 100
+          description: Tên hiện tại của từng người trong `targetUserIds`, cùng thứ tự (server tra theo lô; không lưu trong DB).
+          items:
+            $ref: '#/components/schemas/UserRef'
         role:
           type: string
           enum: [ADMIN, MEMBER, null]
@@ -2562,7 +2568,7 @@ components:
           nullable: true
     Message:
       type: object
-      required: [id, conversationId, senderId, senderDeviceId, clientMessageId, type, content, ciphertext, system, receipt, createdAt, editedAt, deletedAt]
+      required: [id, conversationId, senderId, sender, senderDeviceId, clientMessageId, type, content, ciphertext, system, receipt, createdAt, editedAt, deletedAt]
       additionalProperties: false
       properties:
         id:
@@ -2571,6 +2577,10 @@ components:
           $ref: '#/components/schemas/ObjectId'
         senderId:
           $ref: '#/components/schemas/ObjectId'
+        sender:
+          allOf:
+            - $ref: '#/components/schemas/UserRef'
+          description: Tên hiện tại của người gửi (kể cả người đã rời nhóm) — tên trên bubble GROUP và {actor} của SYSTEM.
         senderDeviceId:
           type: string
           format: uuid

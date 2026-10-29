@@ -558,7 +558,7 @@ features/chat/ChatRoomPane.tsx
 
 **Nguồn dữ liệu:** `Q['conversation', id]`, `Q['messages', id]`, `S.outbox` (bubble PENDING/FAILED trộn vào danh sách theo thời gian tạo cục bộ, luôn nằm sau tin đã có `createdAt` server), `S.presence`, `S.typing`; mở phòng: `E:conversation:join` (ACK trả `unreadCount`, `typingUserIds`); rời phòng: `E:conversation:leave`. Gửi: `useSendMessage` → outbox → `E:message:send`. Đọc: `useReadReceipts` → `E:message:read`.
 
-**Gom nhóm bubble:** cùng `senderId`, cách nhau ≤ 5 phút, không có `DateDivider`/SYSTEM ở giữa. Chỉ bubble đầu nhóm của người khác trong GROUP hiển thị tên người gửi (trên bubble, `text-xs font-medium`); avatar người khác chỉ ở bubble cuối nhóm (DIRECT/SECRET và GROUP). Giờ hiển thị ở bubble cuối nhóm; hover/focus bubble bất kỳ hiện giờ của nó (tooltip).
+**Gom nhóm bubble:** cùng `senderId`, cách nhau ≤ 5 phút, không có `DateDivider`/SYSTEM ở giữa. Chỉ bubble đầu nhóm của người khác trong GROUP hiển thị tên người gửi (`message.sender.displayName`) (trên bubble, `text-xs font-medium`); avatar người khác chỉ ở bubble cuối nhóm (DIRECT/SECRET và GROUP). Giờ hiển thị ở bubble cuối nhóm; hover/focus bubble bất kỳ hiện giờ của nó (tooltip).
 
 **Ngăn ngày:** theo múi giờ trình duyệt, dựa trên `createdAt` server: "Hôm nay", "Hôm qua", còn lại "Thứ Hai, 20/10/2026" (ngày trong tuần tiếng Việt: "Thứ Hai", "Thứ Ba", "Thứ Tư", "Thứ Năm", "Thứ Sáu", "Thứ Bảy", "Chủ Nhật").
 
@@ -1018,7 +1018,7 @@ export function mapMediaError(err: unknown, requested: 'audio' | 'video'): Media
 
 ### 5.3 Chuỗi SYSTEM message và lastSeen `[NEW]`
 
-`SystemMessage` (FR-CHAT-011) dựng chuỗi ở client từ `message.system`; `{actor}`, `{target}`, `{targets}` là `displayName` lấy từ `Conversation.members`; `{targets}` nối bằng ", ". Chuỗi chính thức (nguyên văn PRD FR-CHAT-011):
+`SystemMessage` (FR-CHAT-011) dựng chuỗi ở client từ `message.system`; `{actor}` là `message.sender.displayName`, `{target}`/`{targets}` lấy từ `message.system.targets` (không phụ thuộc `Conversation.members`, nên đúng cả với người đã rời nhóm); `{targets}` nối bằng ", ". Chuỗi chính thức (nguyên văn PRD FR-CHAT-011):
 
 | `system.kind` | Chuỗi hiển thị |
 |---|---|

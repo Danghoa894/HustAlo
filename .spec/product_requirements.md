@@ -263,7 +263,7 @@ Mọi FR dùng hằng số trong `packages/shared/src/constants.ts` (kiến trú
 
 #### FR-CHAT-011 — SYSTEM message `[NEW]`
 - **Mô tả:** Server tạo tin `type: SYSTEM` cho sự kiện nhóm và cuộc gọi (`SystemEventKind`).
-- **Quy tắc:** `system: { kind, actorId, targetUserIds?, title?, role?, callId?, callType?, durationSec? }` (`role` = role mới của target, chỉ ROLE_CHANGED), không có `content`. Chuỗi hiển thị (client dựng, tên lấy từ danh sách thành viên):
+- **Quy tắc:** `system: { kind, actorId, targetUserIds?, title?, role?, callId?, callType?, durationSec? }` (`role` = role mới của target, chỉ ROLE_CHANGED), không có `content`. Chuỗi hiển thị (client dựng; tên lấy từ `message.sender` cho {actor} và `message.system.targets` cho {target}/{targets} — server tra tên hiện tại theo lô, đúng cả với người đã rời nhóm):
 
 | `kind` | Chuỗi hiển thị |
 |---|---|
