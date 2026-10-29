@@ -21,6 +21,7 @@ const group = (over: Partial<ConversationSummary> = {}): ConversationSummary => 
   lastMessage: {
     id: '6720a1b2c3d4e5f6012345bb',
     senderId: ME,
+    sender: { id: ME, displayName: 'Alice' },
     type: 'SYSTEM',
     preview: null,
     createdAt: new Date().toISOString(),
@@ -88,7 +89,8 @@ describe('ChatListPane (ui_ux_spec.md §3.2)', () => {
 
   it('dòng: tên nhóm, preview SYSTEM dựng chuỗi ("Bạn đã tạo nhóm"), aria-label đầy đủ, link /chats/:id', async () => {
     renderPage(<ChatListPane />, { path: '/chats' });
-    const link = await screen.findByRole('link', { name: 'Nhóm HUSTALO, Bạn đã tạo nhóm' });
+    // Lần render đầu của file nạp module + fetch giả: dành 5 s khi cả bộ test chạy song song.
+    const link = await screen.findByRole('link', { name: 'Nhóm HUSTALO, Bạn đã tạo nhóm' }, { timeout: 5000 });
     expect(link).toHaveAttribute('href', '/chats/6720a1b2c3d4e5f6012345aa');
     expect(within(link).getByText('Bạn đã tạo nhóm')).toBeInTheDocument();
   });

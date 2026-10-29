@@ -24,6 +24,7 @@ const peer = { id: BOB, username: 'bob', displayName: 'Bob Trần', avatarUrl: n
 const systemLast = {
   id: '6720a1b2c3d4e5f6012345bb',
   senderId: ME,
+  sender: { id: ME, displayName: 'Alice' },
   type: 'SYSTEM' as const,
   preview: null,
   createdAt: '2026-10-28T08:00:00.000Z',
@@ -54,12 +55,14 @@ describe('dòng danh sách chat (ui_ux_spec.md §3.2)', () => {
     expect(previewOf(summary({ lastMessage: systemLast }), ME)).toBe('Bạn đã thêm Bob Trần');
   });
 
-  it('thu hồi → "Tin nhắn đã bị thu hồi" (có "Bạn: " nếu của mình); TEXT của mình có tiền tố "Bạn: "', () => {
+  it('thu hồi → "Tin nhắn đã bị thu hồi" (có "Bạn: " nếu của mình); TEXT của mình "Bạn: ", của người khác trong GROUP "{tên}: "', () => {
     const text = { ...systemLast, type: 'TEXT' as const, system: null, preview: 'Hẹn mai nhé' };
     expect(previewOf(summary({ type: 'DIRECT', peer, lastMessage: text }), ME)).toBe('Bạn: Hẹn mai nhé');
     expect(previewOf(summary({ type: 'DIRECT', peer, lastMessage: { ...text, senderId: BOB } }), ME)).toBe(
       'Hẹn mai nhé',
     );
+    const fromBob = { ...text, senderId: BOB, sender: { id: BOB, displayName: 'Bob Trần' } };
+    expect(previewOf(summary({ lastMessage: fromBob }), ME)).toBe('Bob Trần: Hẹn mai nhé');
     const revoked = { ...text, preview: null, deletedAt: '2026-10-28T08:01:00.000Z' };
     expect(previewOf(summary({ type: 'DIRECT', peer, lastMessage: revoked }), ME)).toBe(
       `Bạn: ${t.conversations.revoked}`,

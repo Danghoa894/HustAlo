@@ -112,6 +112,8 @@ export const LastMessagePreviewSchema = z
   .object({
     id: objectId,
     senderId: objectId,
+    /** Tên hiện tại của người gửi — tiền tố "{tên}: " cho tin TEXT trong GROUP (ui_ux_spec.md §3.2). */
+    sender: UserRefSchema,
     type: enumOf(MessageType),
     preview: z.string().max(100).nullable(),
     system: SystemPreviewSchema.nullable(),

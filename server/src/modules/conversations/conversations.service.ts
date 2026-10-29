@@ -326,9 +326,12 @@ export function createConversationsService(deps: ConversationsDeps) {
       ]);
       const peerOf = new Map(peers.map((p) => [String(p.conversationId), String(p.userId)]));
       const peerIds = [...new Set(peerOf.values())];
-      const nameIds = [...previews.values()].flatMap((m) =>
-        m.system ? [m.system.actorId, ...m.system.targetUserIds.slice(0, SYSTEM_PREVIEW_TARGETS_MAX)].map(String) : [],
-      );
+      const nameIds = [...previews.values()].flatMap((m) => [
+        String(m.senderId),
+        ...(m.system
+          ? [m.system.actorId, ...m.system.targetUserIds.slice(0, SYSTEM_PREVIEW_TARGETS_MAX)].map(String)
+          : []),
+      ]);
       const [profiles, blockedByMe, blockers] = await Promise.all([
         users.getPublicMany([...peerIds, ...nameIds]),
         users.blockedByMeAmong(me, peerIds),
@@ -347,6 +350,10 @@ export function createConversationsService(deps: ConversationsDeps) {
           ? {
               id: String(msg._id),
               senderId: String(msg.senderId),
+              sender: {
+                id: String(msg.senderId),
+                displayName: profiles.get(String(msg.senderId))?.user.displayName ?? '',
+              },
               type: msg.type,
               preview: null, // TEXT (giải mã) ở M3; SYSTEM: client dựng từ `system`
               system: systemPreview(msg, profiles),

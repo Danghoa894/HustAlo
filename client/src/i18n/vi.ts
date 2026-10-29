@@ -46,6 +46,7 @@ export const vi = {
     noMessages: 'Chưa có tin nhắn',
     unread: (n: number) => `${n} tin chưa đọc`,
     youPrefix: 'Bạn: ',
+    senderPrefix: (name: string) => `${name}: `,
     revoked: 'Tin nhắn đã bị thu hồi',
     encrypted: 'Tin nhắn được mã hóa',
     cannotMessage: 'Không thể gửi tin nhắn tới người này',

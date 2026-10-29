@@ -506,6 +506,7 @@ describe('GET /conversations, GET /conversations/{id} (FR-CHAT-009, FR-SEC-008)'
     expect(g1Summary).toMatchObject({ title: 'Nhóm 1', memberCount: 3, unreadCount: 0 });
     expect(g1Summary?.lastMessage).toMatchObject({
       type: 'SYSTEM',
+      sender: { id: alice.id, displayName: 'alice' },
       preview: null,
       system: {
         kind: 'MEMBER_ADDED',
