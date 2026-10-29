@@ -21,6 +21,8 @@ export interface Emitter {
   toPresence<E extends ServerEventName>(userId: string, event: E, payload: ServerEventPayload<E>): void;
   /** Ngắt mọi socket trong room (sau khi đã phát event thu hồi phiên). */
   disconnect(rooms: string | string[]): void;
+  /** Cho mọi socket trong `rooms` rời `room` (người bị xóa khỏi nhóm rời conv:{id}, FR-GROUP-003). */
+  leaveRoom(rooms: string | string[], room: string): void;
 }
 
 export function withMeta<P extends object>(payload: P, now: () => Date = () => new Date()): P & ServerEventMeta {
@@ -42,6 +44,9 @@ export function createEmitter(io: Server): Emitter {
     toPresence: (id, e, p) => toRooms(presenceRoom(id), e, p),
     disconnect: (rooms) => {
       io.in(rooms).disconnectSockets(true);
+    },
+    leaveRoom: (rooms, room) => {
+      io.in(rooms).socketsLeave(room);
     },
   };
 }

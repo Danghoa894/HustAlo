@@ -127,3 +127,23 @@ export function refresh(
   if (csrfHeader !== null) req.set('X-CSRF-Token', csrfHeader ?? s.csrfToken);
   return req;
 }
+
+let bulkHash: string | undefined;
+
+/** Tạo nhanh `n` user ACTIVE (một hash dùng chung) — cho nhóm lớn ở test giới hạn thành viên. */
+export async function createUsers(n: number): Promise<{ id: string; email: string }[]> {
+  bulkHash ??= await hashPassword(TEST_PASSWORD);
+  const docs = Array.from({ length: n }, () => {
+    seq += 1;
+    const username = `bulk${String(Date.now()).slice(-6)}${seq}`;
+    return {
+      email: `${username}@hustalo.local`,
+      username,
+      displayName: `Bulk ${seq}`,
+      displayNameNormalized: `bulk ${seq}`,
+      passwordHash: bulkHash,
+    };
+  });
+  const created = await UserModel.insertMany(docs);
+  return created.map((d) => ({ id: String(d._id), email: d.email }));
+}

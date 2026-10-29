@@ -6,6 +6,9 @@ import { logger } from '../logger/logger';
 import { isMainModule } from '../runtime/is-main';
 import { connectMongo } from './mongo';
 import { RefreshSessionModel } from '../../modules/auth/refreshSession.model';
+import { ConversationModel } from '../../modules/conversations/conversation.model';
+import { ConversationMemberModel } from '../../modules/conversations/conversationMember.model';
+import { MessageModel } from '../../modules/messages/message.model';
 import { UserModel } from '../../modules/users/user.model';
 import { UserBlockModel } from '../../modules/users/userBlock.model';
 
@@ -15,7 +18,14 @@ export interface IndexedModel {
   readonly collection: { readonly collectionName: string };
 }
 
-export const ALL_MODELS: readonly IndexedModel[] = [UserModel, RefreshSessionModel, UserBlockModel];
+export const ALL_MODELS: readonly IndexedModel[] = [
+  UserModel,
+  RefreshSessionModel,
+  UserBlockModel,
+  ConversationModel,
+  ConversationMemberModel,
+  MessageModel,
+];
 
 export async function ensureIndexes(models: readonly IndexedModel[] = ALL_MODELS): Promise<void> {
   for (const m of models) {

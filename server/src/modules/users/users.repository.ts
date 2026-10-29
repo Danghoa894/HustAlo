@@ -57,6 +57,12 @@ export const usersRepository = {
 
   exists: async (id: string) => (await UserModel.exists({ _id: id })) !== null,
 
+  findManyByIds: (ids: string[]) =>
+    UserModel.find({ _id: { $in: ids } })
+      .select(PUBLIC_FIELDS)
+      .lean<UserRecord[]>()
+      .exec(),
+
   /** Tìm theo tiền tố (regex anchored dùng index); loại `excludeIds` và user LOCKED. */
   searchPrefix(
     field: 'username' | 'displayNameNormalized',
@@ -124,6 +130,15 @@ export const usersRepository = {
         .lean<{ blockedId: Types.ObjectId }[]>()
         .exec()
     ).map((b) => String(b.blockedId)),
+
+  /** Trong `ids`, những người đã chặn `userId`. */
+  blockersAmong: async (userId: string, ids: string[]) =>
+    (
+      await UserBlockModel.find({ blockerId: { $in: ids }, blockedId: userId })
+        .select('blockerId')
+        .lean<{ blockerId: Types.ObjectId }[]>()
+        .exec()
+    ).map((b) => String(b.blockerId)),
 
   isBlockedEitherWay: async (a: string, b: string) =>
     (await UserBlockModel.exists({

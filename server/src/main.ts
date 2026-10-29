@@ -13,9 +13,12 @@ import { connectRedis, createRedis, type RedisHandle } from './infra/redis/redis
 import { isMainModule } from './infra/runtime/is-main';
 import { createAuthRepository } from './modules/auth/auth.repository';
 import { createAuthService, type AuthService } from './modules/auth/auth.service';
+import { createConversationsService, type ConversationsService } from './modules/conversations/conversations.service';
+import { messagesService } from './modules/messages/messages.service';
 import { usersService } from './modules/users/users.service';
 import { createEmitter, type Emitter } from './realtime/emitter';
 import { createGateway, type HustaloServer } from './realtime/gateway';
+import { registerConversationHandlers } from './realtime/handlers/conversation.handler';
 import { createSessionNotifier, subscribeUserLocked } from './realtime/handlers/session.handler';
 
 const HTTP_DRAIN_TIMEOUT_MS = 10_000;
@@ -26,6 +29,7 @@ export interface Runtime {
   io: HustaloServer;
   emitter: Emitter;
   auth: AuthService;
+  conversations: ConversationsService;
   redis: RedisHandle;
   setDraining(v: boolean): void;
   close(): Promise<void>;
@@ -56,6 +60,8 @@ export async function createRuntime(opts: RuntimeOptions): Promise<Runtime> {
   const emitter = createEmitter(io);
   const auth = createAuthService({ repo: authRepo, notifier: createSessionNotifier(emitter) });
   const rateLimiters = createRateLimiters(redis.client);
+  const conversations = createConversationsService({ emitter, users: usersService, messages: messagesService, redis });
+  registerConversationHandlers(io, { conversations, logger: opts.logger, rateLimiters });
 
   const app = createApp({
     logger: opts.logger,
@@ -63,7 +69,7 @@ export async function createRuntime(opts: RuntimeOptions): Promise<Runtime> {
     trustProxy: env.TRUST_PROXY,
     production: env.NODE_ENV === 'production',
     health: { pingMongo, isRedisHealthy: () => redis.isHealthy(), isDraining: () => draining },
-    modules: { auth, users: usersService, rateLimiters },
+    modules: { auth, users: usersService, conversations, rateLimiters },
   });
   httpServer.on('request', app);
 
@@ -90,6 +96,7 @@ export async function createRuntime(opts: RuntimeOptions): Promise<Runtime> {
     io,
     emitter,
     auth,
+    conversations,
     redis,
     setDraining: (v) => {
       draining = v;

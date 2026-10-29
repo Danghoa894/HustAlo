@@ -135,6 +135,27 @@ export const usersService = {
   },
 
   isBlockedEitherWay: (a: string, b: string) => usersRepository.isBlockedEitherWay(a, b),
+
+  /** Hồ sơ công khai theo lô (conversations: thành viên, peer, tên trong preview SYSTEM). `active` = status ACTIVE. */
+  async getPublicMany(ids: string[]): Promise<Map<string, { user: UserPublic; active: boolean }>> {
+    const unique = [...new Set(ids)].filter((id) => Types.ObjectId.isValid(id));
+    if (unique.length === 0) return new Map();
+    const docs = await usersRepository.findManyByIds(unique);
+    return new Map(docs.map((u) => [String(u._id), { user: toUserPublic(u), active: u.status === UserStatus.ACTIVE }]));
+  },
+
+  /** Trong `ids`, những người `meId` đã chặn. */
+  blockedByMeAmong: (meId: string, ids: string[]) =>
+    ids.length === 0
+      ? Promise.resolve<string[]>([])
+      : usersRepository.blockedAmong(
+          meId,
+          ids.map((id) => new Types.ObjectId(id)),
+        ),
+
+  /** Trong `ids`, những người đã chặn `meId` (FR-GROUP-001/002: bỏ qua với USER_BLOCKED). */
+  blockersOf: (meId: string, ids: string[]) =>
+    ids.length === 0 ? Promise.resolve<string[]>([]) : usersRepository.blockersAmong(meId, ids),
 };
 
 export type UsersService = typeof usersService;
