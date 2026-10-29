@@ -1,7 +1,13 @@
 // packages/shared/src/schemas/user.schema.ts — UserPublic, UserMe, Privacy, cập nhật hồ sơ, tìm kiếm
 // (api_spec components/schemas; PRD FR-USER-001..003)
 import { z } from 'zod';
-import { DISPLAY_NAME_MAX, USER_SEARCH_LIMIT, USER_SEARCH_MAX_QUERY, USER_SEARCH_MIN_QUERY } from '../constants';
+import {
+  BLOCKED_LIST_MAX,
+  DISPLAY_NAME_MAX,
+  USER_SEARCH_LIMIT,
+  USER_SEARCH_MAX_QUERY,
+  USER_SEARCH_MIN_QUERY,
+} from '../constants';
 import { countCodePoints, normalizeDisplayName } from '../utils/text';
 import { isoDate, objectId } from './common.schema';
 
@@ -70,6 +76,10 @@ export type UserSearchQuery = z.infer<typeof UserSearchQuerySchema>;
 
 export const UserSearchResponseSchema = z.object({ items: z.array(UserPublicSchema).max(USER_SEARCH_LIMIT) }).strict();
 export type UserSearchResponse = z.infer<typeof UserSearchResponseSchema>;
+
+/** GET /users/blocked (FR-USER-003): người mình đã chặn, tối đa BLOCKED_LIST_MAX. */
+export const BlockedUsersResponseSchema = z.object({ items: z.array(UserPublicSchema).max(BLOCKED_LIST_MAX) }).strict();
+export type BlockedUsersResponse = z.infer<typeof BlockedUsersResponseSchema>;
 
 export const UserIdParamsSchema = z.object({ userId: objectId }).strict();
 export type UserIdParams = z.infer<typeof UserIdParamsSchema>;

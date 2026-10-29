@@ -70,6 +70,7 @@ describe('hợp đồng REST hội thoại (api_spec /conversations)', () => {
       kind: 'ROLE_CHANGED',
       actorId: id(1),
       targetUserIds: [id(2)],
+      targets: [{ id: id(2), displayName: 'Bob' }],
       title: null,
       role: 'ADMIN',
       callId: null,

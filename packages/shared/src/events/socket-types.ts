@@ -4,6 +4,7 @@
 import type { z } from 'zod';
 import type { ConversationChange, PresenceStatus, SessionRevokeReason } from '../enums';
 import type { Conversation } from '../schemas/conversation.schema';
+import type { Message } from '../schemas/message.schema';
 import type { AckError } from '../errors';
 import type {
   PresenceSubscribePayload,
@@ -11,6 +12,9 @@ import type {
   TypingPayload,
   ConversationLeavePayload,
   ConversationJoinPayload,
+  MessageDeletePayload,
+  MessageEditPayload,
+  MessageSendPayload,
 } from '../schemas/socket.schema';
 import type { EVENTS } from './event-names';
 
@@ -39,6 +43,9 @@ export interface ClientToServerEvents {
     { conversation: Conversation; unreadCount: number; typingUserIds: string[] }
   >;
   [EVENTS.CONVERSATION_LEAVE]: C2S<typeof ConversationLeavePayload, Record<string, never>>;
+  [EVENTS.MESSAGE_SEND]: C2S<typeof MessageSendPayload, { message: Message; duplicate: boolean }>;
+  [EVENTS.MESSAGE_EDIT]: C2S<typeof MessageEditPayload, { message: Message }>;
+  [EVENTS.MESSAGE_DELETE]: C2S<typeof MessageDeletePayload, { message: Message }>;
   [EVENTS.MESSAGE_DELIVERED]: C2S<typeof ReceiptCursorPayload, { advanced: boolean }>;
   [EVENTS.MESSAGE_READ]: C2S<typeof ReceiptCursorPayload, { advanced: boolean; unreadCount: number }>;
   [EVENTS.TYPING_START]: C2S<typeof TypingPayload, Record<string, never>>;
@@ -62,6 +69,9 @@ export interface ServerToClientEvents {
     removedBy: string;
     reason: 'REMOVED' | 'LEFT';
   }>;
+  [EVENTS.MESSAGE_NEW]: S2C<{ message: Message }>;
+  [EVENTS.MESSAGE_EDIT]: S2C<{ message: Message }>;
+  [EVENTS.MESSAGE_DELETE]: S2C<{ message: Message }>;
   [EVENTS.MESSAGE_STATUS]: S2C<
     | {
         conversationId: string;

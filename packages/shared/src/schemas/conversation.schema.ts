@@ -73,12 +73,19 @@ export const ConversationIdParamsSchema = z.object({ conversationId: objectId })
 export const ConversationMemberParamsSchema = z.object({ conversationId: objectId, userId: objectId }).strict();
 
 // ---- DTO ----
-/** Payload tin SYSTEM (FR-CHAT-011); `role` = role mới của target, chỉ ROLE_CHANGED. */
+export const UserRefSchema = z.object({ id: objectId, displayName: z.string().max(DISPLAY_NAME_MAX) }).strict();
+export type UserRef = z.infer<typeof UserRefSchema>;
+
+/**
+ * Payload tin SYSTEM trong DTO (FR-CHAT-011); `role` = role mới của target, chỉ ROLE_CHANGED;
+ * `targets` = tên hiện tại của `targetUserIds` cùng thứ tự (server tra theo lô, không lưu DB).
+ */
 export const SystemPayloadSchema = z
   .object({
     kind: SystemEventKindSchema,
     actorId: objectId,
     targetUserIds: z.array(objectId),
+    targets: z.array(UserRefSchema).max(GROUP_MAX_MEMBERS),
     title: z.string().nullable(),
     role: z.enum(['ADMIN', 'MEMBER']).nullable(),
     callId: objectId.nullable(),
@@ -87,9 +94,6 @@ export const SystemPayloadSchema = z
   })
   .strict();
 export type SystemPayload = z.infer<typeof SystemPayloadSchema>;
-
-export const UserRefSchema = z.object({ id: objectId, displayName: z.string().max(DISPLAY_NAME_MAX) }).strict();
-export type UserRef = z.infer<typeof UserRefSchema>;
 
 /** Số target tối đa kèm tên trong preview SYSTEM của danh sách chat. */
 export const SYSTEM_PREVIEW_TARGETS_MAX = 3;
