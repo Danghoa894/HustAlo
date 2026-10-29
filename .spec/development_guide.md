@@ -1033,15 +1033,18 @@ export default defineConfig({
     },
   ],
   // Chạy với E2E_BASE_URL (môi trường đã deploy) thì không tự khởi động dev server.
-  webServer: process.env.E2E_BASE_URL
-    ? undefined
+  // Spread có điều kiện: tsconfig bật exactOptionalPropertyTypes nên không gán được `webServer: undefined`.
+  ...(process.env.E2E_BASE_URL
+    ? {}
     : {
-        command: 'npm run dev',
-        cwd: '..',
-        url: 'http://localhost:5173/api/v1/health',
-        reuseExistingServer: !process.env.CI,
-        timeout: 120_000,
-      },
+        webServer: {
+          command: 'npm run dev',
+          cwd: '..',
+          url: 'http://localhost:5173/api/v1/health',
+          reuseExistingServer: !process.env.CI,
+          timeout: 120_000,
+        },
+      }),
 });
 ```
 
@@ -1094,7 +1097,7 @@ FR: FR-AUTH-001, FR-AUTH-002, FR-AUTH-003, FR-AUTH-004 (phần logout; phần cu
 
 Checklist:
 - [ ] `modules/auth/*` (+ `refreshSession.model.ts`), `modules/users/*` (+ `user.model.ts`, `userBlock.model.ts`), `infra/crypto/password.ts`, `infra/jwt/jwt.ts`, `http/middleware/authenticate.ts`, `csrf.ts`, `rate-limit.ts`, `realtime/middleware/socket-auth.ts`, `socket-rate-limit.ts`, `realtime/handlers/session.handler.ts`, `jobs/user-lock.ts`.
-- [ ] Client: `features/auth/*` (LoginPage, RegisterPage, AuthCard, SessionModal, `useSessionLifecycle.ts`), `lib/api/refresh.ts` (Web Locks, D-19), `lib/socket/socket.ts`, `lib/socket/emit.ts`, `stores/auth.store.ts`, `stores/socket.store.ts`, `components/layout/ConnectionBanner.tsx`, `features/settings/ProfileSection.tsx`, `BlockedSection.tsx`, `SecuritySection.tsx` (đổi mật khẩu).
+- [ ] Client: `features/auth/*` (LoginPage, RegisterPage, AuthCard, SessionModal, `useSessionLifecycle.ts`), `lib/api/refresh.ts` (Web Locks, D-19), `lib/socket/socket.ts`, `lib/socket/emit.ts`, `stores/auth.store.ts`, `stores/socket.store.ts`, `components/layout/ConnectionBanner.tsx`, `features/settings/ProfileSection.tsx`, `SecuritySection.tsx` (đổi mật khẩu). `BlockedSection.tsx` chuyển sang M3 (cần tên người bị chặn, `/auth/me` chỉ trả `blockedUserIds`).
 - [ ] `npm run db:seed` hoạt động.
 
 Gate: `TC-AC-001`, `TC-AC-002`, `TC-AC-003`, `TC-AC-004`, `TC-AC-005`, `TC-AC-006`, `TC-AC-007`, `TC-AC-009`, `TC-AC-010`, `TC-AC-018`, `TC-AC-011` (phần session; phần đồng bộ tin ở M3), `TC-AC-012`, `TC-AC-013`, `TC-AC-102`, `TC-AC-108`, `TC-ARCH-013`, `TC-ARCH-014`, `TC-AUTH-001`, `TC-AUTH-002`, `TC-AUTH-003`, `TC-AUTH-004`, `TC-AUTH-005`, `TC-AUTH-006`, `TC-AUTH-008`, `TC-SEC-004`, `TC-SEC-005`, `TC-DB-002`, `TC-DB-003`, `TC-DB-018`, `TC-DB-019`.
@@ -1119,7 +1122,7 @@ FR: FR-CHAT-002, FR-CHAT-003, FR-CHAT-004, FR-CHAT-006, FR-CHAT-007, FR-CHAT-008
 
 Checklist:
 - [ ] `modules/messages/*` (service, `receipts.service.ts`, repository, `messageReceipt.model.ts`, `message.crypto.ts`), `realtime/handlers/message.handler.ts` (`message:send`, `message:delivered`, `message:read`, `message:edit`, `message:delete`; phát `message:new`, `message:status`), `jobs/reencrypt-messages.ts`.
-- [ ] Client: `features/chat/*` (MessageList, MessageBubble, MessageStatusIcon, DateDivider, NewMessagesButton, Composer, MessageActions, MessageMeta, ReadByIndicator, BlockedComposerNotice, EmptyRoomPlaceholder, RoomMenu, `useMessages.ts`, `useSendMessage.ts`, `useReadReceipts.ts`), `lib/outbox/*`, `stores/outbox.store.ts`, `lib/socket/event-dedupe.ts`, `lib/socket/sync.ts`, `lib/time/*`, `components/layout/LiveRegions.tsx`, `components/ui/UnreadBadge.tsx`.
+- [ ] Client: `features/chat/*` (MessageList, MessageBubble, MessageStatusIcon, DateDivider, NewMessagesButton, Composer, MessageActions, MessageMeta, ReadByIndicator, BlockedComposerNotice, EmptyRoomPlaceholder, RoomMenu, `useMessages.ts`, `useSendMessage.ts`, `useReadReceipts.ts`), `lib/outbox/*`, `stores/outbox.store.ts`, `lib/socket/event-dedupe.ts`, `lib/socket/sync.ts`, `lib/time/*`, `components/layout/LiveRegions.tsx`, `components/ui/UnreadBadge.tsx`, `features/settings/BlockedSection.tsx` (chuyển từ M1).
 
 Gate: `TC-AC-011` (phần đồng bộ), `TC-AC-014` (phần tin nhắn), `TC-AC-015`, `TC-AC-020`, `TC-AC-021`, `TC-AC-022`, `TC-AC-023`, `TC-AC-024`, `TC-AC-025`, `TC-AC-028`, `TC-AC-029`, `TC-AC-030`, `TC-AC-031`, `TC-AC-032`, `TC-AC-033`, `TC-AC-034`, `TC-AC-035`, `TC-AC-036`, `TC-AC-037`, `TC-AC-039`, `TC-AC-040`, `TC-AC-041`, `TC-AC-042`, `TC-AC-043`, `TC-AC-057`, `TC-AC-100`, `TC-AC-101`, `TC-AC-106`, `TC-ARCH-005`, `TC-ARCH-006`, `TC-MSG-001`, `TC-MSG-002`, `TC-MSG-003`, `TC-MSG-004`, `TC-MSG-005`, `TC-MSG-006`, `TC-MSG-007`, `TC-MSG-008`, `TC-MSG-009`, `TC-MSG-010`, `TC-MSG-011`, `TC-MSG-012`, `TC-MSG-013`, `TC-MSG-014`, `TC-MSG-015`, `TC-MSG-016` (phần DIRECT/GROUP có `ciphertext`), `TC-NET-001`, `TC-NET-002`, `TC-NET-003`, `TC-NET-004`, `TC-NET-005`, `TC-NET-006`, `TC-NET-007`, `TC-NET-008`, `TC-NET-009`, `TC-NET-010`, `TC-SEC-002`, `TC-SEC-003`, `TC-INFRA-001`, `TC-INFRA-003`, `TC-GROUP-007`, `TC-DB-005`, `TC-DB-006`, `TC-DB-007`, `TC-DB-009`, `TC-DB-010`, `TC-DB-011`, `TC-DB-013`, `TC-DB-014`, `TC-DB-020`.
 

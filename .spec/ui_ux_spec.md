@@ -843,7 +843,7 @@ features/settings/SettingsPage.tsx
 ├── ProfileSection (features/settings/ProfileSection.tsx) — displayName (đếm /80), avatarUrl, username (chỉ đọc), email (chỉ đọc)
 ├── PrivacySection (features/settings/PrivacySection.tsx) — Switch "Hiển thị lần truy cập gần nhất" + mô tả "Nếu tắt, bạn cũng sẽ không thấy lần truy cập của người khác."
 ├── DevicesSection (features/settings/DevicesSection.tsx) — Q['e2ee','devices'], nút "Thu hồi" (DELETE /e2ee/devices/{deviceId})
-├── BlockedSection [NEW] (features/settings/BlockedSection.tsx) — từ Q['me'].blockedUserIds, nút "Bỏ chặn"
+├── BlockedSection [NEW] (features/settings/BlockedSection.tsx) — từ Q['me'].blockedUserIds, nút "Bỏ chặn" (M3: `/auth/me` chỉ trả id, tên hiển thị phải lấy từ nguồn khác — chốt khi làm M3)
 ├── ThemeSection (features/settings/ThemeSection.tsx) — radio "Theo hệ thống" / "Sáng" / "Tối"
 ├── SecuritySection [NEW] (features/settings/SecuritySection.tsx) — đổi mật khẩu (POST /auth/change-password)
 └── SafetyNumberDialog (features/settings/SafetyNumberDialog.tsx) — mở từ RoomMenu của SECRET
@@ -1159,4 +1159,4 @@ Các file đánh dấu `[NEW]` trong file này bổ sung vào cây `client/` c�
   - Kiến trúc §9.6: không inline script (theme-init.js), font từ domain đã cho phép trong CSP; React escape, không `dangerouslySetInnerHTML`, `dir="auto"` + `unicode-bidi: isolate`.
   - PRD: FR-CHAT-005 (typing tối đa 2 tên), FR-CHAT-011 (chuỗi SYSTEM), FR-PRES-002 (chuỗi lastSeen dùng ở `ChatHeader`), FR-USER-003 (`blockedByMe`/`canMessage`), FR-E2EE-006 (chặn gửi khi identity đổi và đã xác minh), FR-CALL-011 (nhạc chuông, nhấp nháy tiêu đề), D-22 (ẩn nút gọi trong GROUP).
   - DB: hiển thị dựa trên `deletedAt`, `editedAt`, `system.kind`, cursor receipt (`ReadByIndicator` theo §3.2 DB).
-  - **Chuỗi mới do file này bổ sung** (không mâu thuẫn, `development_guide.md`/test dùng): "Đang sửa tin nhắn", "Gửi thất bại. Thử lại", "Hãy xác nhận mã an toàn mới để tiếp tục", "Thiết bị này đã bị thu hồi. Vui lòng đăng nhập lại.", "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.", "Bạn đang trong một cuộc gọi khác", "Cuộc gọi nhóm chưa được hỗ trợ" (từ D-22), "Bạn đã chặn người này", "Chọn một cuộc trò chuyện để bắt đầu nhắn tin", "Đã có lỗi xảy ra. Vui lòng thử lại.".
+  - **Chuỗi mới do file này bổ sung** (không mâu thuẫn, `development_guide.md`/test dùng): "Đang sửa tin nhắn", "Gửi thất bại. Thử lại", "Hãy xác nhận mã an toàn mới để tiếp tục", "Thiết bị này đã bị thu hồi. Vui lòng đăng nhập lại.", "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.", "Bạn đang trong một cuộc gọi khác", "Cuộc gọi nhóm chưa được hỗ trợ" (từ D-22), "Bạn đã chặn người này", "Chọn một cuộc trò chuyện để bắt đầu nhắn tin", "Đã có lỗi xảy ra. Vui lòng thử lại."; bổ sung ở M1 (§3.1, §3.8): "Nhập lại mật khẩu", "Đã có tài khoản?", "Mật khẩu nhập lại không khớp", "Vui lòng nhập thông tin này", "Ảnh đại diện (URL)", "Quay lại", "Ẩn mật khẩu".
