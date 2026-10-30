@@ -3,12 +3,14 @@
 // - ↑ khi ô trống → sửa tin cuối của mình còn trong 15 phút (không áp dụng SECRET).
 // - Nút Gửi disabled khi rỗng sau chuẩn hóa (EC-MSG-001) hoặc > MESSAGE_MAX_LENGTH code point (EC-MSG-002);
 //   bộ đếm hiện khi còn ≤ 200 ký tự, vượt → màu danger.
-// - Nháp lưu sessionStorage['hustalo.draft.{conversationId}']. Typing (M4) bổ sung ở milestone sau.
+// - Nháp lưu sessionStorage['hustalo.draft.{conversationId}'].
+// - Typing (M4): typing:start throttle 3 s khi gõ; typing:stop khi gửi, xóa hết hoặc blur (không gửi khi đang sửa).
 import { MESSAGE_MAX_LENGTH, countCodePoints, normalizeMessageText, type Message } from '@hustalo/shared';
 import { SendHorizontal, X } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { IconButton } from '../../components/ui/IconButton';
 import { vi } from '../../i18n/vi';
+import { useTypingEmitter } from './useTypingEmitter';
 
 export const COUNTER_THRESHOLD = 200;
 const MAX_ROWS = 6;
@@ -53,6 +55,7 @@ export function Composer({
 }: ComposerProps) {
   const [text, setText] = useState(() => readDraft(conversationId));
   const ref = useRef<HTMLTextAreaElement>(null);
+  const typing = useTypingEmitter(conversationId);
 
   useEffect(() => {
     if (editing) {
@@ -91,6 +94,7 @@ export function Composer({
     }
     const value = text;
     setText('');
+    typing.stop();
     const ok = await onSend(value);
     if (!ok) setText(value);
   };
@@ -126,7 +130,9 @@ export function Composer({
           placeholder={vi.chat.composerPlaceholder}
           onChange={(e) => {
             setText(e.target.value);
+            if (!editing) typing.onInput(e.target.value);
           }}
+          onBlur={typing.stop}
           onKeyDown={onKeyDown}
           className="min-h-[44px] flex-1 resize-none rounded-md border border-border bg-surface px-3 py-2 text-base text-text outline-none focus-visible:ring-2 focus-visible:ring-primary"
         />

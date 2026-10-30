@@ -20,6 +20,7 @@ import { serverNow } from '../../lib/time/server-clock';
 import { useAuthStore } from '../../stores/auth.store';
 import { useChatStore } from '../../stores/chat.store';
 import { useOutboxStore } from '../../stores/outbox.store';
+import { useTypingStore } from '../../stores/typing.store';
 import { useSocketStore } from '../../stores/socket.store';
 import { findSummary } from '../conversations/cache';
 import { conversationKeys, conversationsApi } from '../conversations/conversations.api';
@@ -27,6 +28,7 @@ import { useToggleBlock } from '../users/users.api';
 import { BlockedComposerNotice } from './BlockedComposerNotice';
 import { Composer } from './Composer';
 import { MessageList } from './MessageList';
+import { TypingIndicator } from './TypingIndicator';
 import { canEditOrRecall } from './message-state';
 import { useMessages } from './useMessages';
 import { useReadReceipts } from './useReadReceipts';
@@ -46,7 +48,12 @@ function Room({ id }: { id: string }) {
 
   useEffect(() => {
     if (!connected) return;
-    emitWithAck(EVENTS.CONVERSATION_JOIN, { conversationId: id }).catch(() => undefined);
+    emitWithAck(EVENTS.CONVERSATION_JOIN, { conversationId: id })
+      .then((res) => {
+        // typingUserIds trong ACK: ai đang gõ lúc mở phòng (FR-CHAT-005)
+        if (res.ok) for (const u of res.data.typingUserIds) useTypingStore.getState().setTyping(id, u, true);
+      })
+      .catch(() => undefined);
     return () => {
       emitWithAck(EVENTS.CONVERSATION_LEAVE, { conversationId: id }).catch(() => undefined);
     };
@@ -180,6 +187,7 @@ function RoomBody({ conversation, meId, title }: { conversation: Conversation; m
   return (
     <>
       {body}
+      <TypingIndicator conversation={conversation} meId={meId} />
       {conversation.type !== 'GROUP' && !conversation.canMessage ? (
         <BlockedComposerNotice
           blockedByMe={conversation.blockedByMe}

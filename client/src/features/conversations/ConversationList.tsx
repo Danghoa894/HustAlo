@@ -8,6 +8,7 @@ import { Spinner } from '../../components/ui/Spinner';
 import { vi } from '../../i18n/vi';
 import { useAuthStore } from '../../stores/auth.store';
 import { conversationKeys, conversationsApi } from './conversations.api';
+import { useWatchPresence } from '../presence/usePresence';
 import { ConversationListItem } from './ConversationListItem';
 
 export function useConversationList() {
@@ -40,6 +41,11 @@ export function ConversationList({ onStartChat }: { onStartChat: () => void }) {
   const q = useConversationList();
   const sentinel = useRef<HTMLDivElement>(null);
   const { hasNextPage, isFetchingNextPage, fetchNextPage } = q;
+  // Theo dõi presence peer DIRECT/SECRET đang có trong danh sách (FR-PRES-003).
+  const peers = (q.data?.pages ?? []).flatMap((p) =>
+    p.items.flatMap((c) => (c.type !== 'GROUP' && c.peer ? [c.peer.id] : [])),
+  );
+  useWatchPresence(peers);
 
   useEffect(() => {
     const el = sentinel.current;

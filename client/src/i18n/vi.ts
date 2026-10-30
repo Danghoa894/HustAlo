@@ -196,15 +196,34 @@ export const vi = {
     reconnecting: 'Đang kết nối lại…',
     offline: 'Không có kết nối mạng',
   },
+  // ui_ux_spec.md §3.2, §3.3, §5.3, §6.2 (M4) — presence, lastSeen, typing
+  presence: {
+    online: 'Đang hoạt động',
+    justNow: 'Vừa mới truy cập',
+    minutesAgo: (n: number) => `Truy cập ${n} phút trước`,
+    hoursAgo: (n: number) => `Truy cập ${n} giờ trước`,
+    at: (hhmm: string, ddmm: string) => `Truy cập lúc ${hhmm} ${ddmm}`,
+  },
+  typing: {
+    direct: 'đang soạn tin…',
+    one: (name: string) => `${name} đang soạn tin…`,
+    two: (a: string, b: string) => `${a}, ${b} đang soạn tin…`,
+    many: 'Nhiều người đang soạn tin…',
+  },
   // ui_ux_spec.md §3.8
   settings: {
     title: 'Cài đặt',
     sections: {
       profile: 'Hồ sơ',
+      privacy: 'Quyền riêng tư',
       blocked: 'Người đã chặn',
       security: 'Bảo mật',
     },
     blockedEmpty: 'Bạn chưa chặn ai',
+    privacy: {
+      showLastSeen: 'Hiển thị lần truy cập gần nhất',
+      showLastSeenHint: 'Nếu tắt, bạn cũng sẽ không thấy lần truy cập của người khác.',
+    },
     logout: 'Đăng xuất',
     saved: 'Đã lưu thay đổi',
     profile: {

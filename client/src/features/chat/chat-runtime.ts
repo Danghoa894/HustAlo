@@ -18,6 +18,7 @@ import { createSyncScheduler, watchResume } from '../../lib/socket/sync';
 import { recordServerTime } from '../../lib/time/server-clock';
 import { useChatStore } from '../../stores/chat.store';
 import { useOutboxStore } from '../../stores/outbox.store';
+import { useTypingStore } from '../../stores/typing.store';
 import { useUiStore } from '../../stores/ui.store';
 import { conversationKeys } from '../conversations/conversations.api';
 import { PendingReceipts, applyStatus, withReceipt } from './message-state';
@@ -120,6 +121,7 @@ export function startChatRuntime({ queryClient, meId, storage }: ChatRuntimeOpti
     accept(p.message);
     delivered(p.message);
     const m = p.message;
+    useTypingStore.getState().setTyping(m.conversationId, m.senderId, false); // tin mới từ người đang gõ → ẩn
     if (m.senderId === meId || m.type !== 'TEXT') return;
     const ui = useUiStore.getState();
     if (useChatStore.getState().openConversationId === m.conversationId) {

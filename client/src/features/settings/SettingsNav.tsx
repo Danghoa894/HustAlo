@@ -1,5 +1,5 @@
 // client/src/features/settings/SettingsNav.tsx — menu cài đặt, role="navigation" (ui_ux_spec.md §3.8).
-// M1 có Hồ sơ, Bảo mật; Quyền riêng tư (M4), Thiết bị (M7), Người đã chặn (M3), Giao diện thêm ở milestone tương ứng.
+// Hồ sơ, Quyền riêng tư (M4), Người đã chặn (M3), Bảo mật; Thiết bị (M7), Giao diện thêm ở milestone tương ứng.
 // Đăng xuất: POST /auth/logout → xóa phiên → /login (FR-AUTH-004). Modal "đang trong cuộc gọi" (EC-AUTH-007) ở M5.
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { ChevronRight, LogOut } from 'lucide-react';
@@ -12,7 +12,7 @@ import { useUiStore } from '../../stores/ui.store';
 import { authApi } from '../auth/auth.api';
 import { formErrorMessage } from '../auth/form';
 
-export const SETTINGS_SECTIONS = ['profile', 'security', 'blocked'] as const;
+export const SETTINGS_SECTIONS = ['profile', 'privacy', 'blocked', 'security'] as const;
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 
 export function SettingsNav() {
