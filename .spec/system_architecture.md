@@ -373,7 +373,7 @@ hustalo/
 │       │       └── error-handler.ts        # AppError/ZodError/Mongo error → ErrorResponse
 │       ├── realtime/
 │       │   ├── gateway.ts                  # new Server(httpServer, opts mục 6.4), adapter, middleware, register handlers
-│       │   ├── rooms.ts                    # userRoom, deviceRoom, tabRoom, sessionRoom, convRoom, presenceRoom
+│       │   ├── rooms.ts                    # userRoom, deviceRoom, tabRoom, sessionRoom, convRoom, presenceRoom, presenceNoLastSeenRoom
 │       │   ├── emitter.ts                  # emitToUser/Device/Session/Conv: tự gắn eventId (uuid) + occurredAt
 │       │   ├── with-ack.ts                 # wrap(handler, {schema, rateRule}): parse envelope, rate limit, map lỗi → ACK
 │       │   ├── middleware/
@@ -1052,7 +1052,7 @@ export const CallStateReportPayload = z.object({
 | `typing:update` | S→C (user rooms thành viên trừ người gõ) | `{ conversationId, userId, isTyping: boolean }` | — | — | — | — |
 | `presence:subscribe` | C→S | `PresenceSubscribePayload` | Chỉ userId có chung ≥ 1 hội thoại và không bị chặn hai chiều; userId khác bị lọc im lặng (không lộ tồn tại) | presenceSubscribe | `{ accepted: string[] }` | VALIDATION_ERROR, RATE_LIMITED |
 | `presence:snapshot` | S→C (socket vừa subscribe) | `{ users: [{ userId, status: PresenceStatus, lastSeenAt: string \| null }], degraded: boolean }` | — | — | — | — |
-| `presence:update` | S→C (room `presence:{userId}`) | `{ userId, status: PresenceStatus, lastSeenAt: string \| null }` | — | — | — | — |
+| `presence:update` | S→C (room `presence:{userId}`; bản `lastSeenAt: null` tới room `presence-nols:{userId}`) | `{ userId, status: PresenceStatus, lastSeenAt: string \| null }` | — | — | — | — |
 | `call:invite` | C→S | `CallInvitePayload` | Thành viên DIRECT/SECRET; không bị chặn hai chiều; caller không trong cuộc gọi khác; GROUP → VALIDATION_ERROR (D-22) | callInvite | `{ callId, status: CallStatus, merged: boolean, callType: CallType }` | VALIDATION_ERROR, NOT_FOUND, NOT_A_MEMBER, USER_BLOCKED, CALL_BUSY, CALL_INVALID_STATE, RATE_LIMITED, SERVICE_UNAVAILABLE |
 | `call:incoming` | S→C (mọi tab online của callee, room `user:{calleeId}`) **có ACK** | `{ callId, conversationId, callType, caller: UserPublic, ringExpiresAt }` (`ringExpiresAt` = thời điểm hết đổ chuông theo deadline `RING` của server; client đếm ngược theo trường này, không đọc hằng số); device trả ACK `{ ok: true }` | — | — | — | — |
 | `call:ringing` | S→C (room `tab:{callerTabId}`) | `{ callId, ringExpiresAt }` | — | — | — | — |
@@ -1138,13 +1138,14 @@ Chỉ gọi qua **service** của module khác, không bao giờ gọi repositor
 | **users** | ✘ | — | ✔ (shareConversation để lọc search/presence) | ✘ | ✘ | ✘ | ✘ |
 | **conversations** | ✘ | ✔ (isBlockedEitherWay, getPublic) | — | ✔ (createSystemMessage; previewsFor, countUnread cho danh sách hội thoại — DB §4.1) | ✘ | ✘ | ✔ (hasActiveDevice khi tạo SECRET) |
 | **messages** | ✘ | ✔ (isBlockedEitherWay) | ✔ (assertMember, listMemberIds, getType, activeMemberIds, touchLastMessage, advanceCursors, memberCursors, groupReadStats) | — | ✘ | ✘ | ✔ (assertEnvelopeRecipients, isDeviceActive) |
-| **presence** | ✘ | ✔ (getPrivacy, setLastSeen) | ✔ (shareConversation, listMemberIds) | ✘ | — | ✘ | ✘ |
+| **presence** | ✘ | ✔ (getPrivacy, setLastSeen, isBlockedEitherWay) | ✔ (shareConversation, assertMember, getType, activeMemberIds) | ✘ | — | ✘ | ✘ |
 | **calls** | ✘ | ✔ (isBlockedEitherWay, getPublic) | ✔ (assertMember, getType, getOtherMember) | ✔ (createSystemMessage CALL_MISSED/CALL_ENDED) | ✔ (listOnlineDevices) | — | ✘ |
 | **e2ee** | ✔ (revokeFamilyByDevice khi thu hồi device) | ✘ | ✘ | ✘ | ✘ | ✘ | — |
 
 Quy tắc chống vòng lặp: `messages` không gọi `calls`; `calls` gọi `messages` chỉ qua `createSystemMessage` (không gọi ngược lại). `auth → calls` và `e2ee → auth` là phụ thuộc một chiều. Import vòng được ESLint `import/no-cycle` chặn.
 
 Các lớp khác:
+- Handler socket được ghép kết quả của nhiều service mà không tạo phụ thuộc module (ví dụ `conversation:join` = `conversations.join` + `typing.activeTypers` cho `typingUserIds`).
 - `realtime/handlers/*` chỉ gọi service; không truy cập model.
 - `realtime/emitter.ts` được mọi service dùng để phát event (inject qua `deps` khi khởi tạo, để unit test mock).
 - `infra/*` không import `modules/*`.
@@ -1246,7 +1247,7 @@ Handshake `auth` gồm `{ token, deviceId, tabId }`:
 - `deviceId`: UUID v4 trong `localStorage` (`hustalo.deviceId`), dùng chung mọi tab của cùng profile trình duyệt — là đơn vị của presence đa thiết bị, E2EE và session.
 - `tabId` `[NEW]`: UUID v4 trong `sessionStorage` (`hustalo.tabId`), riêng từng tab, giữ nguyên khi reload cùng tab — là đơn vị định tuyến **signaling cuộc gọi**. `deviceId` phải khớp claim `did` trong token, sai → `UNAUTHENTICATED`.
 
-Rooms mỗi socket tham gia khi handshake thành công: `user:{userId}`, `device:{deviceId}`, `tab:{tabId}`, `session:{sid}`. Room động: `conv:{conversationId}` (qua `conversation:join`), `presence:{userId}` (qua `presence:subscribe`).
+Rooms mỗi socket tham gia khi handshake thành công: `user:{userId}`, `device:{deviceId}`, `tab:{tabId}`, `session:{sid}`. Room động: `conv:{conversationId}` (qua `conversation:join`), `presence:{userId}` hoặc `presence-nols:{userId}` (qua `presence:subscribe`, chọn theo `privacy.showLastSeen` của người xem — §7(d)).
 
 **Quyết định nhiều tab:** mỗi tab có socket riêng và lease presence riêng. Cuộc gọi gắn với **một tab**: call state lưu `callerDeviceId` + `callerTabId` và `acceptedDeviceId` + `acceptedTabId`; `call:offer/answer/ice-candidate/ice-restart` S→C gửi vào room `tab:{tabId}` của bên kia; mọi tab khác (kể cả tab khác cùng device) chỉ nhận `call:state` / `call:answered-elsewhere`. Event E2EE (`message:new` SECRET, `e2ee:prekeys-low`) gửi vào room `device:{deviceId}` (mọi tab cùng device dùng chung IndexedDB khóa).
 
@@ -1443,7 +1444,8 @@ Alice tab1(dev X)   Alice tab2(dev Y)     Gateway / presence.service           R
    |   presence:conns:* có score max < now (ZSET presence:users theo dõi hạn lease lớn nhất của từng user, xem Phụ lục A)
 ```
 
-- **Subscribe:** `presence:subscribe {userIds}` → lọc [AUTHZ: chung hội thoại, không chặn] → join `presence:{userId}` cho từng id được chấp nhận → emit `presence:snapshot` cho socket đó. Client subscribe các user đang hiển thị trong danh sách chat và header phòng chat; gọi lại sau reconnect.
+- **Subscribe:** `presence:subscribe {userIds}` → lọc [AUTHZ: chung hội thoại, không chặn] → với mỗi id được chấp nhận, socket join `presence:{userId}` nếu người xem `privacy.showLastSeen = true`, ngược lại join `presence-nols:{userId}` (và rời room còn lại) → emit `presence:snapshot` cho socket đó. Client subscribe các user đang hiển thị trong danh sách chat và header phòng chat; gọi lại sau reconnect và sau khi đổi `privacy.showLastSeen` (socket chuyển sang room đúng).
+- **Phát `presence:update`:** bản đầy đủ (lọc theo privacy của chủ thể) tới `presence:{userId}`; bản `lastSeenAt: null` tới `presence-nols:{userId}` — thực hiện quy tắc có đi có lại mà không cần lọc theo từng socket.
 - **Privacy (EC-PRES-004):** `users.privacy.showLastSeen = false` → mọi người khác nhận `lastSeenAt: null`; **có đi có lại**: user ẩn lastSeen của mình cũng nhận `lastSeenAt: null` của người khác. Trạng thái ONLINE/OFFLINE vẫn hiển thị.
 - **Redis mất dữ liệu (EC-PRES-005):** mọi user hiển thị OFFLINE cho tới heartbeat kế tiếp (≤ 20 s) khi các instance ZADD lại lease cho socket local → tự phục hồi; server phát `presence:update ONLINE` khi `wasOnline=false`. Redis **không truy cập được**: `presence:snapshot.degraded = true`, client hiển thị trạng thái "không xác định" (không chấm xanh, không lastSeen).
 

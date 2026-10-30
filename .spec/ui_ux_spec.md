@@ -843,7 +843,7 @@ Cây component:
 features/settings/SettingsPage.tsx
 ├── SettingsNav [NEW] (features/settings/SettingsNav.tsx) — role="navigation"
 ├── ProfileSection (features/settings/ProfileSection.tsx) — displayName (đếm /80), avatarUrl, username (chỉ đọc), email (chỉ đọc)
-├── PrivacySection (features/settings/PrivacySection.tsx) — Switch "Hiển thị lần truy cập gần nhất" + mô tả "Nếu tắt, bạn cũng sẽ không thấy lần truy cập của người khác."
+├── PrivacySection (features/settings/PrivacySection.tsx) — Switch "Hiển thị lần truy cập gần nhất" + mô tả "Nếu tắt, bạn cũng sẽ không thấy lần truy cập của người khác." Switch lưu ngay khi bật/tắt (`PATCH /users/me {privacy}`, không có nút "Lưu"): thành công → toast "Đã lưu thay đổi" và `presence:subscribe` lại; lỗi → switch trở về giá trị cũ + toast lỗi.
 ├── DevicesSection (features/settings/DevicesSection.tsx) — Q['e2ee','devices'], nút "Thu hồi" (DELETE /e2ee/devices/{deviceId})
 ├── BlockedSection [NEW] (features/settings/BlockedSection.tsx) — Q['users','blocked'] = `GET /users/blocked` (M3), nút "Bỏ chặn"
 ├── ThemeSection (features/settings/ThemeSection.tsx) — radio "Theo hệ thống" / "Sáng" / "Tối"
