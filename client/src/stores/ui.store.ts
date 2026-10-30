@@ -17,6 +17,9 @@ export const TOAST_MAX = 3;
 
 interface UiState {
   toasts: ToastItem[];
+  /** Nội dung cho vùng aria-live (LiveRegions, ui_ux_spec.md §6.2). */
+  live: { polite: string; assertive: string };
+  announce: (text: string, kind?: 'polite' | 'assertive') => void;
   pushToast: (tone: ToastTone, text: string, description?: string) => number;
   dismissToast: (id: number) => void;
 }
@@ -25,6 +28,10 @@ let seq = 0;
 
 export const useUiStore = create<UiState>((set) => ({
   toasts: [],
+  live: { polite: '', assertive: '' },
+  announce: (text, kind = 'polite') => {
+    set((s) => ({ live: { ...s.live, [kind]: text } }));
+  },
   pushToast: (tone, text, description) => {
     seq += 1;
     const id = seq;

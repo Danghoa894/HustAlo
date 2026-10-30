@@ -8,6 +8,8 @@ import { LoginPage } from '../features/auth/LoginPage';
 import { RegisterPage } from '../features/auth/RegisterPage';
 import { SessionModal } from '../features/auth/SessionModal';
 import { useSessionLifecycle } from '../features/auth/useSessionLifecycle';
+import { LiveRegions } from '../components/layout/LiveRegions';
+import { useChatRuntime } from '../features/chat/useChatRuntime';
 import { ChatRoomPane } from '../features/chat/ChatRoomPane';
 import { EmptyRoomPlaceholder } from '../features/chat/EmptyRoomPlaceholder';
 import { ChatListPane } from '../features/conversations/ChatListPane';
@@ -38,10 +40,12 @@ function ChatsLayout() {
 
 function RootLayout() {
   useSessionLifecycle();
+  useChatRuntime(); // outbox tiếp tục gửi cả khi đang ở /settings
   return (
     <>
       <Outlet />
       <SessionModal />
+      <LiveRegions />
     </>
   );
 }

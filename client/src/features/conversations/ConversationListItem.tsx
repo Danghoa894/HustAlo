@@ -1,10 +1,11 @@
 // client/src/features/conversations/ConversationListItem.tsx — một dòng danh sách chat (ui_ux_spec.md §3.2, §6.2).
 // Tên truy cập "{tên}, {n} tin chưa đọc, {preview}" nằm trong span sr-only, phần hiển thị aria-hidden — không dùng
 // aria-label để không lệch giữa chữ hiển thị và tên (WCAG 2.5.3, axe label-content-name-mismatch).
-// Chấm online (M4), typing (M4), badge chưa đọc và icon trạng thái tin cuối (M3) bổ sung theo milestone.
+// UnreadBadge (M3): số chưa đọc, > 99 → "99+", aria-hidden (số đã có trong tên truy cập). Chấm online, typing ở M4.
 import type { ConversationSummary } from '@hustalo/shared';
 import { NavLink } from 'react-router-dom';
 import { Avatar } from '../../components/ui/Avatar';
+import { UnreadBadge } from '../../components/ui/UnreadBadge';
 import { formatListTime } from '../../lib/time/format';
 import { conversationName, previewOf, rowLabel } from './summary';
 
@@ -30,8 +31,14 @@ export function ConversationListItem({ c, meId }: { c: ConversationSummary; meId
               {formatListTime(c.lastMessage?.createdAt ?? c.lastMessageAt)}
             </span>
           </span>
-          <span dir="auto" className="truncate text-sm text-text-secondary">
-            {previewOf(c, meId)}
+          <span className="flex items-center justify-between gap-2">
+            <span
+              dir="auto"
+              className={`truncate text-sm ${c.unreadCount > 0 ? 'font-medium text-text' : 'text-text-secondary'}`}
+            >
+              {previewOf(c, meId)}
+            </span>
+            <UnreadBadge count={c.unreadCount} />
           </span>
         </span>
       </NavLink>

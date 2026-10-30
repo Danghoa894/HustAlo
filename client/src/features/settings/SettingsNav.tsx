@@ -12,7 +12,7 @@ import { useUiStore } from '../../stores/ui.store';
 import { authApi } from '../auth/auth.api';
 import { formErrorMessage } from '../auth/form';
 
-export const SETTINGS_SECTIONS = ['profile', 'security'] as const;
+export const SETTINGS_SECTIONS = ['profile', 'security', 'blocked'] as const;
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 
 export function SettingsNav() {

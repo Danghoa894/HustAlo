@@ -4,6 +4,7 @@
 import { ArrowLeft } from 'lucide-react';
 import { Link, Navigate, useParams } from 'react-router-dom';
 import { vi } from '../../i18n/vi';
+import { BlockedSection } from './BlockedSection';
 import { ProfileSection } from './ProfileSection';
 import { SecuritySection } from './SecuritySection';
 import { SETTINGS_SECTIONS, SettingsNav, type SettingsSection } from './SettingsNav';
@@ -32,7 +33,7 @@ export function SettingsPage() {
             <ArrowLeft size={20} aria-hidden="true" />
           </Link>
         ) : null}
-        {active === 'profile' ? <ProfileSection /> : <SecuritySection />}
+        {active === 'profile' ? <ProfileSection /> : active === 'security' ? <SecuritySection /> : <BlockedSection />}
       </div>
     </div>
   );
