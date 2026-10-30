@@ -41,7 +41,7 @@
 | Mã hóa | `messages.contentEnc` là AES-256-GCM (kiến trúc §9.2); không lưu plaintext `content` ở bất kỳ đâu. |
 | `versionKey` | `false` (không dùng `__v`); đồng thời dùng điều kiện nghiệp vụ trong filter thay cho optimistic version. |
 | `autoIndex` | `false` ở mọi môi trường. Index tạo bằng `npm run db:indexes` (mục 6.3); global setup integration test gọi cùng hàm. |
-| Transaction | Chỉ qua `withTxn()` (`server/src/infra/db/transaction.ts`), read concern `snapshot`, write concern `majority`, tối đa `MONGO_TXN_MAX_RETRIES` (3) lần. |
+| Transaction | Chỉ qua `withTxn()` (`server/src/infra/db/transaction.ts`), read concern `snapshot`, write concern `majority`, tối đa `MONGO_TXN_MAX_RETRIES` (3) lần, chờ ngẫu nhiên tăng dần giữa các lần; hết lượt → `SERVICE_UNAVAILABLE` (EC-INFRA-003). Tự gọi start/commit/abort, **không** dùng `session.withTransaction()` (hàm đó tự retry tới 120 s nên vượt giới hạn số lần). |
 | Phân trang | Chỉ cursor tuple; **cấm `skip`** (CLAUDE.md). |
 | Enum | Lấy mảng giá trị từ `@hustalo/shared` (`Object.values(CallStatus)`), không gõ lại chuỗi. |
 | Lean | Truy vấn đọc dùng `.lean()`; service chuyển sang DTO. |
@@ -901,22 +901,40 @@ import mongoose, { type ClientSession } from 'mongoose';
 import { MONGO_TXN_MAX_RETRIES } from '@hustalo/shared';
 import { AppError } from '../../http/errors/app-error';
 
+/** Chờ ngẫu nhiên tăng dần giữa các lần thử để transaction đang giữ khóa kịp commit (giảm WriteConflict lặp). */
+const backoff = (attempt: number) =>
+  new Promise((resolve) => setTimeout(resolve, (20 + Math.floor(Math.random() * 40)) * attempt));
+
+const hasLabel = (err: unknown, label: string) => err instanceof mongoose.mongo.MongoError && err.hasErrorLabel(label);
+
+async function commit(session: ClientSession): Promise<void> {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      await session.commitTransaction();
+      return;
+    } catch (err) {
+      // Commit không rõ kết quả: commit lại là an toàn (idempotent theo driver).
+      if (hasLabel(err, 'UnknownTransactionCommitResult') && attempt < MONGO_TXN_MAX_RETRIES) continue;
+      throw err;
+    }
+  }
+}
+
 export async function withTxn<T>(fn: (session: ClientSession) => Promise<T>): Promise<T> {
-  let attempt = 0;
-  for (;;) {
+  for (let attempt = 1; ; attempt += 1) {
     const session = await mongoose.startSession();
     try {
-      let result!: T;
-      await session.withTransaction(async () => { result = await fn(session); }, {
-        readConcern: { level: 'snapshot' },
-        writeConcern: { w: 'majority' },
-      });
+      session.startTransaction({ readConcern: { level: 'snapshot' }, writeConcern: { w: 'majority' } });
+      const result = await fn(session);
+      await commit(session);
       return result;
     } catch (err) {
-      const transient = err instanceof mongoose.mongo.MongoError &&
-        (err.hasErrorLabel('TransientTransactionError') || err.hasErrorLabel('UnknownTransactionCommitResult'));
-      attempt += 1;
-      if (transient && attempt < MONGO_TXN_MAX_RETRIES) continue;
+      if (session.inTransaction()) await session.abortTransaction().catch(() => undefined);
+      const transient = hasLabel(err, 'TransientTransactionError') || hasLabel(err, 'UnknownTransactionCommitResult');
+      if (transient && attempt < MONGO_TXN_MAX_RETRIES) {
+        await backoff(attempt);
+        continue;
+      }
       if (transient) throw new AppError('SERVICE_UNAVAILABLE', 'Máy chủ đang bận, vui lòng thử lại');
       throw err;
     } finally {
@@ -924,8 +942,8 @@ export async function withTxn<T>(fn: (session: ClientSession) => Promise<T>): Pr
     }
   }
 }
-// session.withTransaction tự retry nội bộ; vòng ngoài giới hạn tổng số lần (EC-INFRA-003).
-// Xác minh với tài liệu chính thức của MongoDB Node driver: hành vi retry của withTransaction.
+// Không dùng session.withTransaction(): hàm đó tự retry lỗi tạm thời tới 120 s nên không giữ được giới hạn
+// MONGO_TXN_MAX_RETRIES (EC-INFRA-003, TC-INFRA-003).
 ```
 
 ```ts
@@ -1033,35 +1051,35 @@ export async function findPage(conversationId: Types.ObjectId, q: { before?: Tup
 ### 4.3 Tạo DIRECT / SECRET an toàn khi đua (FR-CHAT-001, D-11)
 
 ```ts
-// conversations.service.ts
-export async function getOrCreatePair(type: 'DIRECT' | 'SECRET', me: Types.ObjectId, other: Types.ObjectId) {
-  const directKey = directKeyOf(String(me), String(other));
-  for (let attempt = 0; attempt < 2; attempt += 1) {
+// conversations.service.ts — KHÔNG dùng transaction (quyết định thiết kế): nhiều yêu cầu tạo cùng cặp chạy đồng thời
+// trong transaction gây WriteConflict lặp. Upsert nguyên tử theo type_directKey_unique + upsert thành viên idempotent
+// cho kết quả giống nhau dù chạy lại bao nhiêu lần (TC-DB-008, TC-AC-021).
+export async function getOrCreatePair(type: 'DIRECT' | 'SECRET', me: string, other: string) {
+  const directKey = directKeyOf(me, other);
+  for (let attempt = 0; ; attempt += 1) {
     try {
-      return await withTxn(async (session) => {
-        const res = await ConversationModel.findOneAndUpdate(
-          { type, directKey },
-          { $setOnInsert: { type, directKey, createdBy: me, memberCount: 2, lastMessageAt: new Date() } },
-          { upsert: true, new: true, session, includeResultMetadata: true },
-          // Xác minh với tài liệu chính thức của Mongoose 8: tùy chọn includeResultMetadata (thay rawResult).
+      const res = await ConversationModel.findOneAndUpdate(
+        { type, directKey },
+        { $setOnInsert: { type, directKey, createdBy: me, memberCount: 2, lastMessageAt: new Date() } },
+        { upsert: true, new: true, includeResultMetadata: true, lean: true },
+        // Xác minh với tài liệu chính thức của Mongoose 8: tùy chọn includeResultMetadata (thay rawResult).
+      );
+      const conv = res.value!;
+      for (const userId of [me, other]) {
+        // Upsert từng thành viên: yêu cầu bị gián đoạn giữa chừng sẽ được yêu cầu sau bổ sung đủ.
+        await ConversationMemberModel.updateOne(
+          { conversationId: conv._id, userId },
+          { $setOnInsert: { conversationId: conv._id, userId, role: 'MEMBER', joinedAt: new Date() } },
+          { upsert: true },
         );
-        const conv = res.value!;
-        const created = Boolean(res.lastErrorObject?.upserted);
-        if (created) {
-          await ConversationMemberModel.insertMany([
-            { conversationId: conv._id, userId: me, role: 'MEMBER' },
-            { conversationId: conv._id, userId: other, role: 'MEMBER' },
-          ], { session });
-        }
-        return { conv, created };
-      });
+      }
+      return { conv, created: Boolean(res.lastErrorObject?.upserted) };
     } catch (err) {
-      // Hai upsert đồng thời: một bên E11000 trên type_directKey_unique → thử lại thì findOneAndUpdate tìm thấy bản đã có
-      if (isDuplicateKey(err) && attempt === 0) continue;
+      // Hai upsert đồng thời: một bên E11000 trên type_directKey_unique → thử lại thì findOneAndUpdate tìm thấy bản đã có.
+      if (isDuplicateKey(err) && attempt < 2) continue;
       throw err;
     }
   }
-  throw new AppError('INTERNAL_ERROR', 'Đã có lỗi xảy ra');
 }
 // Controller: created → 201, ngược lại → 200 (AC-017).
 ```
