@@ -57,6 +57,17 @@ export const usersRepository = {
 
   exists: async (id: string) => (await UserModel.exists({ _id: id })) !== null,
 
+  /** Quyền riêng tư + lastSeenAt theo lô (presence, FR-PRES-002, FR-USER-004). */
+  presenceInfoMany: (ids: string[]) =>
+    UserModel.find({ _id: { $in: ids } })
+      .select('privacy lastSeenAt')
+      .lean<{ _id: Types.ObjectId; privacy: { showLastSeen: boolean }; lastSeenAt: Date | null }[]>()
+      .exec(),
+
+  setLastSeen: async (id: string, at: Date) => {
+    await UserModel.updateOne({ _id: id }, { $set: { lastSeenAt: at } }).exec();
+  },
+
   findManyByIds: (ids: string[]) =>
     UserModel.find({ _id: { $in: ids } })
       .select(PUBLIC_FIELDS)

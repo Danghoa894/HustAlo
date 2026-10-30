@@ -288,11 +288,17 @@ export function createConversationsService(deps: ConversationsDeps) {
       return toDTO(conv, me);
     },
 
-    /** Socket join hội thoại: AUTHZ-2 + số chưa đọc; typing (M4) chưa có → []. */
+    /** Socket join hội thoại: AUTHZ-2 + số chưa đọc. `typingUserIds` do conversation.handler ghép từ typing (§5.2). */
     async join(me: string, conversationId: string) {
       const { conv, member } = await assertMember(conversationId, me);
       const unreadCount = await messages.countUnread(conv._id, me, readCursorOf(member));
-      return { conversation: await toDTO(conv, me), unreadCount, typingUserIds: [] as string[] };
+      return { conversation: await toDTO(conv, me), unreadCount };
+    },
+
+    /** Port cho presence (FR-PRES-003): trong `others`, ai có chung ≥ 1 hội thoại hiện tại với `me`. */
+    async shareConversation(me: string, others: string[]): Promise<Set<string>> {
+      const valid = [...new Set(others)].filter((id) => Types.ObjectId.isValid(id) && id !== me);
+      return new Set(await repo.sharedWith(me, valid));
     },
 
     // ---- port cho module messages (kiến trúc §5.2: assertMember, listMemberIds, cursor receipt — DB §2.5) ----

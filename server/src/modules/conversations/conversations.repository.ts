@@ -116,6 +116,21 @@ export const conversationsRepository = {
       .lean<MemberRecord[]>()
       .exec(),
 
+  /** Trong `others`, những user đang là thành viên hiện tại của ít nhất một hội thoại chung với `me` (index user_active). */
+  async sharedWith(me: string, others: string[]): Promise<string[]> {
+    const mine = await ConversationMemberModel.find({ userId: oid(me), leftAt: null })
+      .select('conversationId')
+      .lean<{ conversationId: Types.ObjectId }[]>()
+      .exec();
+    if (mine.length === 0 || others.length === 0) return [];
+    const ids = await ConversationMemberModel.distinct('userId', {
+      conversationId: { $in: mine.map((m) => m.conversationId) },
+      userId: { $in: others.map(oid) },
+      leftAt: null,
+    }).exec();
+    return ids.map(String);
+  },
+
   activeMembershipsOf: (userId: string) =>
     ConversationMemberModel.find({ userId: oid(userId), leftAt: null })
       .select('conversationId lastDeliveredMessageId lastReadMessageId lastReadMessageAt role')

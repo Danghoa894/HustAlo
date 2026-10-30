@@ -15,12 +15,17 @@ import { createAuthRepository } from './modules/auth/auth.repository';
 import { createAuthService, type AuthService } from './modules/auth/auth.service';
 import { createConversationsService, type ConversationsService } from './modules/conversations/conversations.service';
 import { createMessagesService, messagesCore, type MessagesService } from './modules/messages/messages.service';
+import { createPresenceRepository } from './modules/presence/presence.repository';
+import { createPresenceService, type PresenceService, type PresenceTiming } from './modules/presence/presence.service';
+import { createTypingService } from './modules/presence/typing.service';
 import { createReceiptsService } from './modules/messages/receipts.service';
 import { usersService } from './modules/users/users.service';
 import { createEmitter, type Emitter } from './realtime/emitter';
 import { createGateway, type HustaloServer } from './realtime/gateway';
 import { registerConversationHandlers } from './realtime/handlers/conversation.handler';
 import { registerMessageHandlers } from './realtime/handlers/message.handler';
+import { registerPresenceHandlers } from './realtime/handlers/presence.handler';
+import { registerTypingHandlers } from './realtime/handlers/typing.handler';
 import { createSessionNotifier, subscribeUserLocked } from './realtime/handlers/session.handler';
 
 const HTTP_DRAIN_TIMEOUT_MS = 10_000;
@@ -33,6 +38,7 @@ export interface Runtime {
   auth: AuthService;
   conversations: ConversationsService;
   messages: MessagesService;
+  presence: PresenceService;
   redis: RedisHandle;
   setDraining(v: boolean): void;
   close(): Promise<void>;
@@ -43,6 +49,8 @@ export interface RuntimeOptions {
   logger: Logger;
   /** Chỉ test: hook trong transaction gửi tin (TC-DB-007). */
   messageHooks?: { afterInsert?: () => Promise<void> };
+  /** Chỉ test: rút ngắn lease/grace/heartbeat/sweep của presence. */
+  presenceTiming?: Partial<PresenceTiming>;
 }
 
 export async function createRuntime(opts: RuntimeOptions): Promise<Runtime> {
@@ -81,7 +89,20 @@ export async function createRuntime(opts: RuntimeOptions): Promise<Runtime> {
     ...(opts.messageHooks ? { hooks: opts.messageHooks } : {}),
   });
   const receipts = createReceiptsService({ conversations, emitter });
-  registerConversationHandlers(io, { conversations, logger: opts.logger, rateLimiters });
+  const presenceRepo = createPresenceRepository(redis.client);
+  const presence = createPresenceService({
+    repo: presenceRepo,
+    users: usersService,
+    conversations,
+    emitter,
+    isRedisHealthy: () => redis.isHealthy(),
+    logger: opts.logger,
+    ...(opts.presenceTiming ? { timing: opts.presenceTiming } : {}),
+  });
+  const typing = createTypingService({ repo: presenceRepo, conversations, users: usersService, emitter });
+  registerPresenceHandlers(io, { presence, logger: opts.logger, rateLimiters });
+  registerTypingHandlers(io, { typing, logger: opts.logger, rateLimiters });
+  registerConversationHandlers(io, { conversations, typing, logger: opts.logger, rateLimiters });
   registerMessageHandlers(io, { messages, receipts, logger: opts.logger, rateLimiters });
 
   const app = createApp({
@@ -112,6 +133,8 @@ export async function createRuntime(opts: RuntimeOptions): Promise<Runtime> {
     return null;
   });
 
+  presence.start();
+
   return {
     httpServer,
     io,
@@ -119,11 +142,13 @@ export async function createRuntime(opts: RuntimeOptions): Promise<Runtime> {
     auth,
     conversations,
     messages,
+    presence,
     redis,
     setDraining: (v) => {
       draining = v;
     },
     close: async () => {
+      presence.stop();
       await lockSub?.close();
       subscriber.disconnect();
       await io.close(); // đóng luôn httpServer

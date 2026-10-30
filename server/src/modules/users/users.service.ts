@@ -136,6 +136,19 @@ export const usersService = {
 
   isBlockedEitherWay: (a: string, b: string) => usersRepository.isBlockedEitherWay(a, b),
 
+  /** Port cho presence (kiến trúc §5.2): showLastSeen + lastSeenAt theo lô; id không hợp lệ/không tồn tại bị bỏ. */
+  async getPrivacy(ids: string[]): Promise<Map<string, { showLastSeen: boolean; lastSeenAt: Date | null }>> {
+    const unique = [...new Set(ids)].filter((id) => Types.ObjectId.isValid(id));
+    if (unique.length === 0) return new Map();
+    const docs = await usersRepository.presenceInfoMany(unique);
+    return new Map(
+      docs.map((d) => [String(d._id), { showLastSeen: d.privacy.showLastSeen, lastSeenAt: d.lastSeenAt ?? null }]),
+    );
+  },
+
+  /** Port cho presence: ghi users.lastSeenAt khi chuyển OFFLINE (FR-PRES-002). */
+  setLastSeen: (id: string, at: Date) => usersRepository.setLastSeen(id, at),
+
   /** Hồ sơ công khai theo lô (conversations: thành viên, peer, tên trong preview SYSTEM). `active` = status ACTIVE. */
   async getPublicMany(ids: string[]): Promise<Map<string, { user: UserPublic; active: boolean }>> {
     const unique = [...new Set(ids)].filter((id) => Types.ObjectId.isValid(id));

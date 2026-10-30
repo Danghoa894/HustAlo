@@ -10,6 +10,7 @@ import { connectMongo, disconnectMongo } from '../infra/db/mongo';
 import { createLogger } from '../infra/logger/logger';
 import { createRedis, type RedisHandle } from '../infra/redis/redis';
 import { createRuntime, type Runtime } from '../main';
+import type { PresenceTiming } from '../modules/presence/presence.service';
 import { UserModel } from '../modules/users/user.model';
 
 export const TEST_PASSWORD = 'matkhau123';
@@ -24,7 +25,11 @@ export interface TestServer {
 }
 
 export async function startTestServer(
-  opts: { redisUrl?: string; messageHooks?: { afterInsert?: () => Promise<void> } } = {},
+  opts: {
+    redisUrl?: string;
+    messageHooks?: { afterInsert?: () => Promise<void> };
+    presenceTiming?: Partial<PresenceTiming>;
+  } = {},
 ): Promise<TestServer> {
   await connectMongo(process.env.MONGODB_URI ?? '');
   const redis = createRedis(opts.redisUrl ?? process.env.REDIS_URL ?? '');
@@ -33,6 +38,7 @@ export async function startTestServer(
     redis,
     logger: createLogger({ level: 'silent' }),
     ...(opts.messageHooks ? { messageHooks: opts.messageHooks } : {}),
+    ...(opts.presenceTiming ? { presenceTiming: opts.presenceTiming } : {}),
   });
   await new Promise<void>((resolve) => runtime.httpServer.listen(0, '127.0.0.1', resolve));
   const { port } = runtime.httpServer.address() as AddressInfo;
