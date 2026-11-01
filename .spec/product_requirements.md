@@ -631,168 +631,168 @@ Mọi FR dùng hằng số trong `packages/shared/src/constants.ts` (kiến trú
 
 ## 5. Ma trận edge case
 
-ID khớp registry `system_architecture.md` Phụ lục C (106 dòng, 11 nhóm). "Trạng thái UI" ghi chuỗi tiếng Việt chính hoặc tên thành phần UI; `ui_ux_spec.md` dùng đúng các chuỗi này. "—" ở cột Mã lỗi nghĩa là không trả lỗi.
+ID khớp registry `system_architecture.md` Phụ lục C (106 dòng, 11 nhóm). "Trạng thái UI" ghi chuỗi tiếng Việt chính hoặc tên thành phần UI; `ui_ux_spec.md` dùng đúng các chuỗi này. "—" ở cột Mã lỗi nghĩa là không trả lỗi. Cột "Tầng" dùng ký hiệu mục 4 (U = unit, I = integration, E = E2E) và thêm T = test tay (`development_guide.md` §6.2); "chưa gán" = milestone sau chưa chốt tầng.
 
 ### 5.1 AUTH
 
-| ID | Nhóm | Tình huống | Hành vi Server | Hành vi Client | Trạng thái UI | Mã lỗi | Test ID |
-|---|---|---|---|---|---|---|---|
-| EC-AUTH-001 | AUTH | Hai request đăng ký cùng email/username đua nhau | Unique index; request thua bắt `E11000` → 409 với `details.field` | Hiển thị lỗi tại trường tương ứng | "Email này đã được sử dụng" / "Tên người dùng đã tồn tại" | CONFLICT | TC-AUTH-001 |
-| EC-AUTH-002 | AUTH | Access token hết hạn giữa phiên socket | Hẹn giờ `exp` → `session:expired` → ngắt sau 5 s | Refresh rồi reconnect, chạy sync | Không hiển thị gì nếu refresh thành công trong 2 s; ngược lại banner "Đang kết nối lại…" | TOKEN_EXPIRED | TC-AUTH-002 |
-| EC-AUTH-003 | AUTH | Refresh đồng thời từ 2 tab | Token vừa xoay trong 10 s → 409, không thu hồi | Web Locks; nhận 409 → đọc cookie mới, retry 1 lần | Không hiển thị gì | CONFLICT | TC-AUTH-003 |
-| EC-AUTH-004 | AUTH | Refresh token bị đánh cắp được dùng lại | Thu hồi cả family, `session:revoked REFRESH_REUSE`, kết thúc cuộc gọi của session | Xóa token, về `/login` | Modal "Phiên đăng nhập đã bị thu hồi vì lý do bảo mật. Vui lòng đăng nhập lại." | UNAUTHENTICATED | TC-AUTH-004 |
-| EC-AUTH-005 | AUTH | Tài khoản bị khóa khi đang có socket | Thu hồi mọi family, ngắt socket, kết thúc cuộc gọi LOGOUT | Về `/login` | Modal "Tài khoản của bạn đã bị khóa." | UNAUTHENTICATED | TC-AUTH-005 |
-| EC-AUTH-006 | AUTH | Đổi mật khẩu khi có phiên khác | Thu hồi mọi family khác `PASSWORD_CHANGED` | Phiên khác về `/login`; phiên hiện tại giữ nguyên | Phiên khác: modal "Mật khẩu đã được thay đổi. Vui lòng đăng nhập lại."; phiên hiện tại: toast "Đã đổi mật khẩu" | UNAUTHENTICATED (phiên khác) | TC-AUTH-006 |
-| EC-AUTH-007 | AUTH | Logout khi đang gọi | Kết thúc cuộc gọi `LOGOUT` (ENDED hoặc CANCELLED), phát `call:state` | Đóng pc, stop track, về `/login` | Bên kia: "Cuộc gọi đã kết thúc" | — | TC-AUTH-007 |
-| EC-AUTH-008 | AUTH | Đổi mật khẩu với mật khẩu hiện tại sai / dò mật khẩu qua phiên đã đăng nhập | 422 với `details[{field:'currentPassword',reason:'INVALID'}]`, không thu hồi phiên; rate limit `changePassword` 5/15 phút/user | Báo lỗi tại trường "Mật khẩu hiện tại", không refresh/đăng xuất; 429 → vô hiệu nút trong `Retry-After` | "Mật khẩu hiện tại không đúng" / "Bạn đã thử quá nhiều lần. Vui lòng thử lại sau {n} giây." | VALIDATION_ERROR / RATE_LIMITED | TC-AUTH-008 |
+| ID | Nhóm | Tình huống | Hành vi Server | Hành vi Client | Trạng thái UI | Mã lỗi | Tầng | Test ID |
+|---|---|---|---|---|---|---|---|---|
+| EC-AUTH-001 | AUTH | Hai request đăng ký cùng email/username đua nhau | Unique index; request thua bắt `E11000` → 409 với `details.field` | Hiển thị lỗi tại trường tương ứng | "Email này đã được sử dụng" / "Tên người dùng đã tồn tại" | CONFLICT | U, I | TC-AUTH-001 |
+| EC-AUTH-002 | AUTH | Access token hết hạn giữa phiên socket | Hẹn giờ `exp` → `session:expired` → ngắt sau 5 s | Refresh rồi reconnect, chạy sync | Không hiển thị gì nếu refresh thành công trong 2 s; ngược lại banner "Đang kết nối lại…" | TOKEN_EXPIRED | U, I | TC-AUTH-002 |
+| EC-AUTH-003 | AUTH | Refresh đồng thời từ 2 tab | Token vừa xoay trong 10 s → 409, không thu hồi | Web Locks; nhận 409 → đọc cookie mới, retry 1 lần | Không hiển thị gì | CONFLICT | U, I | TC-AUTH-003 |
+| EC-AUTH-004 | AUTH | Refresh token bị đánh cắp được dùng lại | Thu hồi cả family, `session:revoked REFRESH_REUSE`, kết thúc cuộc gọi của session | Xóa token, về `/login` | Modal "Phiên đăng nhập đã bị thu hồi vì lý do bảo mật. Vui lòng đăng nhập lại." | UNAUTHENTICATED | U, I | TC-AUTH-004 |
+| EC-AUTH-005 | AUTH | Tài khoản bị khóa khi đang có socket | Thu hồi mọi family, ngắt socket, kết thúc cuộc gọi LOGOUT | Về `/login` | Modal "Tài khoản của bạn đã bị khóa." | UNAUTHENTICATED | I | TC-AUTH-005 |
+| EC-AUTH-006 | AUTH | Đổi mật khẩu khi có phiên khác | Thu hồi mọi family khác `PASSWORD_CHANGED` | Phiên khác về `/login`; phiên hiện tại giữ nguyên | Phiên khác: modal "Mật khẩu đã được thay đổi. Vui lòng đăng nhập lại."; phiên hiện tại: toast "Đã đổi mật khẩu" | UNAUTHENTICATED (phiên khác) | U, I | TC-AUTH-006 |
+| EC-AUTH-007 | AUTH | Logout khi đang gọi | Kết thúc cuộc gọi `LOGOUT` (ENDED hoặc CANCELLED), phát `call:state` | Đóng pc, stop track, về `/login` | Bên kia: "Cuộc gọi đã kết thúc" | — | I | TC-AUTH-007 |
+| EC-AUTH-008 | AUTH | Đổi mật khẩu với mật khẩu hiện tại sai / dò mật khẩu qua phiên đã đăng nhập | 422 với `details[{field:'currentPassword',reason:'INVALID'}]`, không thu hồi phiên; rate limit `changePassword` 5/15 phút/user | Báo lỗi tại trường "Mật khẩu hiện tại", không refresh/đăng xuất; 429 → vô hiệu nút trong `Retry-After` | "Mật khẩu hiện tại không đúng" / "Bạn đã thử quá nhiều lần. Vui lòng thử lại sau {n} giây." | VALIDATION_ERROR / RATE_LIMITED | U, I | TC-AUTH-008 |
 
 ### 5.2 NET
 
-| ID | Nhóm | Tình huống | Hành vi Server | Hành vi Client | Trạng thái UI | Mã lỗi | Test ID |
-|---|---|---|---|---|---|---|---|
-| EC-NET-001 | NET | Mất mạng đột ngột | Phát hiện qua ping timeout, drop presence lease | Tạm dừng outbox, tin mới PENDING, Socket.IO tự reconnect | Banner "Đang kết nối lại…" (sau 2 s); `navigator.onLine=false` → "Không có kết nối mạng" | — | TC-NET-001 |
-| EC-NET-002 | NET | Reconnect liên tục (flapping) | Presence grace 10 s tránh nhấp nháy | Banner trễ 2 s; sync debounce 500 ms + generation counter | Banner không nhấp nháy | — | TC-NET-002 |
-| EC-NET-003 | NET | Server restart | Tin đã ACK nằm trong Mongo; deadline cuộc gọi trong Redis | `recovered=false` → sync đầy đủ, xả outbox | Banner "Đang kết nối lại…" rồi ẩn | — | TC-NET-003 |
-| EC-NET-004 | NET | ACK bị mất sau khi đã persist | Retry cùng `clientMessageId` → trả bản cũ, `duplicate: true` | Hợp nhất theo `clientMessageId`, không tạo bubble thứ hai | Bubble PENDING → ✓ | — (DUPLICATE_MESSAGE) | TC-NET-004 |
-| EC-NET-005 | NET | Event đến sai thứ tự | Gắn `occurredAt`, `call:state.version` | Sắp tin theo `(createdAt,_id)`, receipt áp `max`, bỏ `call:state` có version cũ | Thứ tự hiển thị đúng | — | TC-NET-005 |
-| EC-NET-006 | NET | Event trùng | Mỗi event có `eventId` duy nhất | LRU dedupe 1000 `eventId`, dedupe tin theo `_id` | Không có bubble trùng | — | TC-NET-006 |
-| EC-NET-007 | NET | Reconnect trong lúc đang fetch lịch sử | Phục vụ bình thường | Kết quả của generation cũ bị bỏ, fetch lại | Spinner tải lịch sử | — | TC-NET-007 |
-| EC-NET-008 | NET | Tab chạy nền bị throttle timer | Lease presence do server gia hạn | Flush outbox khi `visibilitychange → visible` và sự kiện `online` | Vẫn ONLINE với người khác | — | TC-NET-008 |
-| EC-NET-009 | NET | Máy ngủ rồi thức | Socket cũ đã bị drop | Phát hiện khoảng trống thời gian > 45 s → `disconnect().connect()`, sync | Banner "Đang kết nối lại…" ngắn | — | TC-NET-009 |
-| EC-NET-010 | NET | Proxy chặn WebSocket | Phục vụ HTTP long-polling cùng path | `transports: ['websocket','polling']`, `tryAllTransports` | Hoạt động bình thường | — | TC-NET-010 |
+| ID | Nhóm | Tình huống | Hành vi Server | Hành vi Client | Trạng thái UI | Mã lỗi | Tầng | Test ID |
+|---|---|---|---|---|---|---|---|---|
+| EC-NET-001 | NET | Mất mạng đột ngột | Phát hiện qua ping timeout, drop presence lease | Tạm dừng outbox, tin mới PENDING, Socket.IO tự reconnect | Banner "Đang kết nối lại…" (sau 2 s); `navigator.onLine=false` → "Không có kết nối mạng" | — | U | TC-NET-001 |
+| EC-NET-002 | NET | Reconnect liên tục (flapping) | Presence grace 10 s tránh nhấp nháy | Banner trễ 2 s; sync debounce 500 ms + generation counter | Banner không nhấp nháy | — | U | TC-NET-002 |
+| EC-NET-003 | NET | Server restart | Tin đã ACK nằm trong Mongo; deadline cuộc gọi trong Redis | `recovered=false` → sync đầy đủ, xả outbox | Banner "Đang kết nối lại…" rồi ẩn | — | I | TC-NET-003 |
+| EC-NET-004 | NET | ACK bị mất sau khi đã persist | Retry cùng `clientMessageId` → trả bản cũ, `duplicate: true` | Hợp nhất theo `clientMessageId`, không tạo bubble thứ hai | Bubble PENDING → ✓ | — (DUPLICATE_MESSAGE) | I | TC-NET-004 |
+| EC-NET-005 | NET | Event đến sai thứ tự | Gắn `occurredAt`, `call:state.version` | Sắp tin theo `(createdAt,_id)`, receipt áp `max`, bỏ `call:state` có version cũ | Thứ tự hiển thị đúng | — | U | TC-NET-005 |
+| EC-NET-006 | NET | Event trùng | Mỗi event có `eventId` duy nhất | LRU dedupe 1000 `eventId`, dedupe tin theo `_id` | Không có bubble trùng | — | U | TC-NET-006 |
+| EC-NET-007 | NET | Reconnect trong lúc đang fetch lịch sử | Phục vụ bình thường | Kết quả của generation cũ bị bỏ, fetch lại | Spinner tải lịch sử | — | U | TC-NET-007 |
+| EC-NET-008 | NET | Tab chạy nền bị throttle timer | Lease presence do server gia hạn | Flush outbox khi `visibilitychange → visible` và sự kiện `online` | Vẫn ONLINE với người khác | — | U | TC-NET-008 |
+| EC-NET-009 | NET | Máy ngủ rồi thức | Socket cũ đã bị drop | Phát hiện khoảng trống thời gian > 45 s → `disconnect().connect()`, sync | Banner "Đang kết nối lại…" ngắn | — | U | TC-NET-009 |
+| EC-NET-010 | NET | Proxy chặn WebSocket | Phục vụ HTTP long-polling cùng path | `transports: ['websocket','polling']`, `tryAllTransports` | Hoạt động bình thường | — | I | TC-NET-010 |
 
 ### 5.3 MSG
 
-| ID | Nhóm | Tình huống | Hành vi Server | Hành vi Client | Trạng thái UI | Mã lỗi | Test ID |
-|---|---|---|---|---|---|---|---|
-| EC-MSG-001 | MSG | Tin rỗng hoặc chỉ khoảng trắng/zero-width | Zod `normalizedText` từ chối | Vô hiệu nút Gửi, Enter không làm gì | Nút Gửi mờ | VALIDATION_ERROR | TC-MSG-001 |
-| EC-MSG-002 | MSG | Vượt 4000 code point | Từ chối | Bộ đếm hiện khi còn ≤ 200; vượt → vô hiệu nút Gửi | "{n}/4000" màu danger | VALIDATION_ERROR | TC-MSG-002 |
-| EC-MSG-003 | MSG | Emoji ZWJ, Unicode tổ hợp, zero-width giữa chuỗi, RTL override | NFC, đếm code point, lưu nguyên | `dir="auto"`, `unicode-bidi: isolate` | Hiển thị đúng, không đảo bố cục | — | TC-MSG-003 |
-| EC-MSG-004 | MSG | Payload XSS | Lưu nguyên văn | Render text node, cấm `dangerouslySetInnerHTML` | Hiển thị nguyên chuỗi | — | TC-MSG-004 |
-| EC-MSG-005 | MSG | Payload chứa `senderId`/`createdAt` giả | `.strict()` từ chối | Client không bao giờ gửi các trường này | — | VALIDATION_ERROR | TC-MSG-005 |
-| EC-MSG-006 | MSG | `clientMessageId` không phải UUID v4 | Từ chối | Luôn sinh bằng `crypto.randomUUID()` | Bubble FAILED nếu xảy ra | VALIDATION_ERROR | TC-MSG-006 |
-| EC-MSG-007 | MSG | Outbox đầy 200 tin | — | Không enqueue tin mới | Toast "Hàng đợi gửi đã đầy. Vui lòng chờ kết nối lại." | — | TC-MSG-007 |
-| EC-MSG-008 | MSG | `message:status` đến trước `message:new` | Phát bình thường | Lưu pending receipt (≤ 500, 60 s), áp khi tin đến | Tin hiện ngay với trạng thái đúng | — | TC-MSG-008 |
-| EC-MSG-009 | MSG | Read receipt khi tab không hiển thị | Chỉ nhận receipt do client gửi | Chỉ gửi read khi visible + focus + trong viewport ≥ 50% | Người gửi thấy ✓✓ (chưa xanh) | — | TC-MSG-009 |
-| EC-MSG-010 | MSG | Bị xóa khỏi nhóm khi đang gửi dở | Re-check member trong transaction → abort | Bubble FAILED, không retry | ⚠ "Bạn không còn là thành viên của nhóm này" | NOT_A_MEMBER | TC-MSG-010 |
-| EC-MSG-011 | MSG | Gửi tới người đã chặn mình (DIRECT/SECRET) | Từ chối | Bubble FAILED; composer bị khóa | "Không thể gửi tin nhắn tới người này" | USER_BLOCKED | TC-MSG-011 |
-| EC-MSG-012 | MSG | Lệch đồng hồ giữa thiết bị | Gán `createdAt` server, cửa sổ sửa theo giờ server | Hiển thị giờ server; ẩn nút sửa theo ước lượng `server-clock.ts` | Thứ tự đúng giữa các thiết bị | — | TC-MSG-012 |
-| EC-MSG-013 | MSG | Đang cuộn lên khi có tin mới | — | Không tự cuộn; đếm tin mới | Nút "Tin mới ↓" kèm số lượng | — | TC-MSG-013 |
-| EC-MSG-014 | MSG | Cùng hội thoại mở trên nhiều thiết bị | Fan-out tới mọi tab; `message:status` READ tới user room người đọc | Đồng bộ badge chưa đọc | Badge về 0 trên mọi thiết bị | — | TC-MSG-014 |
-| EC-MSG-015 | MSG | Sửa/thu hồi sau 15 phút | Từ chối theo `createdAt` server | Ẩn mục "Sửa"/"Thu hồi" sau 15 phút | Toast "Chỉ có thể sửa hoặc thu hồi tin trong 15 phút" | FORBIDDEN | TC-MSG-015 |
-| EC-MSG-016 | MSG | SECRET có `content`, hoặc DIRECT/GROUP có `ciphertext` | Từ chối | Client luôn chọn `kind` theo loại hội thoại | Bubble FAILED | VALIDATION_ERROR | TC-MSG-016 |
-| EC-MSG-017 | MSG | Sửa tin trong SECRET | Từ chối (D-16) | Không hiển thị mục "Sửa" trong SECRET | — | FORBIDDEN | TC-MSG-017 |
+| ID | Nhóm | Tình huống | Hành vi Server | Hành vi Client | Trạng thái UI | Mã lỗi | Tầng | Test ID |
+|---|---|---|---|---|---|---|---|---|
+| EC-MSG-001 | MSG | Tin rỗng hoặc chỉ khoảng trắng/zero-width | Zod `normalizedText` từ chối | Vô hiệu nút Gửi, Enter không làm gì | Nút Gửi mờ | VALIDATION_ERROR | U | TC-MSG-001 |
+| EC-MSG-002 | MSG | Vượt 4000 code point | Từ chối | Bộ đếm hiện khi còn ≤ 200; vượt → vô hiệu nút Gửi | "{n}/4000" màu danger | VALIDATION_ERROR | U | TC-MSG-002 |
+| EC-MSG-003 | MSG | Emoji ZWJ, Unicode tổ hợp, zero-width giữa chuỗi, RTL override | NFC, đếm code point, lưu nguyên | `dir="auto"`, `unicode-bidi: isolate` | Hiển thị đúng, không đảo bố cục | — | U | TC-MSG-003 |
+| EC-MSG-004 | MSG | Payload XSS | Lưu nguyên văn | Render text node, cấm `dangerouslySetInnerHTML` | Hiển thị nguyên chuỗi | — | U | TC-MSG-004 |
+| EC-MSG-005 | MSG | Payload chứa `senderId`/`createdAt` giả | `.strict()` từ chối | Client không bao giờ gửi các trường này | — | VALIDATION_ERROR | U, I | TC-MSG-005 |
+| EC-MSG-006 | MSG | `clientMessageId` không phải UUID v4 | Từ chối | Luôn sinh bằng `crypto.randomUUID()` | Bubble FAILED nếu xảy ra | VALIDATION_ERROR | U, I | TC-MSG-006 |
+| EC-MSG-007 | MSG | Outbox đầy 200 tin | — | Không enqueue tin mới | Toast "Hàng đợi gửi đã đầy. Vui lòng chờ kết nối lại." | — | U | TC-MSG-007 |
+| EC-MSG-008 | MSG | `message:status` đến trước `message:new` | Phát bình thường | Lưu pending receipt (≤ 500, 60 s), áp khi tin đến | Tin hiện ngay với trạng thái đúng | — | U | TC-MSG-008 |
+| EC-MSG-009 | MSG | Read receipt khi tab không hiển thị | Chỉ nhận receipt do client gửi | Chỉ gửi read khi visible + focus + trong viewport ≥ 50% | Người gửi thấy ✓✓ (chưa xanh) | — | U | TC-MSG-009 |
+| EC-MSG-010 | MSG | Bị xóa khỏi nhóm khi đang gửi dở | Re-check member trong transaction → abort | Bubble FAILED, không retry | ⚠ "Bạn không còn là thành viên của nhóm này" | NOT_A_MEMBER | I | TC-MSG-010 |
+| EC-MSG-011 | MSG | Gửi tới người đã chặn mình (DIRECT/SECRET) | Từ chối | Bubble FAILED; composer bị khóa | "Không thể gửi tin nhắn tới người này" | USER_BLOCKED | I | TC-MSG-011 |
+| EC-MSG-012 | MSG | Lệch đồng hồ giữa thiết bị | Gán `createdAt` server, cửa sổ sửa theo giờ server | Hiển thị giờ server; ẩn nút sửa theo ước lượng `server-clock.ts` | Thứ tự đúng giữa các thiết bị | — | U | TC-MSG-012 |
+| EC-MSG-013 | MSG | Đang cuộn lên khi có tin mới | — | Không tự cuộn; đếm tin mới | Nút "Tin mới ↓" kèm số lượng | — | U | TC-MSG-013 |
+| EC-MSG-014 | MSG | Cùng hội thoại mở trên nhiều thiết bị | Fan-out tới mọi tab; `message:status` READ tới user room người đọc | Đồng bộ badge chưa đọc | Badge về 0 trên mọi thiết bị | — | I | TC-MSG-014 |
+| EC-MSG-015 | MSG | Sửa/thu hồi sau 15 phút | Từ chối theo `createdAt` server | Ẩn mục "Sửa"/"Thu hồi" sau 15 phút | Toast "Chỉ có thể sửa hoặc thu hồi tin trong 15 phút" | FORBIDDEN | I | TC-MSG-015 |
+| EC-MSG-016 | MSG | SECRET có `content`, hoặc DIRECT/GROUP có `ciphertext` | Từ chối | Client luôn chọn `kind` theo loại hội thoại | Bubble FAILED | VALIDATION_ERROR | U, I | TC-MSG-016 |
+| EC-MSG-017 | MSG | Sửa tin trong SECRET | Từ chối (D-16) | Không hiển thị mục "Sửa" trong SECRET | — | FORBIDDEN | chưa gán | TC-MSG-017 |
 
 ### 5.4 GROUP
 
-| ID | Nhóm | Tình huống | Hành vi Server | Hành vi Client | Trạng thái UI | Mã lỗi | Test ID |
-|---|---|---|---|---|---|---|---|
-| EC-GROUP-001 | GROUP | Thêm vượt 100 thành viên | Không thêm ai | Chặn chọn quá số chỗ còn lại | "Nhóm đã đạt tối đa 100 thành viên" | CONVERSATION_FULL | TC-GROUP-001 |
-| EC-GROUP-002 | GROUP | Danh sách thêm có trùng hoặc đã là thành viên | Khử trùng; thành viên cũ vào `skipped` | Lọc trùng trước khi gửi | Toast "Đã thêm {n} thành viên" (+ "{m} người đã có trong nhóm") | — | TC-GROUP-002 |
-| EC-GROUP-003 | GROUP | Thêm người đã chặn mình | Người đó vào `skipped` với `USER_BLOCKED` | Hiển thị danh sách bỏ qua | "Không thể thêm {tên}" | — (từng mục: USER_BLOCKED) | TC-GROUP-003 |
-| EC-GROUP-004 | GROUP | OWNER rời nhóm khi còn thành viên khác | Từ chối | Mở hộp thoại chọn trưởng nhóm mới | "Bạn cần chuyển quyền trưởng nhóm trước khi rời nhóm" | CONFLICT | TC-GROUP-004 |
-| EC-GROUP-005 | GROUP | ADMIN xóa hoặc hạ quyền OWNER | Từ chối | Không hiển thị thao tác đó cho ADMIN | — | FORBIDDEN | TC-GROUP-005 |
-| EC-GROUP-006 | GROUP | Hai admin thao tác cùng lúc | Transaction + update có điều kiện `memberCount`; mọi thay đổi có `conversation:updated` | Áp dữ liệu mới nhất theo event | Danh sách thành viên nhất quán | CONVERSATION_FULL (nếu vượt) | TC-GROUP-006 |
-| EC-GROUP-007 | GROUP | Thành viên bị xóa vẫn còn trong socket room | `socketsLeave`, fan-out theo DB, mọi handler kiểm AUTHZ-2 | Nhận `conversation:member-removed` → xóa khỏi danh sách, đóng phòng chat | "Bạn đã bị xóa khỏi nhóm {tên}" | NOT_A_MEMBER | TC-GROUP-007 |
+| ID | Nhóm | Tình huống | Hành vi Server | Hành vi Client | Trạng thái UI | Mã lỗi | Tầng | Test ID |
+|---|---|---|---|---|---|---|---|---|
+| EC-GROUP-001 | GROUP | Thêm vượt 100 thành viên | Không thêm ai | Chặn chọn quá số chỗ còn lại | "Nhóm đã đạt tối đa 100 thành viên" | CONVERSATION_FULL | U, I | TC-GROUP-001 |
+| EC-GROUP-002 | GROUP | Danh sách thêm có trùng hoặc đã là thành viên | Khử trùng; thành viên cũ vào `skipped` | Lọc trùng trước khi gửi | Toast "Đã thêm {n} thành viên" (+ "{m} người đã có trong nhóm") | — | U, I | TC-GROUP-002 |
+| EC-GROUP-003 | GROUP | Thêm người đã chặn mình | Người đó vào `skipped` với `USER_BLOCKED` | Hiển thị danh sách bỏ qua | "Không thể thêm {tên}" | — (từng mục: USER_BLOCKED) | U, I | TC-GROUP-003 |
+| EC-GROUP-004 | GROUP | OWNER rời nhóm khi còn thành viên khác | Từ chối | Mở hộp thoại chọn trưởng nhóm mới | "Bạn cần chuyển quyền trưởng nhóm trước khi rời nhóm" | CONFLICT | U, I | TC-GROUP-004 |
+| EC-GROUP-005 | GROUP | ADMIN xóa hoặc hạ quyền OWNER | Từ chối | Không hiển thị thao tác đó cho ADMIN | — | FORBIDDEN | U, I | TC-GROUP-005 |
+| EC-GROUP-006 | GROUP | Hai admin thao tác cùng lúc | Transaction + update có điều kiện `memberCount`; mọi thay đổi có `conversation:updated` | Áp dữ liệu mới nhất theo event | Danh sách thành viên nhất quán | CONVERSATION_FULL (nếu vượt) | I | TC-GROUP-006 |
+| EC-GROUP-007 | GROUP | Thành viên bị xóa vẫn còn trong socket room | `socketsLeave`, fan-out theo DB, mọi handler kiểm AUTHZ-2 | Nhận `conversation:member-removed` → xóa khỏi danh sách, đóng phòng chat | "Bạn đã bị xóa khỏi nhóm {tên}" | NOT_A_MEMBER | I | TC-GROUP-007 |
 
 ### 5.5 PRES
 
-| ID | Nhóm | Tình huống | Hành vi Server | Hành vi Client | Trạng thái UI | Mã lỗi | Test ID |
-|---|---|---|---|---|---|---|---|
-| EC-PRES-001 | PRES | Một user mở nhiều tab | Lease riêng mỗi socket; chỉ phát khi 0↔≥1 | — | Chấm xanh ổn định | — | TC-PRES-001 |
-| EC-PRES-002 | PRES | Một tab đóng, tab khác còn mở | Còn lease → không phát OFFLINE | — | Vẫn ONLINE | — | TC-PRES-002 |
-| EC-PRES-003 | PRES | Client crash không gửi disconnect | Ping timeout ≤ 45 s hoặc lease hết hạn ≤ 60 s → OFFLINE | — | OFFLINE trong ≤ 60 s | — | TC-PRES-003 |
-| EC-PRES-004 | PRES | Ẩn lastSeen | `lastSeenAt: null`, có đi có lại | Không hiển thị dòng lastSeen | Chỉ "Đang hoạt động" hoặc không gì | — | TC-PRES-004 |
-| EC-PRES-005 | PRES | Redis mất dữ liệu / không truy cập được | Mất dữ liệu: tự phục hồi ≤ 20 s; không truy cập được: `degraded: true` | Ẩn chấm online khi `degraded` | Không hiển thị trạng thái hoạt động | — | TC-PRES-005 |
+| ID | Nhóm | Tình huống | Hành vi Server | Hành vi Client | Trạng thái UI | Mã lỗi | Tầng | Test ID |
+|---|---|---|---|---|---|---|---|---|
+| EC-PRES-001 | PRES | Một user mở nhiều tab | Lease riêng mỗi socket; chỉ phát khi 0↔≥1 | — | Chấm xanh ổn định | — | I | TC-PRES-001 |
+| EC-PRES-002 | PRES | Một tab đóng, tab khác còn mở | Còn lease → không phát OFFLINE | — | Vẫn ONLINE | — | I | TC-PRES-002 |
+| EC-PRES-003 | PRES | Client crash không gửi disconnect | Ping timeout ≤ 45 s hoặc lease hết hạn ≤ 60 s → OFFLINE | — | OFFLINE trong ≤ 60 s | — | I | TC-PRES-003 |
+| EC-PRES-004 | PRES | Ẩn lastSeen | `lastSeenAt: null`, có đi có lại | Không hiển thị dòng lastSeen | Chỉ "Đang hoạt động" hoặc không gì | — | U, I | TC-PRES-004 |
+| EC-PRES-005 | PRES | Redis mất dữ liệu / không truy cập được | Mất dữ liệu: tự phục hồi ≤ 20 s; không truy cập được: `degraded: true` | Ẩn chấm online khi `degraded` | Không hiển thị trạng thái hoạt động | — | U, I | TC-PRES-005 |
 
 ### 5.6 CALL-SIG
 
-| ID | Nhóm | Tình huống | Hành vi Server | Hành vi Client | Trạng thái UI | Mã lỗi | Test ID |
-|---|---|---|---|---|---|---|---|
-| EC-CALL-SIG-001 | CALL-SIG | Gọi người đang offline | INITIATED; giao `call:incoming` khi callee online trong 45 s; hết giờ → MISSED | Caller chờ | "Đang gọi…" → "Không có người trả lời" | — | TC-CALL-SIG-001 |
-| EC-CALL-SIG-002 | CALL-SIG | Gọi người đang bận | Ghi BUSY, `call:busy` tới callee, SYSTEM `CALL_MISSED` | Caller dừng, giải phóng media | Caller: "Người nhận đang bận"; callee: toast "{tên} vừa gọi cho bạn" | CALL_BUSY | TC-CALL-SIG-002 |
-| EC-CALL-SIG-003 | CALL-SIG | Glare | Gộp thành một cuộc gọi, ACK `merged: true` | Bên nhận `merged` chuyển thẳng vào cuộc gọi đó | "Đang kết nối…" | — | TC-CALL-SIG-003 |
-| EC-CALL-SIG-004 | CALL-SIG | Đổ chuông trên nhiều thiết bị | `call:incoming` tới mọi tab callee | Tất cả đổ chuông | Màn hình cuộc gọi đến trên mọi tab | — | TC-CALL-SIG-004 |
-| EC-CALL-SIG-005 | CALL-SIG | Accept và cancel đến cùng lúc | CAS: cái đến trước thắng; cancel sau accept → HANGUP | Bên thua nhận trạng thái terminal | "Cuộc gọi đã kết thúc" | CALL_INVALID_STATE (accept thua) | TC-CALL-SIG-005 |
-| EC-CALL-SIG-006 | CALL-SIG | Accept sau khi đã hết giờ | Từ chối | Đóng màn hình, stop track | "Cuộc gọi đã kết thúc" | CALL_TIMEOUT | TC-CALL-SIG-006 |
-| EC-CALL-SIG-007 | CALL-SIG | Offer đến khi `signalingState` không phù hợp | Server kiểm `revision` | Guard theo `signalingState` và revision, bỏ offer/answer cũ | Không đổi | CALL_INVALID_STATE (revision sai) | TC-CALL-SIG-007 |
-| EC-CALL-SIG-008 | CALL-SIG | ICE candidate đến trước remote description | Relay bình thường | Đưa vào hàng đợi (≤ 200), xả sau `setRemoteDescription` | Không đổi | — | TC-CALL-SIG-008 |
-| EC-CALL-SIG-009 | CALL-SIG | Candidate trùng | Relay bình thường | Dedupe theo chuỗi candidate | Không đổi | — | TC-CALL-SIG-009 |
-| EC-CALL-SIG-010 | CALL-SIG | Replay signaling của cuộc gọi cũ | callId không còn → từ chối; revision cũ → từ chối | Bỏ qua event của callId không phải cuộc gọi hiện tại | Không đổi | CALL_NOT_FOUND / CALL_INVALID_STATE | TC-CALL-SIG-010 |
-| EC-CALL-SIG-011 | CALL-SIG | Người không tham gia gửi signaling | Không relay | — | — | CALL_NOT_FOUND (không phải caller/callee) / FORBIDDEN (sai tab) | TC-CALL-SIG-011 |
-| EC-CALL-SIG-012 | CALL-SIG | Gọi trong hội thoại GROUP | Từ chối | Ẩn nút gọi | — | VALIDATION_ERROR | TC-CALL-SIG-012 |
-| EC-CALL-SIG-013 | CALL-SIG | Gọi người đã chặn mình hoặc mình đã chặn | Từ chối, không tạo record | Vô hiệu nút gọi khi `canMessage = false` | "Không thể gọi cho người này" | USER_BLOCKED | TC-CALL-SIG-013 |
-| EC-CALL-SIG-014 | CALL-SIG | Spam lời mời | Rate limit `callInvite` 5/phút/user | Vô hiệu nút gọi tới hết `Retry-After` ước lượng 60 s | "Bạn thao tác quá nhanh, vui lòng thử lại sau" | RATE_LIMITED | TC-CALL-SIG-014 |
-| EC-CALL-SIG-015 | CALL-SIG | Sự kiện kết thúc trùng | Idempotent, trả trạng thái hiện tại, không phát lại | Bỏ qua | Không đổi | — | TC-CALL-SIG-015 |
-| EC-CALL-SIG-016 | CALL-SIG | Thiết bị thứ hai accept sau thiết bị đầu | Từ chối | Đóng màn hình | "Đã trả lời trên thiết bị khác" | CALL_ALREADY_ANSWERED | TC-CALL-SIG-016 |
+| ID | Nhóm | Tình huống | Hành vi Server | Hành vi Client | Trạng thái UI | Mã lỗi | Tầng | Test ID |
+|---|---|---|---|---|---|---|---|---|
+| EC-CALL-SIG-001 | CALL-SIG | Gọi người đang offline | INITIATED; giao `call:incoming` khi callee online trong 45 s; hết giờ → MISSED | Caller chờ | "Đang gọi…" → "Không có người trả lời" | — | I | TC-CALL-SIG-001 |
+| EC-CALL-SIG-002 | CALL-SIG | Gọi người đang bận | Ghi BUSY, `call:busy` tới callee, SYSTEM `CALL_MISSED` | Caller dừng, giải phóng media | Caller: "Người nhận đang bận"; callee: toast "{tên} vừa gọi cho bạn" | CALL_BUSY | I | TC-CALL-SIG-002 |
+| EC-CALL-SIG-003 | CALL-SIG | Glare | Gộp thành một cuộc gọi, ACK `merged: true` | Bên nhận `merged` chuyển thẳng vào cuộc gọi đó | "Đang kết nối…" | — | I | TC-CALL-SIG-003 |
+| EC-CALL-SIG-004 | CALL-SIG | Đổ chuông trên nhiều thiết bị | `call:incoming` tới mọi tab callee | Tất cả đổ chuông | Màn hình cuộc gọi đến trên mọi tab | — | I | TC-CALL-SIG-004 |
+| EC-CALL-SIG-005 | CALL-SIG | Accept và cancel đến cùng lúc | CAS: cái đến trước thắng; cancel sau accept → HANGUP | Bên thua nhận trạng thái terminal | "Cuộc gọi đã kết thúc" | CALL_INVALID_STATE (accept thua) | U, I | TC-CALL-SIG-005 |
+| EC-CALL-SIG-006 | CALL-SIG | Accept sau khi đã hết giờ | Từ chối | Đóng màn hình, stop track | "Cuộc gọi đã kết thúc" | CALL_TIMEOUT | U, I | TC-CALL-SIG-006 |
+| EC-CALL-SIG-007 | CALL-SIG | Offer đến khi `signalingState` không phù hợp | Server kiểm `revision` | Guard theo `signalingState` và revision, bỏ offer/answer cũ | Không đổi | CALL_INVALID_STATE (revision sai) | U, I | TC-CALL-SIG-007 |
+| EC-CALL-SIG-008 | CALL-SIG | ICE candidate đến trước remote description | Relay bình thường | Đưa vào hàng đợi (≤ 200), xả sau `setRemoteDescription` | Không đổi | — | U, I | TC-CALL-SIG-008 |
+| EC-CALL-SIG-009 | CALL-SIG | Candidate trùng | Relay bình thường | Dedupe theo chuỗi candidate | Không đổi | — | U | TC-CALL-SIG-009 |
+| EC-CALL-SIG-010 | CALL-SIG | Replay signaling của cuộc gọi cũ | callId không còn → từ chối; revision cũ → từ chối | Bỏ qua event của callId không phải cuộc gọi hiện tại | Không đổi | CALL_NOT_FOUND / CALL_INVALID_STATE | I | TC-CALL-SIG-010 |
+| EC-CALL-SIG-011 | CALL-SIG | Người không tham gia gửi signaling | Không relay | — | — | CALL_NOT_FOUND (không phải caller/callee) / FORBIDDEN (sai tab) | I | TC-CALL-SIG-011 |
+| EC-CALL-SIG-012 | CALL-SIG | Gọi trong hội thoại GROUP | Từ chối | Ẩn nút gọi | — | VALIDATION_ERROR | I | TC-CALL-SIG-012 |
+| EC-CALL-SIG-013 | CALL-SIG | Gọi người đã chặn mình hoặc mình đã chặn | Từ chối, không tạo record | Vô hiệu nút gọi khi `canMessage = false` | "Không thể gọi cho người này" | USER_BLOCKED | I | TC-CALL-SIG-013 |
+| EC-CALL-SIG-014 | CALL-SIG | Spam lời mời | Rate limit `callInvite` 5/phút/user | Vô hiệu nút gọi tới hết `Retry-After` ước lượng 60 s | "Bạn thao tác quá nhanh, vui lòng thử lại sau" | RATE_LIMITED | I | TC-CALL-SIG-014 |
+| EC-CALL-SIG-015 | CALL-SIG | Sự kiện kết thúc trùng | Idempotent, trả trạng thái hiện tại, không phát lại | Bỏ qua | Không đổi | — | U, I | TC-CALL-SIG-015 |
+| EC-CALL-SIG-016 | CALL-SIG | Thiết bị thứ hai accept sau thiết bị đầu | Từ chối | Đóng màn hình | "Đã trả lời trên thiết bị khác" | CALL_ALREADY_ANSWERED | I | TC-CALL-SIG-016 |
 
 ### 5.7 CALL-MEDIA
 
-| ID | Nhóm | Tình huống | Hành vi Server | Hành vi Client | Trạng thái UI | Mã lỗi | Test ID |
-|---|---|---|---|---|---|---|---|
-| EC-CALL-MEDIA-001 | CALL-MEDIA | Không có micro | Callee: FAILED/MEDIA_FAILURE (T09) | Caller không gửi invite; callee gửi `call:end MEDIA_FAILURE` | "Không tìm thấy micro. Hãy kết nối micro và thử lại." | — | TC-CALL-MEDIA-001 |
-| EC-CALL-MEDIA-002 | CALL-MEDIA | Không có camera trong cuộc gọi video | Không đổi `callType` | Lấy audio-only, transceiver video `recvonly` | Toast "Không tìm thấy camera, tiếp tục với âm thanh" | — | TC-CALL-MEDIA-002 |
-| EC-CALL-MEDIA-003 | CALL-MEDIA | Từ chối quyền (`NotAllowedError`) | Callee: FAILED/MEDIA_FAILURE | Dừng, hướng dẫn mở quyền | "HUSTALO cần quyền dùng micro/camera. Hãy cấp quyền trong cài đặt trình duyệt." | — | TC-CALL-MEDIA-003 |
-| EC-CALL-MEDIA-004 | CALL-MEDIA | Người dùng đóng/bỏ qua prompt quyền | Không có invite cho tới khi media sẵn sàng; callee để hết giờ → MISSED | Giữ PREPARING_MEDIA với nút "Hủy" luôn bấm được | "Đang chờ cấp quyền micro/camera…" | — | TC-CALL-MEDIA-004 |
-| EC-CALL-MEDIA-005 | CALL-MEDIA | Thiết bị đang bị app khác dùng (`NotReadableError`) | Như 001 nếu là micro | Video → fallback audio; audio → dừng | "Micro hoặc camera đang được ứng dụng khác sử dụng." | — | TC-CALL-MEDIA-005 |
-| EC-CALL-MEDIA-006 | CALL-MEDIA | Rút tai nghe/Bluetooth (`devicechange`) | — | Lấy thiết bị mặc định, `replaceTrack` | Toast "Đã chuyển sang {tên thiết bị}" | — | TC-CALL-MEDIA-006 |
-| EC-CALL-MEDIA-007 | CALL-MEDIA | `track.onended` giữa cuộc gọi | Audio thất bại → T16/T22 | Lấy lại 1 lần; audio thất bại → `call:end MEDIA_FAILURE`; video thất bại → tắt camera | "Cuộc gọi kết thúc do lỗi thiết bị âm thanh/hình ảnh" (audio) | — | TC-CALL-MEDIA-007 |
-| EC-CALL-MEDIA-008 | CALL-MEDIA | Trình duyệt không hỗ trợ WebRTC | — | Ẩn nút gọi | Tooltip "Trình duyệt không hỗ trợ gọi điện" | — | TC-CALL-MEDIA-008 |
-| EC-CALL-MEDIA-009 | CALL-MEDIA | Insecure context (HTTP qua LAN) | — | Ẩn nút gọi | Tooltip "Cần kết nối HTTPS để gọi điện" | — | TC-CALL-MEDIA-009 |
-| EC-CALL-MEDIA-010 | CALL-MEDIA | Autoplay bị chặn | — | Bắt lỗi `play()`, hiển thị nút | "Chạm để bật âm thanh" | — | TC-CALL-MEDIA-010 |
-| EC-CALL-MEDIA-011 | CALL-MEDIA | Mobile tắt camera khi chuyển app | — | Track `mute` → peer hiển thị avatar; `unmute` → hiện lại video | Peer: avatar + "Camera đang tạm dừng" | — | TC-CALL-MEDIA-011 |
-| EC-CALL-MEDIA-012 | CALL-MEDIA | Cuộc gọi kết thúc khi `getUserMedia` còn chờ | Trạng thái terminal đã chốt | Khi promise resolve: stop mọi track ngay | Đèn camera tắt | — | TC-CALL-MEDIA-012 |
-| EC-CALL-MEDIA-013 | CALL-MEDIA | `OverconstrainedError` | — | Thử lại `{ video: true }`, rồi fallback audio | Không thông báo nếu thử lại thành công | — | TC-CALL-MEDIA-013 |
+| ID | Nhóm | Tình huống | Hành vi Server | Hành vi Client | Trạng thái UI | Mã lỗi | Tầng | Test ID |
+|---|---|---|---|---|---|---|---|---|
+| EC-CALL-MEDIA-001 | CALL-MEDIA | Không có micro | Callee: FAILED/MEDIA_FAILURE (T09) | Caller không gửi invite; callee gửi `call:end MEDIA_FAILURE` | "Không tìm thấy micro. Hãy kết nối micro và thử lại." | — | U, E | TC-CALL-MEDIA-001 |
+| EC-CALL-MEDIA-002 | CALL-MEDIA | Không có camera trong cuộc gọi video | Không đổi `callType` | Lấy audio-only, transceiver video `recvonly` | Toast "Không tìm thấy camera, tiếp tục với âm thanh" | — | U | TC-CALL-MEDIA-002 |
+| EC-CALL-MEDIA-003 | CALL-MEDIA | Từ chối quyền (`NotAllowedError`) | Callee: FAILED/MEDIA_FAILURE | Dừng, hướng dẫn mở quyền | "HUSTALO cần quyền dùng micro/camera. Hãy cấp quyền trong cài đặt trình duyệt." | — | U, E | TC-CALL-MEDIA-003 |
+| EC-CALL-MEDIA-004 | CALL-MEDIA | Người dùng đóng/bỏ qua prompt quyền | Không có invite cho tới khi media sẵn sàng; callee để hết giờ → MISSED | Giữ PREPARING_MEDIA với nút "Hủy" luôn bấm được | "Đang chờ cấp quyền micro/camera…" | — | U | TC-CALL-MEDIA-004 |
+| EC-CALL-MEDIA-005 | CALL-MEDIA | Thiết bị đang bị app khác dùng (`NotReadableError`) | Như 001 nếu là micro | Video → fallback audio; audio → dừng | "Micro hoặc camera đang được ứng dụng khác sử dụng." | — | U | TC-CALL-MEDIA-005 |
+| EC-CALL-MEDIA-006 | CALL-MEDIA | Rút tai nghe/Bluetooth (`devicechange`) | — | Lấy thiết bị mặc định, `replaceTrack` | Toast "Đã chuyển sang {tên thiết bị}" | — | U, T | TC-CALL-MEDIA-006 |
+| EC-CALL-MEDIA-007 | CALL-MEDIA | `track.onended` giữa cuộc gọi | Audio thất bại → T16/T22 | Lấy lại 1 lần; audio thất bại → `call:end MEDIA_FAILURE`; video thất bại → tắt camera | "Cuộc gọi kết thúc do lỗi thiết bị âm thanh/hình ảnh" (audio) | — | U | TC-CALL-MEDIA-007 |
+| EC-CALL-MEDIA-008 | CALL-MEDIA | Trình duyệt không hỗ trợ WebRTC | — | Ẩn nút gọi | Tooltip "Trình duyệt không hỗ trợ gọi điện" | — | U | TC-CALL-MEDIA-008 |
+| EC-CALL-MEDIA-009 | CALL-MEDIA | Insecure context (HTTP qua LAN) | — | Ẩn nút gọi | Tooltip "Cần kết nối HTTPS để gọi điện" | — | U | TC-CALL-MEDIA-009 |
+| EC-CALL-MEDIA-010 | CALL-MEDIA | Autoplay bị chặn | — | Bắt lỗi `play()`, hiển thị nút | "Chạm để bật âm thanh" | — | U, E | TC-CALL-MEDIA-010 |
+| EC-CALL-MEDIA-011 | CALL-MEDIA | Mobile tắt camera khi chuyển app | — | Track `mute` → peer hiển thị avatar; `unmute` → hiện lại video | Peer: avatar + "Camera đang tạm dừng" | — | U, T | TC-CALL-MEDIA-011 |
+| EC-CALL-MEDIA-012 | CALL-MEDIA | Cuộc gọi kết thúc khi `getUserMedia` còn chờ | Trạng thái terminal đã chốt | Khi promise resolve: stop mọi track ngay | Đèn camera tắt | — | U | TC-CALL-MEDIA-012 |
+| EC-CALL-MEDIA-013 | CALL-MEDIA | `OverconstrainedError` | — | Thử lại `{ video: true }`, rồi fallback audio | Không thông báo nếu thử lại thành công | — | U | TC-CALL-MEDIA-013 |
 
 ### 5.8 CALL-NET
 
-| ID | Nhóm | Tình huống | Hành vi Server | Hành vi Client | Trạng thái UI | Mã lỗi | Test ID |
-|---|---|---|---|---|---|---|---|
-| EC-CALL-NET-001 | CALL-NET | Đổi Wi-Fi sang 4G | CONNECTED → RECONNECTING, relay `call:ice-restart` và offer mới | Caller ICE restart (≤ 2 lần) | "Đang kết nối lại…" | — | TC-CALL-NET-001 |
-| EC-CALL-NET-002 | CALL-NET | `disconnected` thoáng qua so với `failed` | Chỉ đổi trạng thái khi nhận báo cáo | Chờ 3 s với `disconnected`; `failed` restart ngay | Không đổi nếu hồi phục < 3 s | — | TC-CALL-NET-002 |
-| EC-CALL-NET-003 | CALL-NET | NAT đối xứng cần TURN | Cấp TURN credential | Dùng relay candidate | Bình thường | — | TC-CALL-NET-003 |
-| EC-CALL-NET-004 | CALL-NET | UDP bị chặn | Cấp URL `turn:?transport=tcp` và `turns:443` | ICE chọn TCP/TLS | Bình thường | — | TC-CALL-NET-004 |
-| EC-CALL-NET-005 | CALL-NET | TURN credential hết hạn | Cấp credential mới | Làm mới trước 5 phút, `setConfiguration` trước ICE restart | Bình thường | — | TC-CALL-NET-005 |
-| EC-CALL-NET-006 | CALL-NET | Xirsys API lỗi | Fallback STUN + coturn, `source: 'FALLBACK'`, không cache | Dùng bình thường | Bình thường | — | TC-CALL-NET-006 |
-| EC-CALL-NET-007 | CALL-NET | Hai bên hồi phục lệch thời điểm | Xử lý báo cáo theo thứ tự nhận | Mỗi bên báo trạng thái riêng | "Đang kết nối lại…" rồi đồng hồ | — | TC-CALL-NET-007 |
-| EC-CALL-NET-008 | CALL-NET | Một bên đã kết thúc, bên kia còn reconnect | Trạng thái terminal thắng; `call:state` từ bên kia nhận terminal | Dừng ICE restart, đóng pc | "Cuộc gọi đã kết thúc" | — | TC-CALL-NET-008 |
-| EC-CALL-NET-009 | CALL-NET | Server restart giữa cuộc gọi | Deadline/state Redis còn → tiếp tục; mất state → T29 SERVER_RESTART | Reconnect, gửi `call:state` | Không đổi; hoặc "Cuộc gọi đã kết thúc do sự cố máy chủ" | — | TC-CALL-NET-009 |
-| EC-CALL-NET-010 | CALL-NET | Hết lượt ICE restart hoặc hết 20 s grace | ENDED/NETWORK_FAILURE | Gửi `call:end NETWORK_FAILURE` khi hết lượt | "Cuộc gọi bị gián đoạn do mất kết nối" | CALL_INVALID_STATE (restart lần 3) | TC-CALL-NET-010 |
+| ID | Nhóm | Tình huống | Hành vi Server | Hành vi Client | Trạng thái UI | Mã lỗi | Tầng | Test ID |
+|---|---|---|---|---|---|---|---|---|
+| EC-CALL-NET-001 | CALL-NET | Đổi Wi-Fi sang 4G | CONNECTED → RECONNECTING, relay `call:ice-restart` và offer mới | Caller ICE restart (≤ 2 lần) | "Đang kết nối lại…" | — | E, T | TC-CALL-NET-001 |
+| EC-CALL-NET-002 | CALL-NET | `disconnected` thoáng qua so với `failed` | Chỉ đổi trạng thái khi nhận báo cáo | Chờ 3 s với `disconnected`; `failed` restart ngay | Không đổi nếu hồi phục < 3 s | — | U | TC-CALL-NET-002 |
+| EC-CALL-NET-003 | CALL-NET | NAT đối xứng cần TURN | Cấp TURN credential | Dùng relay candidate | Bình thường | — | E | TC-CALL-NET-003 |
+| EC-CALL-NET-004 | CALL-NET | UDP bị chặn | Cấp URL `turn:?transport=tcp` và `turns:443` | ICE chọn TCP/TLS | Bình thường | — | E | TC-CALL-NET-004 |
+| EC-CALL-NET-005 | CALL-NET | TURN credential hết hạn | Cấp credential mới | Làm mới trước 5 phút, `setConfiguration` trước ICE restart | Bình thường | — | U, I | TC-CALL-NET-005 |
+| EC-CALL-NET-006 | CALL-NET | Xirsys API lỗi | Fallback STUN + coturn, `source: 'FALLBACK'`, không cache | Dùng bình thường | Bình thường | — | I | TC-CALL-NET-006 |
+| EC-CALL-NET-007 | CALL-NET | Hai bên hồi phục lệch thời điểm | Xử lý báo cáo theo thứ tự nhận | Mỗi bên báo trạng thái riêng | "Đang kết nối lại…" rồi đồng hồ | — | I | TC-CALL-NET-007 |
+| EC-CALL-NET-008 | CALL-NET | Một bên đã kết thúc, bên kia còn reconnect | Trạng thái terminal thắng; `call:state` từ bên kia nhận terminal | Dừng ICE restart, đóng pc | "Cuộc gọi đã kết thúc" | — | U, I | TC-CALL-NET-008 |
+| EC-CALL-NET-009 | CALL-NET | Server restart giữa cuộc gọi | Deadline/state Redis còn → tiếp tục; mất state → T29 SERVER_RESTART | Reconnect, gửi `call:state` | Không đổi; hoặc "Cuộc gọi đã kết thúc do sự cố máy chủ" | — | I, E | TC-CALL-NET-009 |
+| EC-CALL-NET-010 | CALL-NET | Hết lượt ICE restart hoặc hết 20 s grace | ENDED/NETWORK_FAILURE | Gửi `call:end NETWORK_FAILURE` khi hết lượt | "Cuộc gọi bị gián đoạn do mất kết nối" | CALL_INVALID_STATE (restart lần 3) | U, I | TC-CALL-NET-010 |
 
 ### 5.9 INFRA
 
-| ID | Nhóm | Tình huống | Hành vi Server | Hành vi Client | Trạng thái UI | Mã lỗi | Test ID |
-|---|---|---|---|---|---|---|---|
-| EC-INFRA-001 | INFRA | MongoDB down | NACK, REST 503, `/health` degraded | Giữ tin trong outbox, retry backoff | Bubble PENDING; thao tác REST: toast "Máy chủ đang bận, vui lòng thử lại" | SERVICE_UNAVAILABLE | TC-INFRA-001 |
-| EC-INFRA-002 | INFRA | Redis down | Auth fail-closed; rate limit khác dùng bộ nhớ; presence `degraded`; `call:invite` 503 | Ẩn presence; báo lỗi khi gọi | Gọi: "Không thể thực hiện cuộc gọi lúc này" | SERVICE_UNAVAILABLE | TC-INFRA-002 |
-| EC-INFRA-003 | INFRA | Transaction bị abort tạm thời | Retry ≤ 3 lần rồi 503 | Retry như EC-INFRA-001 | Bubble PENDING | SERVICE_UNAVAILABLE (sau 3 lần) | TC-INFRA-003 |
+| ID | Nhóm | Tình huống | Hành vi Server | Hành vi Client | Trạng thái UI | Mã lỗi | Tầng | Test ID |
+|---|---|---|---|---|---|---|---|---|
+| EC-INFRA-001 | INFRA | MongoDB down | NACK, REST 503, `/health` degraded | Giữ tin trong outbox, retry backoff | Bubble PENDING; thao tác REST: toast "Máy chủ đang bận, vui lòng thử lại" | SERVICE_UNAVAILABLE | U, I | TC-INFRA-001 |
+| EC-INFRA-002 | INFRA | Redis down | Auth fail-closed; rate limit khác dùng bộ nhớ; presence `degraded`; `call:invite` 503 | Ẩn presence; báo lỗi khi gọi | Gọi: "Không thể thực hiện cuộc gọi lúc này" | SERVICE_UNAVAILABLE | chưa gán | TC-INFRA-002 |
+| EC-INFRA-003 | INFRA | Transaction bị abort tạm thời | Retry ≤ 3 lần rồi 503 | Retry như EC-INFRA-001 | Bubble PENDING | SERVICE_UNAVAILABLE (sau 3 lần) | I | TC-INFRA-003 |
 
 ### 5.10 SEC
 
-| ID | Nhóm | Tình huống | Hành vi Server | Hành vi Client | Trạng thái UI | Mã lỗi | Test ID |
-|---|---|---|---|---|---|---|---|
-| EC-SEC-001 | SEC | Dò `conversationId` | 404 giống hệt id không tồn tại cho người chưa từng là thành viên | Route `/chats/:id` không hợp lệ → trang lỗi | "Không tìm thấy cuộc trò chuyện" | NOT_FOUND | TC-SEC-001 |
-| EC-SEC-002 | SEC | Cố join room không có quyền | `conversation:join` kiểm AUTHZ-2; room không cấp dữ liệu | — | — | NOT_FOUND / NOT_A_MEMBER | TC-SEC-002 |
-| EC-SEC-003 | SEC | Receipt giả mạo cho người khác | `userId` lấy từ token; chỉ nâng cursor của chính mình | — | — | VALIDATION_ERROR (trường thừa) | TC-SEC-003 |
-| EC-SEC-004 | SEC | CSRF vào `/auth/refresh`, `/auth/logout` | Thiếu/sai `X-CSRF-Token` → từ chối | Luôn gửi header từ cookie `hustalo_csrf` | — | FORBIDDEN | TC-SEC-004 |
-| EC-SEC-005 | SEC | Brute-force login | 5/phút/IP+email, fail-closed khi Redis down | Vô hiệu nút đăng nhập trong `Retry-After` | "Bạn đã thử quá nhiều lần. Vui lòng thử lại sau {n} giây." | RATE_LIMITED | TC-SEC-005 |
-| EC-SEC-006 | SEC | Secret lọt vào bundle | Build fail nếu `client/dist` chứa giá trị secret | Chỉ dùng biến `VITE_*` công khai | — | — | TC-SEC-006 |
-| EC-SEC-007 | SEC | Log lộ token/nội dung | pino redact | Client không `console.log` token/nội dung ở production | — | — | TC-SEC-007 |
-| EC-SEC-008 | SEC | Spam lời mời gọi diện rộng | Rate limit `callInvite` theo user, metric cảnh báo | Như EC-CALL-SIG-014 | "Bạn thao tác quá nhanh, vui lòng thử lại sau" | RATE_LIMITED | TC-SEC-008 |
-| EC-SEC-009 | SEC | Production cấu hình `COOKIE_SECURE=false` | `config/env.ts` từ chối khởi động khi `NODE_ENV=production`; `false` chỉ hợp lệ khi `NODE_ENV` ∈ {development, test} | — | — | — | TC-SEC-009 |
+| ID | Nhóm | Tình huống | Hành vi Server | Hành vi Client | Trạng thái UI | Mã lỗi | Tầng | Test ID |
+|---|---|---|---|---|---|---|---|---|
+| EC-SEC-001 | SEC | Dò `conversationId` | 404 giống hệt id không tồn tại cho người chưa từng là thành viên | Route `/chats/:id` không hợp lệ → trang lỗi | "Không tìm thấy cuộc trò chuyện" | NOT_FOUND | U, I | TC-SEC-001 |
+| EC-SEC-002 | SEC | Cố join room không có quyền | `conversation:join` kiểm AUTHZ-2; room không cấp dữ liệu | — | — | NOT_FOUND / NOT_A_MEMBER | I | TC-SEC-002 |
+| EC-SEC-003 | SEC | Receipt giả mạo cho người khác | `userId` lấy từ token; chỉ nâng cursor của chính mình | — | — | VALIDATION_ERROR (trường thừa) | U, I | TC-SEC-003 |
+| EC-SEC-004 | SEC | CSRF vào `/auth/refresh`, `/auth/logout` | Thiếu/sai `X-CSRF-Token` → từ chối | Luôn gửi header từ cookie `hustalo_csrf` | — | FORBIDDEN | I | TC-SEC-004 |
+| EC-SEC-005 | SEC | Brute-force login | 5/phút/IP+email, fail-closed khi Redis down | Vô hiệu nút đăng nhập trong `Retry-After` | "Bạn đã thử quá nhiều lần. Vui lòng thử lại sau {n} giây." | RATE_LIMITED | U, I | TC-SEC-005 |
+| EC-SEC-006 | SEC | Secret lọt vào bundle | Build fail nếu `client/dist` chứa giá trị secret | Chỉ dùng biến `VITE_*` công khai | — | — | U | TC-SEC-006 |
+| EC-SEC-007 | SEC | Log lộ token/nội dung | pino redact | Client không `console.log` token/nội dung ở production | — | — | chưa gán | TC-SEC-007 |
+| EC-SEC-008 | SEC | Spam lời mời gọi diện rộng | Rate limit `callInvite` theo user, metric cảnh báo | Như EC-CALL-SIG-014 | "Bạn thao tác quá nhanh, vui lòng thử lại sau" | RATE_LIMITED | I | TC-SEC-008 |
+| EC-SEC-009 | SEC | Production cấu hình `COOKIE_SECURE=false` | `config/env.ts` từ chối khởi động khi `NODE_ENV=production`; `false` chỉ hợp lệ khi `NODE_ENV` ∈ {development, test} | — | — | — | U | TC-SEC-009 |
 
 ### 5.11 E2EE
 
-| ID | Nhóm | Tình huống | Hành vi Server | Hành vi Client | Trạng thái UI | Mã lỗi | Test ID |
-|---|---|---|---|---|---|---|---|
-| EC-E2EE-001 | E2EE | Người nhận chưa đăng ký thiết bị | Từ chối tạo SECRET / gửi | Không tạo hội thoại | "Người nhận chưa bật trò chuyện bí mật" | E2EE_KEYS_UNAVAILABLE | TC-E2EE-001 |
-| EC-E2EE-002 | E2EE | Hết one-time prekey | Trả bundle `oneTimePreKey: null`, phát `e2ee:prekeys-low` | Thiết lập X3DH không OTPK; device thiếu prekey tự bổ sung | Bình thường | — | TC-E2EE-002 |
-| EC-E2EE-003 | E2EE | Identity key thay đổi | Lưu identity mới của device | Cảnh báo; chặn gửi nếu đã xác minh | Banner "Mã an toàn với {tên} đã thay đổi" + nút "Chấp nhận" | — | TC-E2EE-003 |
-| EC-E2EE-004 | E2EE | Giải mã thất bại | — | Placeholder; không chặn tin khác | "Không thể giải mã tin nhắn này" | E2EE_DECRYPT_FAILED (client) | TC-E2EE-004 |
-| EC-E2EE-005 | E2EE | Tin đến từ thiết bị đã thu hồi | Từ chối `message:send` từ device REVOKED | Bỏ envelope từ device REVOKED | "Tin nhắn từ thiết bị đã bị thu hồi" | FORBIDDEN | TC-E2EE-005 |
-| EC-E2EE-006 | E2EE | Người dùng xóa IndexedDB | Nhận đăng ký khóa mới cho cùng `deviceId` | Sinh khóa mới, đăng ký lại; lịch sử SECRET cũ không đọc được | "Tin nhắn được gửi trước khi thiết bị này tham gia" | — | TC-E2EE-006 |
-| EC-E2EE-007 | E2EE | Đăng nhập thiết bị mới | Tin cũ không có recipient cho device mới | Hiển thị placeholder (hành vi thiết kế) | "Tin nhắn được gửi trước khi thiết bị này tham gia" | — | TC-E2EE-007 |
-| EC-E2EE-008 | E2EE | Danh sách thiết bị đổi giữa lúc gửi | Recipients lệch → từ chối | Tải lại bundle, mã hóa lại (≤ 2 lần) | Bubble PENDING; quá 2 lần → FAILED | CONFLICT | TC-E2EE-008 |
+| ID | Nhóm | Tình huống | Hành vi Server | Hành vi Client | Trạng thái UI | Mã lỗi | Tầng | Test ID |
+|---|---|---|---|---|---|---|---|---|
+| EC-E2EE-001 | E2EE | Người nhận chưa đăng ký thiết bị | Từ chối tạo SECRET / gửi | Không tạo hội thoại | "Người nhận chưa bật trò chuyện bí mật" | E2EE_KEYS_UNAVAILABLE | chưa gán | TC-E2EE-001 |
+| EC-E2EE-002 | E2EE | Hết one-time prekey | Trả bundle `oneTimePreKey: null`, phát `e2ee:prekeys-low` | Thiết lập X3DH không OTPK; device thiếu prekey tự bổ sung | Bình thường | — | chưa gán | TC-E2EE-002 |
+| EC-E2EE-003 | E2EE | Identity key thay đổi | Lưu identity mới của device | Cảnh báo; chặn gửi nếu đã xác minh | Banner "Mã an toàn với {tên} đã thay đổi" + nút "Chấp nhận" | — | chưa gán | TC-E2EE-003 |
+| EC-E2EE-004 | E2EE | Giải mã thất bại | — | Placeholder; không chặn tin khác | "Không thể giải mã tin nhắn này" | E2EE_DECRYPT_FAILED (client) | chưa gán | TC-E2EE-004 |
+| EC-E2EE-005 | E2EE | Tin đến từ thiết bị đã thu hồi | Từ chối `message:send` từ device REVOKED | Bỏ envelope từ device REVOKED | "Tin nhắn từ thiết bị đã bị thu hồi" | FORBIDDEN | chưa gán | TC-E2EE-005 |
+| EC-E2EE-006 | E2EE | Người dùng xóa IndexedDB | Nhận đăng ký khóa mới cho cùng `deviceId` | Sinh khóa mới, đăng ký lại; lịch sử SECRET cũ không đọc được | "Tin nhắn được gửi trước khi thiết bị này tham gia" | — | chưa gán | TC-E2EE-006 |
+| EC-E2EE-007 | E2EE | Đăng nhập thiết bị mới | Tin cũ không có recipient cho device mới | Hiển thị placeholder (hành vi thiết kế) | "Tin nhắn được gửi trước khi thiết bị này tham gia" | — | chưa gán | TC-E2EE-007 |
+| EC-E2EE-008 | E2EE | Danh sách thiết bị đổi giữa lúc gửi | Recipients lệch → từ chối | Tải lại bundle, mã hóa lại (≤ 2 lần) | Bubble PENDING; quá 2 lần → FAILED | CONFLICT | chưa gán | TC-E2EE-008 |
 
 ---
 
