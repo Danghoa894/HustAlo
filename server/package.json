@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test:unit": "vitest run --config vitest.config.ts",
     "test:integration": "vitest run --config vitest.integration.config.ts",
+    "test:coverage": "vitest run --config vitest.config.ts --coverage",
     "db:indexes": "tsx --env-file=.env src/infra/db/indexes.ts",
     "db:seed": "tsx --env-file=.env src/infra/db/seed.ts",
     "db:migrate": "tsx --env-file=.env src/infra/db/migrate.ts",

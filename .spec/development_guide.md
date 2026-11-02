@@ -198,6 +198,7 @@ npm install -D typescript concurrently eslint @eslint/js typescript-eslint eslin
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test:unit": "vitest run --config vitest.config.ts",
     "test:integration": "vitest run --config vitest.integration.config.ts",
+    "test:coverage": "vitest run --config vitest.config.ts --coverage",
     "db:indexes": "tsx --env-file=.env src/infra/db/indexes.ts",
     "db:seed": "tsx --env-file=.env src/infra/db/seed.ts",
     "db:migrate": "tsx --env-file=.env src/infra/db/migrate.ts",
@@ -211,6 +212,7 @@ npm install -D typescript concurrently eslint @eslint/js typescript-eslint eslin
 - `// Xác minh với tài liệu chính thức của tsx: giả định tsx chuyển tiếp cờ Node --env-file cho process con.` Nếu không, thay bằng `process.loadEnvFile('.env')` ở đầu `config/env.ts` khi `NODE_ENV !== 'production'` và file tồn tại.
 - `src/jobs/user-lock.ts` `[NEW]`: nhận `lock|unlock <email>`; `lock` gọi `auth.service.lockUser(email)` (kiến trúc §7(a): set `users.status = LOCKED`, thu hồi mọi family với lý do `ACCOUNT_LOCKED`, phát `session:revoked`, ngắt socket, kết thúc cuộc gọi `LOGOUT`); `unlock` set `status = ACTIVE`. Cách dùng: `npm run user:lock -w server -- alice@hustalo.local`. Vì job chạy ở process riêng, việc phát event tới socket đi qua Redis: job publish lên kênh Redis `${REDIS_KEY_PREFIX}ops:user-locked` `{ userId }`, `session.handler` của mọi instance subscribe kênh này và thực hiện `disconnectSockets(true)` cho room `user:{userId}` (DG-03).
 - `src/infra/db/migrate.ts` và `src/infra/db/migrations/` theo `database_schema.md` §6.4.
+- `test:coverage` `[NEW]`: unit test kèm `@vitest/coverage-v8` (cùng phiên bản `vitest`). Ngưỡng đặt theo file trong `vitest.config.ts`: hiện chỉ `src/modules/calls/call.state-machine.ts` 100% nhánh (NFR-14); ngưỡng 80% cho `modules/**` là việc của M6.
 
 `client/package.json`:
 
