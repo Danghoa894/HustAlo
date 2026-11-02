@@ -1,6 +1,14 @@
-// Unit: iceServers.service (kiến trúc §9.5, DG-10) với Xirsys và cache giả; parse response Xirsys (object hoặc mảng).
+// Unit: iceServers.service (kiến trúc §9.5, DG-10) với Xirsys và cache giả; parse response Xirsys (object hoặc mảng);
+// calls.service với repository/port giả (log key user:incall treo, DB §5.4).
+import { randomUUID } from 'node:crypto';
+import { Types } from 'mongoose';
+import type { Logger } from 'pino';
 import { describe, expect, it, vi } from 'vitest';
+import type { Emitter } from '../../realtime/emitter';
 import { parseXirsysResponse, XirsysError } from '../../infra/turn/xirsys.client';
+import type { CallStateRepository } from './callState.repository';
+import type { CallsRepository } from './calls.repository';
+import { createCallsService } from './calls.service';
 import { createIceServersService, type IceConfig } from './iceServers.service';
 
 const NOW = new Date('2026-10-27T10:00:00.000Z');
@@ -149,5 +157,53 @@ describe('parseXirsysResponse (kiến trúc §9.5: v.iceServers là object hoặ
     ]) {
       expect(() => parseXirsysResponse(bad)).toThrow(XirsysError);
     }
+  });
+});
+
+describe('calls.service — key user:incall treo (DB §5.4)', () => {
+  it('script báo đã dọn key treo → log warn { callId, userId } cho từng mục, lời mời vẫn tạo cuộc gọi', async () => {
+    const me = new Types.ObjectId().toHexString();
+    const peer = new Types.ObjectId().toHexString();
+    const conv = new Types.ObjectId();
+    const deadCall = new Types.ObjectId().toHexString();
+    const warn = vi.fn();
+    const logger = { warn, error: vi.fn(), info: vi.fn() } as unknown as Logger;
+    const state = {
+      incallOf: vi.fn(() => Promise.resolve(null)),
+      invite: vi.fn((a: { callId: string }) =>
+        Promise.resolve({
+          result: 'CREATED',
+          callId: a.callId,
+          stale: [
+            { userId: me, callId: deadCall },
+            { userId: peer, callId: deadCall },
+          ],
+        }),
+      ),
+      get: vi.fn(() => Promise.resolve(null)),
+    } as unknown as CallStateRepository;
+    const svc = createCallsService({
+      state,
+      history: { insert: vi.fn(() => Promise.resolve()) } as unknown as CallsRepository,
+      conversations: {
+        assertMember: () => Promise.resolve({ conv: { _id: conv, type: 'DIRECT' } }),
+        getOtherMember: () => Promise.resolve(peer),
+      },
+      users: { isBlockedEitherWay: () => Promise.resolve(false), getPublicMany: () => Promise.resolve(new Map()) },
+      messages: { createSystemMessage: () => Promise.resolve() },
+      emitter: {} as Emitter,
+      logger,
+    });
+    const res = await svc.invite(
+      { userId: me, deviceId: randomUUID(), tabId: randomUUID() },
+      {
+        conversationId: String(conv),
+        callType: 'VOICE',
+      },
+    );
+    expect(res.status).toBe('INITIATED');
+    expect(warn).toHaveBeenCalledTimes(2);
+    expect(warn).toHaveBeenCalledWith({ callId: deadCall, userId: me }, expect.any(String));
+    expect(warn).toHaveBeenCalledWith({ callId: deadCall, userId: peer }, expect.any(String));
   });
 });

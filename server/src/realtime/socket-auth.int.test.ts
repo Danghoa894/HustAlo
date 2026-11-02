@@ -12,6 +12,7 @@ import {
   startTestServer,
   type TestServer,
 } from '../test/factories';
+import { io } from 'socket.io-client';
 import { connectAs, connectError, waitDisconnect, waitFor } from '../test/socket-client';
 
 let server: TestServer;
@@ -45,6 +46,35 @@ describe('socket handshake (AUTHZ-1, kiến trúc §7(a))', () => {
       new Date(Date.now() - 3_600_000),
     );
     expect(await connectError(server.url, { token, deviceId })).toBe('TOKEN_EXPIRED');
+  });
+
+  it('tabId thiếu / không phải UUID v4 / quá dài → connect_error UNAUTHENTICATED (kiến trúc §6.4: tabId là UUID v4)', async () => {
+    const u = await createUser();
+    const s = await login(server, u.email);
+    const raw = (auth: Record<string, unknown>) =>
+      new Promise<string>((resolve) => {
+        const sock = io(server.url, {
+          path: '/socket.io',
+          transports: ['websocket'],
+          reconnection: false,
+          forceNew: true,
+          auth,
+        });
+        sock.once('connect', () => {
+          sock.close();
+          resolve('CONNECTED');
+        });
+        sock.once('connect_error', (err: Error) => {
+          sock.close();
+          resolve(err.message);
+        });
+      });
+    const base = { token: s.accessToken, deviceId: s.deviceId };
+    expect(await raw(base)).toBe('UNAUTHENTICATED');
+    expect(await raw({ ...base, tabId: 'tab-1' })).toBe('UNAUTHENTICATED');
+    expect(await raw({ ...base, tabId: '6f1c2a3b-4d5e-1f60-8a7b-9c0d1e2f3a4b' })).toBe('UNAUTHENTICATED'); // UUID v1
+    expect(await raw({ ...base, tabId: `${randomUUID()}${'x'.repeat(1000)}` })).toBe('UNAUTHENTICATED');
+    expect(await raw({ ...base, tabId: randomUUID() })).toBe('CONNECTED');
   });
 
   it('deviceId khác claim did / token rác / thiếu auth → connect_error UNAUTHENTICATED', async () => {

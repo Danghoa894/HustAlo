@@ -192,7 +192,7 @@ describe('Lua cuộc gọi và callHistory (DB §5.4, §4.6)', () => {
     const conv = new Types.ObjectId().toHexString();
     const now = Date.now();
     const c1 = new Types.ObjectId().toHexString();
-    expect(await repo.invite(base(c1, a, b, conv, now))).toEqual({ result: 'CREATED', callId: c1 });
+    expect(await repo.invite(base(c1, a, b, conv, now))).toEqual({ result: 'CREATED', callId: c1, stale: [] });
     expect(await server.redis.client.zscore(keys.callDeadlines(), `${c1}:RING`)).toBe(String(now + 45_000));
     // a gọi tiếp → a đang trong cuộc gọi
     expect((await repo.invite(base(new Types.ObjectId().toHexString(), a, c, conv, now))).result).toBe(
@@ -202,6 +202,7 @@ describe('Lua cuộc gọi và callHistory (DB §5.4, §4.6)', () => {
     expect(await repo.invite(base(new Types.ObjectId().toHexString(), c, b, conv, now))).toEqual({
       result: 'BUSY',
       callId: c1,
+      stale: [],
     });
     // b gọi ngược a trong cùng hội thoại khi c1 đang INITIATED → GLARE
     const glare = await repo.invite(base(new Types.ObjectId().toHexString(), b, a, conv, now));
@@ -224,6 +225,7 @@ describe('Lua cuộc gọi và callHistory (DB §5.4, §4.6)', () => {
       expect(await repo.invite(base(fresh(), a, b, conv, Date.now()))).toEqual({
         result: 'CALLER_IN_CALL',
         callId: c1,
+        stale: [],
       });
       expect(await repo.get(c1)).toMatchObject({ status: 'INITIATED', version: 1, acceptedTabId: null });
     });
@@ -242,6 +244,7 @@ describe('Lua cuộc gọi và callHistory (DB §5.4, §4.6)', () => {
         expect(await repo.invite(base(fresh(), b, a, conv, Date.now()))).toEqual({
           result: 'CALLER_IN_CALL',
           callId: c1,
+          stale: [],
         });
         expect((await repo.get(c1))?.status).toBe(to);
       }
@@ -267,7 +270,15 @@ describe('Lua cuộc gọi và callHistory (DB §5.4, §4.6)', () => {
         await r.set(keys.userInCall(a), old);
         await r.set(keys.userInCall(b), old);
         const c2 = fresh();
-        expect(await repo.invite(base(c2, b, a, conv, Date.now())), dead).toEqual({ result: 'CREATED', callId: c2 });
+        // b gọi a: cả hai key treo được dọn trong script và báo lại (service log warn từng mục)
+        expect(await repo.invite(base(c2, b, a, conv, Date.now())), dead).toEqual({
+          result: 'CREATED',
+          callId: c2,
+          stale: [
+            { userId: b, callId: old },
+            { userId: a, callId: old },
+          ],
+        });
         expect(await r.get(keys.userInCall(a))).toBe(c2);
         expect(await r.get(keys.userInCall(b))).toBe(c2);
         if (dead === 'ENDED') expect((await repo.get(old))?.status).toBe('ENDED');
@@ -709,6 +720,28 @@ describe('mời, đổ chuông, trả lời (FR-CALL-001..005)', () => {
 });
 
 // ==================================================================== quyền, replay, idempotent
+describe('rate limit socket theo userId:tabId (DB §5.2, FR-SEC-005)', () => {
+  it('TC-CALL-SIG-014 tab reconnect (cùng tabId) không reset bộ đếm callSignal; tab khác có bộ đếm riêng', async () => {
+    const alice = await chatUser(server, 'alice', sockets);
+    const tabId = randomUUID();
+    const s1 = await connectAs(server.url, { token: alice.s.accessToken, deviceId: alice.s.deviceId, tabId });
+    sockets.push(s1);
+    const ghost = new Types.ObjectId().toHexString();
+    const signal = (sock: Socket) =>
+      emitAck(sock, EVENTS.CALL_ICE_CANDIDATE, { callId: ghost, revision: 1, candidate: cand() });
+    const first = await Promise.all(Array.from({ length: 100 }, () => signal(s1))); // callSignal: 100 / 10 s
+    expect(first.every((r) => code(r) === 'CALL_NOT_FOUND')).toBe(true);
+    s1.close();
+    const s2 = await connectAs(server.url, { token: alice.s.accessToken, deviceId: alice.s.deviceId, tabId });
+    sockets.push(s2);
+    expect(code(await signal(s2))).toBe('RATE_LIMITED');
+    // Tab khác (tabId khác) → bucket khác (KNOWN_ISSUES: đổi tabId để lách giới hạn theo tab).
+    const other = await connectAs(server.url, { token: alice.s.accessToken, deviceId: alice.s.deviceId });
+    sockets.push(other);
+    expect(code(await signal(other))).toBe('CALL_NOT_FOUND');
+  });
+});
+
 describe('quyền signaling, replay, idempotent (FR-SEC-008, EC-CALL-SIG-007/010/011/015)', () => {
   it('TC-AC-083 TC-CALL-SIG-011 carol gửi signaling → CALL_NOT_FOUND; tab thứ hai của bob → FORBIDDEN; không relay tới alice', async () => {
     const alice = await chatUser(server, 'alice', sockets);
