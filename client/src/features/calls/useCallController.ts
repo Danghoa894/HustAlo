@@ -15,7 +15,17 @@ import { createCallController, type CallController, type CallControllerDeps } fr
 
 export type CallActions = Pick<
   CallController,
-  'startCall' | 'answer' | 'reject' | 'hangup' | 'toggleMic' | 'toggleCam' | 'dismiss' | 'retry' | 'callAgain'
+  | 'startCall'
+  | 'answer'
+  | 'reject'
+  | 'hangup'
+  | 'toggleMic'
+  | 'toggleCam'
+  | 'dismiss'
+  | 'retry'
+  | 'callAgain'
+  | 'switchCamera'
+  | 'setSpeaker'
 >;
 
 let current: CallActions | null = null;
@@ -30,6 +40,8 @@ const noop: CallActions = {
   dismiss: () => undefined,
   retry: () => Promise.resolve(),
   callAgain: () => Promise.resolve(),
+  switchCamera: () => Promise.resolve(),
+  setSpeaker: () => undefined,
 };
 
 export function useCallActions(): CallActions {

@@ -62,6 +62,9 @@ export class PeerSession {
   private quality: NetworkQuality = 'good';
   private closed = false;
   private local: MediaStream | null = null;
+  /** Sender theo loại: camera tắt thì sender.track = null nên không tìm lại được qua getSenders(). */
+  private readonly senders: Partial<Record<'audio' | 'video', RTCRtpSender>> = {};
+  private videoTrack: MediaStreamTrack | null = null;
 
   constructor(private readonly deps: PeerSessionDeps) {
     const create = deps.createPeerConnection ?? ((c: RTCConfiguration) => new RTCPeerConnection(c));
@@ -93,7 +96,9 @@ export class PeerSession {
   addLocalStream(stream: MediaStream, opts: { wantVideo: boolean }): void {
     this.local = stream;
     for (const t of stream.getTracks()) {
-      this.pc.addTrack(t, stream);
+      const kind = t.kind === 'audio' ? 'audio' : 'video';
+      this.senders[kind] = this.pc.addTrack(t, stream);
+      if (kind === 'video') this.videoTrack = t;
       this.watchTrack(t);
     }
     if (opts.wantVideo && stream.getVideoTracks().length === 0) {
@@ -149,8 +154,20 @@ export class PeerSession {
     for (const t of this.local?.getAudioTracks() ?? []) t.enabled = on;
   }
 
-  setCamEnabled(on: boolean): void {
-    for (const t of this.local?.getVideoTracks() ?? []) t.enabled = on;
+  /**
+   * Tắt camera = ngừng gửi (replaceTrack(null)) chứ không chỉ track.enabled: bên kia nhận 'mute' và hiện avatar
+   * (AC-071 ≤ 2 s); bật lại gửi lại track cũ.
+   */
+  async setCamEnabled(on: boolean): Promise<void> {
+    const track = this.videoTrack;
+    if (!track) return;
+    track.enabled = on;
+    await this.senders.video?.replaceTrack(on ? track : null);
+  }
+
+  /** Đổi camera trước/sau (facingMode, FR-CALL-002). */
+  async replaceVideoTrack(track: MediaStreamTrack): Promise<void> {
+    await this.replace('video', track);
   }
 
   /** Đổi micro (thiết bị cũ bị rút, EC-CALL-MEDIA-006). */
@@ -287,9 +304,14 @@ export class PeerSession {
   }
 
   private async replace(kind: 'audio' | 'video', track: MediaStreamTrack): Promise<void> {
-    const sender = this.pc.getSenders().find((s) => s.track?.kind === kind);
-    const old = sender?.track ?? null;
+    const sender = this.senders[kind] ?? this.pc.getSenders().find((x) => x.track?.kind === kind);
+    const old = kind === 'video' ? this.videoTrack : (sender?.track ?? null);
     if (sender) await sender.replaceTrack(track);
+    if (kind === 'video') this.videoTrack = track;
+    if (this.local && old) {
+      this.local.removeTrack(old);
+      this.local.addTrack(track);
+    }
     old?.stop();
     this.watchTrack(track);
   }

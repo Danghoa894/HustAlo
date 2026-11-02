@@ -53,6 +53,13 @@ interface CallStoreState {
   mediaError: MediaErrorKind | null;
   ended: EndedNotice | null;
   autoplayBlocked: boolean;
+  /** ACK RATE_LIMITED → nút gọi disabled tới thời điểm này (ms, ui_ux_spec.md §4.3). */
+  callBlockedUntil: number | null;
+  /** Số camera (≥ 2 → nút "Đổi camera") và loa (setSinkId → "Chọn loa"), đọc sau khi đã có quyền media. */
+  cameraCount: number;
+  audioOutputs: { deviceId: string; label: string }[];
+  sinkId: string | null;
+  facingMode: 'user' | 'environment';
   patch: (p: Partial<Omit<CallStoreState, 'patch' | 'applyState' | 'reset'>>) => void;
   /** call:state cho cuộc gọi đang diễn ra; bỏ bản version cũ hơn (§8.4). Trả true nếu đã áp. */
   applyState: (s: CallState) => boolean;
@@ -73,6 +80,11 @@ const initial = {
   mediaError: null,
   ended: null,
   autoplayBlocked: false,
+  callBlockedUntil: null as number | null,
+  cameraCount: 0,
+  audioOutputs: [] as { deviceId: string; label: string }[],
+  sinkId: null as string | null,
+  facingMode: 'user' as 'user' | 'environment',
 };
 
 export const useCallStore = create<CallStoreState>((set, get) => ({

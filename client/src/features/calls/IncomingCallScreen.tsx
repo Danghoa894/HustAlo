@@ -5,6 +5,8 @@ import { useEffect, useId } from 'react';
 import { Avatar } from '../../components/ui/Avatar';
 import { Spinner } from '../../components/ui/Spinner';
 import { vi } from '../../i18n/vi';
+import { serverNow } from '../../lib/time/server-clock';
+import { useUiStore } from '../../stores/ui.store';
 import { useCallStore } from '../../stores/call.store';
 import { AutoplayUnlockButton } from './AutoplayUnlockButton';
 import { MediaErrorPanel } from './MediaErrorPanel';
@@ -32,6 +34,25 @@ function useTitleFlash(active: boolean) {
   }, [active]);
 }
 
+/** Grace sau ringExpiresAt trước khi tự đóng (call:state MISSED bình thường tới trong ≤ 1 s sweep). */
+const RING_EXPIRY_GRACE_MS = 2000;
+
+/** Không nhận được call:state (mất mạng): tự đóng theo ringExpiresAt của server (§3.5, server-clock). */
+function useRingExpiry(callId: string | undefined, ringExpiresAt: string | undefined, name: string) {
+  useEffect(() => {
+    if (!callId || !ringExpiresAt) return;
+    const wait = Math.max(0, Date.parse(ringExpiresAt) + RING_EXPIRY_GRACE_MS - serverNow());
+    const t = setTimeout(() => {
+      if (useCallStore.getState().incoming?.callId !== callId) return;
+      useCallStore.getState().patch({ incoming: null });
+      useUiStore.getState().pushToast('call', vi.calls.missedFrom(name));
+    }, wait);
+    return () => {
+      clearTimeout(t);
+    };
+  }, [callId, ringExpiresAt, name]);
+}
+
 export function IncomingCallScreen() {
   const incoming = useCallStore((s) => s.incoming);
   const preparing = useCallStore((s) => s.localPhase === 'PREPARING_MEDIA');
@@ -41,6 +62,7 @@ export function IncomingCallScreen() {
   const descId = useId();
   useRingtone(RINGTONE_URL, !!incoming && !preparing && !mediaError);
   useTitleFlash(!!incoming);
+  useRingExpiry(incoming?.callId, incoming?.ringExpiresAt, incoming?.caller.displayName ?? '');
   if (!incoming) return null;
   const name = incoming.caller.displayName;
   return (

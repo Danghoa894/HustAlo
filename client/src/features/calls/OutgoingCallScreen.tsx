@@ -24,7 +24,13 @@ export function OutgoingCallScreen({ call }: { call: ActiveCall }) {
   const showVideo = call.callType === 'VIDEO' && s.hasLocalVideo;
   return (
     <div className="relative flex h-full flex-col">
-      {showVideo ? <LocalVideo stream={s.localStream} className="absolute inset-0 h-full w-full" /> : null}
+      {showVideo ? (
+        <LocalVideo
+          stream={s.localStream}
+          mirror={s.facingMode === 'user'}
+          className="absolute inset-0 h-full w-full"
+        />
+      ) : null}
       <div className="relative flex flex-1 flex-col items-center justify-center gap-3">
         {showVideo ? null : <Avatar name={call.peer.displayName} size={120} />}
         <h2 className="text-2xl font-semibold text-white" dir="auto">

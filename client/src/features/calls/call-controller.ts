@@ -25,6 +25,7 @@ export type PeerLike = Pick<
   | 'setMicEnabled'
   | 'setCamEnabled'
   | 'replaceAudioTrack'
+  | 'replaceVideoTrack'
   | 'close'
 >;
 
@@ -45,6 +46,7 @@ export interface CallControllerDeps {
 }
 
 const PERMISSION_HINT_MS = 3000;
+const RATE_LIMIT_BLOCK_MS = 60_000; // ui_ux_spec.md §4.3 "nút gọi disabled 60 s"
 const TERMINAL: readonly CallStatus[] = CALL_TERMINAL_STATUSES;
 
 /** CallEndedNotice theo kiến trúc §8.6 + ui_ux_spec.md §4.3; null = đóng ngay không thông báo. */
@@ -145,6 +147,7 @@ export function createCallController(deps: CallControllerDeps) {
       remoteStream: null,
       networkQuality: 'good',
       mediaError: null,
+      facingMode: 'user',
     });
     deps.closeOverlay();
   }
@@ -181,6 +184,19 @@ export function createCallController(deps: CallControllerDeps) {
     });
     if (acquired.warning) deps.toast('warning', vi.calls.media[acquired.warning]);
     watchDevices();
+    void readDevices();
+  }
+
+  /** Sau khi có quyền media mới đọc được nhãn thiết bị: số camera và danh sách loa (§3.7). */
+  async function readDevices() {
+    if (!deps.devices) return;
+    const list = await deps.devices.enumerate().catch(() => []);
+    store().patch({
+      cameraCount: list.filter((d) => d.kind === 'videoinput').length,
+      audioOutputs: list
+        .filter((d) => d.kind === 'audiooutput' && d.deviceId !== 'default')
+        .map((d) => ({ deviceId: d.deviceId, label: d.label || d.deviceId })),
+    });
   }
 
   /** EC-CALL-MEDIA-006: micro đang dùng biến mất → micro mặc định, replaceTrack, toast. */
@@ -400,7 +416,8 @@ export function createCallController(deps: CallControllerDeps) {
 
     /** Bấm gọi trong ChatHeader (ui_ux_spec.md §3.6). */
     async startCall(input: { conversationId: string; callType: CallType; peer: CallPeer }): Promise<void> {
-      if (store().call) return;
+      const blocked = store().callBlockedUntil;
+      if (store().call || (blocked !== null && Date.now() < blocked)) return;
       const call: ActiveCall = {
         callId: null,
         conversationId: input.conversationId,
@@ -444,6 +461,7 @@ export function createCallController(deps: CallControllerDeps) {
         .catch((): Ack => ({ ok: false, error: { code: 'SERVICE_UNAVAILABLE', message: '' } }));
       if (!res.ok) {
         const code = res.error?.code ?? 'SERVICE_UNAVAILABLE';
+        if (code === 'RATE_LIMITED') store().patch({ callBlockedUntil: Date.now() + RATE_LIMIT_BLOCK_MS });
         showEnded({ text: inviteErrorText(code), retry: false, closeAfterMs: 3000 });
         return;
       }
@@ -554,9 +572,33 @@ export function createCallController(deps: CallControllerDeps) {
     toggleCam(): void {
       if (!store().hasLocalVideo) return;
       const on = !store().camEnabled;
-      peer?.setCamEnabled(on);
-      for (const t of stream?.getVideoTracks() ?? []) t.enabled = on;
+      if (peer) void peer.setCamEnabled(on).catch(() => undefined);
+      else for (const t of stream?.getVideoTracks() ?? []) t.enabled = on;
       store().patch({ camEnabled: on });
+    },
+
+    /** "Đổi camera": camera trước ↔ sau (facingMode, FR-CALL-002); mirror chỉ với camera trước. */
+    async switchCamera(): Promise<void> {
+      if (!store().hasLocalVideo) return;
+      const next = store().facingMode === 'user' ? 'environment' : 'user';
+      const fresh = (await deps.getUserMedia({ video: { facingMode: next } })).getVideoTracks()[0];
+      if (!fresh) return;
+      fresh.enabled = store().camEnabled;
+      if (peer) await peer.replaceVideoTrack(fresh);
+      else if (stream) {
+        // Chưa có PeerSession (đang đổ chuông): tự thay track trong stream cục bộ.
+        for (const old of stream.getVideoTracks()) {
+          stream.removeTrack(old);
+          old.stop();
+        }
+        stream.addTrack(fresh);
+      }
+      store().patch({ facingMode: next, localStream: stream });
+    },
+
+    /** "Chọn loa": RemoteAudio gọi setSinkId với thiết bị này. */
+    setSpeaker(deviceId: string): void {
+      store().patch({ sinkId: deviceId });
     },
 
     /** "Thử lại" ở MediaErrorPanel phía người gọi (micro chưa có / đang bận): xin media lại. */

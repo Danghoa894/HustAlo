@@ -8,7 +8,9 @@ import { Link } from 'react-router-dom';
 import { Avatar } from '../../components/ui/Avatar';
 import { vi } from '../../i18n/vi';
 import { callSupport } from '../../lib/webrtc/support';
+import { useEffect, useState } from 'react';
 import { useAuthStore } from '../../stores/auth.store';
+import { useCallStore } from '../../stores/call.store';
 import { useCallActions } from '../calls/useCallController';
 import { serverNow } from '../../lib/time/server-clock';
 import { OnlineDot } from '../presence/OnlineDot';
@@ -24,8 +26,29 @@ function PresenceLine({ userId }: { userId: string | undefined }) {
   return <p className="text-sm text-text-secondary">{formatLastSeen(p.lastSeenAt, serverNow())}</p>;
 }
 
+/** ACK RATE_LIMITED → nút gọi disabled tới callBlockedUntil (ui_ux_spec.md §4.3); tự mở lại khi hết hạn. */
+function useCallBlocked(): boolean {
+  const until = useCallStore((s) => s.callBlockedUntil);
+  const [, bump] = useState(0);
+  const blocked = until !== null && Date.now() < until;
+  useEffect(() => {
+    if (!blocked) return;
+    const t = setTimeout(
+      () => {
+        bump((n) => n + 1);
+      },
+      until - Date.now(), // blocked ⇒ until khác null
+    );
+    return () => {
+      clearTimeout(t);
+    };
+  }, [blocked, until]);
+  return blocked;
+}
+
 function CallButtons({ conversation, meId }: { conversation: Conversation; meId: string }) {
   const actions = useCallActions();
+  const rateBlocked = useCallBlocked();
   const peer = conversation.members.find((m) => m.userId !== meId)?.user;
   if (conversation.type === 'GROUP' || !peer) return null;
   const support = callSupport();
@@ -35,7 +58,9 @@ function CallButtons({ conversation, meId }: { conversation: Conversation; meId:
       : vi.calls.unsupported
     : !conversation.canMessage
       ? vi.calls.inviteError.USER_BLOCKED
-      : null;
+      : rateBlocked
+        ? vi.calls.inviteError.RATE_LIMITED
+        : null;
   const button = (callType: 'VOICE' | 'VIDEO') => {
     const label = callType === 'VIDEO' ? vi.calls.callVideo(peer.displayName) : vi.calls.callVoice(peer.displayName);
     return (
