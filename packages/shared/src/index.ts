@@ -13,3 +13,4 @@ export * from './schemas/user.schema';
 export * from './schemas/auth.schema';
 export * from './schemas/conversation.schema';
 export * from './schemas/message.schema';
+export * from './schemas/call.schema';

@@ -2,11 +2,27 @@
 // Event có payload/ACK phụ thuộc DTO domain (Conversation, Message, CallStateEvent, UserPublic) được bổ sung
 // ở milestone tạo DTO đó (M2: conversation, M3: message, M5: call).
 import type { z } from 'zod';
-import type { ConversationChange, PresenceStatus, SessionRevokeReason } from '../enums';
+import type {
+  CallEndReason,
+  CallStatus,
+  CallType,
+  ConversationChange,
+  PresenceStatus,
+  SessionRevokeReason,
+} from '../enums';
+import type { CallState } from '../schemas/call.schema';
 import type { Conversation } from '../schemas/conversation.schema';
 import type { Message } from '../schemas/message.schema';
+import type { UserPublic } from '../schemas/user.schema';
 import type { AckError } from '../errors';
 import type {
+  CallEndPayload,
+  CallIcePayload,
+  CallIceRestartPayload,
+  CallIdPayload,
+  CallInvitePayload,
+  CallSdpPayload,
+  CallStateReportPayload,
   PresenceSubscribePayload,
   ReceiptCursorPayload,
   TypingPayload,
@@ -51,6 +67,22 @@ export interface ClientToServerEvents {
   [EVENTS.TYPING_START]: C2S<typeof TypingPayload, Record<string, never>>;
   [EVENTS.TYPING_STOP]: C2S<typeof TypingPayload, Record<string, never>>;
   [EVENTS.PRESENCE_SUBSCRIBE]: C2S<typeof PresenceSubscribePayload, { accepted: string[] }>;
+  [EVENTS.CALL_INVITE]: C2S<
+    typeof CallInvitePayload,
+    { callId: string; status: CallStatus; merged: boolean; callType: CallType }
+  >;
+  [EVENTS.CALL_ACCEPT]: C2S<typeof CallIdPayload, { callId: string; status: 'ACCEPTED' }>;
+  [EVENTS.CALL_REJECT]: C2S<typeof CallIdPayload, { callId: string; status: 'REJECTED' }>;
+  [EVENTS.CALL_CANCEL]: C2S<typeof CallIdPayload, { callId: string; status: CallStatus }>;
+  [EVENTS.CALL_OFFER]: C2S<typeof CallSdpPayload, { revision: number }>;
+  [EVENTS.CALL_ANSWER]: C2S<typeof CallSdpPayload, { revision: number }>;
+  [EVENTS.CALL_ICE_CANDIDATE]: C2S<typeof CallIcePayload, Record<string, never>>;
+  [EVENTS.CALL_ICE_RESTART]: C2S<typeof CallIceRestartPayload, { attempt: number }>;
+  [EVENTS.CALL_END]: C2S<
+    typeof CallEndPayload,
+    { callId: string; status: CallStatus; endReason: CallEndReason | null }
+  >;
+  [EVENTS.CALL_STATE]: C2S<typeof CallStateReportPayload, { status: CallStatus; version: number }>;
 }
 
 export interface PresenceEntry {
@@ -93,4 +125,24 @@ export interface ServerToClientEvents {
   [EVENTS.PRESENCE_SNAPSHOT]: S2C<{ users: PresenceEntry[]; degraded: boolean }>;
   [EVENTS.PRESENCE_UPDATE]: S2C<PresenceEntry>;
   [EVENTS.E2EE_PREKEYS_LOW]: S2C<{ deviceId: string; remaining: number }>;
+  /** Có ACK: tab trả `{ ok: true }` khi đã hiện màn hình cuộc gọi đến (kiến trúc §4.5, T03). */
+  [EVENTS.CALL_INCOMING]: (
+    payload: ServerEventMeta & {
+      callId: string;
+      conversationId: string;
+      callType: CallType;
+      caller: UserPublic;
+      ringExpiresAt: string;
+    },
+    ack: (res: { ok: true }) => void,
+  ) => void;
+  [EVENTS.CALL_RINGING]: S2C<{ callId: string; ringExpiresAt: string }>;
+  [EVENTS.CALL_ACCEPTED]: S2C<{ callId: string; acceptedDeviceId: string; acceptedTabId: string }>;
+  [EVENTS.CALL_ANSWERED_ELSEWHERE]: S2C<{ callId: string; reason: 'ANSWERED_ELSEWHERE' }>;
+  [EVENTS.CALL_BUSY]: S2C<{ callId: string; caller: UserPublic; callType: CallType }>;
+  [EVENTS.CALL_OFFER]: S2C<z.output<typeof CallSdpPayload>>;
+  [EVENTS.CALL_ANSWER]: S2C<z.output<typeof CallSdpPayload>>;
+  [EVENTS.CALL_ICE_CANDIDATE]: S2C<z.output<typeof CallIcePayload>>;
+  [EVENTS.CALL_ICE_RESTART]: S2C<z.output<typeof CallIceRestartPayload>>;
+  [EVENTS.CALL_STATE]: S2C<CallState>;
 }
