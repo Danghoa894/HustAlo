@@ -11,7 +11,7 @@ import { ruleForEvent } from './middleware/socket-rate-limit';
 /** Phần socket mà withAck cần; `data.auth` được socket-auth (M1) gắn sau handshake. */
 export interface AckSocket {
   id: string;
-  data: { auth?: { userId: string } };
+  data: { auth?: { userId: string; tabId: string } };
 }
 
 export interface HandlerContext<S extends AckSocket> {
@@ -38,8 +38,11 @@ function readRequestId(envelope: unknown): string {
   return typeof id === 'string' && UUID.test(id) ? id : NIL_UUID;
 }
 
+/** DB §5.2: `socket` → `${userId}:${tabId}` (bền qua reconnect cùng tab); `user` → userId. */
 function rateSubject(rule: RateRule, socket: AckSocket): string {
-  return RATE_LIMITS[rule].key === 'socket' ? socket.id : (socket.data.auth?.userId ?? socket.id);
+  const auth = socket.data.auth;
+  if (!auth) return socket.id;
+  return RATE_LIMITS[rule].key === 'socket' ? `${auth.userId}:${auth.tabId}` : auth.userId;
 }
 
 export function withAck<S extends AckSocket, P extends z.ZodTypeAny, D>(

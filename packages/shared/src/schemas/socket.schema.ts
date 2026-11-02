@@ -8,7 +8,7 @@ import {
 } from '../constants';
 import { CLIENT_CALL_END_REASONS } from '../enums';
 import { ErrorCode } from '../errors';
-import { normalizedText, objectId } from './common.schema';
+import { normalizedText, objectId, uuidV4 } from './common.schema';
 
 export const NIL_UUID = '00000000-0000-0000-0000-000000000000';
 
@@ -137,6 +137,6 @@ export const CallStateReportPayload = z
 export const SocketHandshakeAuthSchema = z.object({
   token: z.string().min(1),
   deviceId: uuid,
-  tabId: uuid,
+  tabId: uuidV4, // kiến trúc §6.4: UUID v4 trong sessionStorage, đơn vị định tuyến signaling + rate limit theo tab
 });
 export type SocketHandshakeAuth = z.infer<typeof SocketHandshakeAuthSchema>;
