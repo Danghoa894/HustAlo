@@ -22,3 +22,13 @@ Ghi nhận hiện tượng, chưa sửa. Mỗi mục cần quyết định (sử
 - **Hiện tượng:** khi `npm run test:unit` chạy cùng lúc với lint/integration, 1–8 test client (khác nhau giữa các lần: `LoginPage`, `RegisterPage`, `MessageRoom`, `ChatListPane`, `groups` › `TC-GROUP-001`, `SecuritySection`, `ProfileSection`, `ChatRoomPane`) báo `Test timed out in 5000ms`; vitest báo `environment` ~1170 s. Chạy riêng các file đó: 50/50 pass, mỗi test ~2 s.
 - **Nghi nguyên nhân:** jsdom + nhiều worker song song trên máy dev; biên 5 s chỉ gấp ~2,5 lần thời gian thật của test chậm nhất.
 - **Hướng xử lý cần duyệt:** giới hạn số worker cho client (`poolOptions`), tăng `testTimeout` cho các test tương tác dài, hoặc tối ưu các test dùng `findBy*` chuỗi dài.
+
+## KI-04 — Rate limit `callInvite` có thể vượt +1 khi glare đua (chấp nhận)
+
+- **Hiện tượng:** `calls.service.invite` kiểm khả năng glare trước rồi mới tăng bộ đếm `callInvite` (kiến trúc §7(g)). Nếu cuộc gọi ngược chiều kết thúc đúng giữa lúc kiểm và lúc `call-invite.lua` chạy, lời mời được tính bù sau khi đã tạo cuộc gọi, nên giới hạn 5 lời mời / 60 s có thể bị vượt tối đa +1 trong cửa sổ.
+- **Quyết định (2026-11-02):** chấp nhận, không sửa; không chuyển rate limit vào Lua ở M5. Ghi chú ở `database_schema.md` §5.4.
+
+## KI-05 — Rate limit theo tab có thể bị lách bằng cách đổi `tabId`
+
+- **Hiện tượng:** rule có `key: 'socket'` (`callSignal`, `socketGeneric`) tính theo `${userId}:${tabId}` (DB §5.2). Reconnect cùng tab không reset bộ đếm, nhưng client tự sinh `tabId` mới (UUID v4 hợp lệ) cho mỗi kết nối thì được bucket mới.
+- **Quyết định (2026-11-02):** ghi nhận; xem xét thêm giới hạn tổng theo `userId` sau, KHÔNG làm ở lượt này. Test `calls.int.test.ts` › "tab reconnect (cùng tabId) không reset bộ đếm callSignal; tab khác có bộ đếm riêng" ghi lại hành vi hiện tại.
