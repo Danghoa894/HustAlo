@@ -22,7 +22,8 @@ export interface HandlerContext<S extends AckSocket> {
 export interface WithAckOptions<P extends z.ZodTypeAny> {
   event: string;
   schema: P;
-  rateRule?: RateRule;
+  /** null: handler tự áp rate limit (call:invite chỉ tính khi không phải glare, kiến trúc §7(g)). */
+  rateRule?: RateRule | null;
 }
 
 export interface WithAckDeps {
@@ -62,7 +63,7 @@ export function withAck<S extends AckSocket, P extends z.ZodTypeAny, D>(
     const run = async (): Promise<D> => {
       const parsed = envelopeSchema.parse(envelope) as { requestId: string; payload: z.output<P> };
       requestId = parsed.requestId;
-      const rule = opts.rateRule ?? ruleForEvent(opts.event);
+      const rule = opts.rateRule === null ? undefined : (opts.rateRule ?? ruleForEvent(opts.event));
       if (rule && deps.rateLimiters) {
         await deps.rateLimiters.consume(rule, rateSubject(rule, socket));
       }

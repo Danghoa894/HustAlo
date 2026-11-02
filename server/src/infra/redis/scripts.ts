@@ -24,6 +24,22 @@ export interface ScriptCommands {
     userId: string,
   ): Promise<number>;
   claimDue(zset: string, nowMs: number, limit: number): Promise<string[]>;
+  callInvite(
+    incallCaller: string,
+    incallCallee: string,
+    active: string,
+    deadlines: string,
+    pending: string,
+    ...argv: (string | number)[]
+  ): Promise<string[]>;
+  callTransition(
+    active: string,
+    deadlines: string,
+    incallCaller: string,
+    incallCallee: string,
+    pending: string,
+    ...argv: string[]
+  ): Promise<(number | string)[]>;
 }
 
 const defined = new WeakSet<Redis>();
@@ -34,6 +50,8 @@ export function withScripts(client: Redis): Redis & ScriptCommands {
     client.defineCommand('presenceTouch', { numberOfKeys: 3, lua: read('presence-touch') });
     client.defineCommand('presenceDrop', { numberOfKeys: 2, lua: read('presence-drop') });
     client.defineCommand('claimDue', { numberOfKeys: 1, lua: read('call-deadlines-claim') });
+    client.defineCommand('callInvite', { numberOfKeys: 5, lua: read('call-invite') });
+    client.defineCommand('callTransition', { numberOfKeys: 5, lua: read('call-transition') });
     defined.add(client);
   }
   return client as Redis & ScriptCommands;

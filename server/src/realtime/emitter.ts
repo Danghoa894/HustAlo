@@ -25,6 +25,26 @@ export interface Emitter {
   disconnect(rooms: string | string[]): void;
   /** Cho mọi socket trong `rooms` rời `room` (người bị xóa khỏi nhóm rời conv:{id}, FR-GROUP-003). */
   leaveRoom(rooms: string | string[], room: string): void;
+  /** Phát tới user room trừ một tab (call:answered-elsewhere, kiến trúc §7(e)). */
+  toUserExceptTab<E extends ServerEventName>(
+    userId: string,
+    tabId: string,
+    event: E,
+    payload: ServerEventPayload<E>,
+  ): void;
+  /**
+   * Phát kèm ACK tới từng socket của user (call:incoming, T03); resolve true ngay khi socket ĐẦU TIÊN ACK, false khi
+   * không có socket hoặc hết `timeoutMs` mà chưa ai ACK. Mỗi socket một lượt emit qua room riêng (socket.id) để ACK
+   * từng tab về riêng, kể cả với adapter nhiều instance.
+   */
+  toUserFirstAck<E extends ServerEventName>(
+    userId: string,
+    event: E,
+    payload: ServerEventPayload<E>,
+    timeoutMs: number,
+  ): Promise<boolean>;
+  /** Socket đang ở room (qua adapter, đa instance): user + tab để thu hồi phiên chọn đúng tab cuộc gọi (T11, T27). */
+  socketsIn(room: string): Promise<{ userId: string; tabId: string }[]>;
 }
 
 export function withMeta<P extends object>(payload: P, now: () => Date = () => new Date()): P & ServerEventMeta {
@@ -49,6 +69,36 @@ export function createEmitter(io: Server): Emitter {
     },
     leaveRoom: (rooms, room) => {
       io.in(rooms).socketsLeave(room);
+    },
+    toUserExceptTab: (userId, tabId, event, payload) => {
+      io.to(userRoom(userId)).except(tabRoom(tabId)).emit(event, withMeta(payload));
+    },
+    toUserFirstAck: async (userId, event, payload, timeoutMs) => {
+      const sockets = await io.in(userRoom(userId)).fetchSockets();
+      if (sockets.length === 0) return false;
+      const data = withMeta(payload);
+      return new Promise<boolean>((resolve) => {
+        let pending = sockets.length;
+        let done = false;
+        for (const s of sockets) {
+          io.to(s.id)
+            .timeout(timeoutMs)
+            .emit(event, data, (err: unknown, responses: unknown[] | undefined) => {
+              pending -= 1;
+              if (!done && !err && (responses?.length ?? 0) > 0) {
+                done = true;
+                resolve(true);
+              } else if (!done && pending === 0) resolve(false);
+            });
+        }
+      });
+    },
+    socketsIn: async (room) => {
+      const sockets = await io.in(room).fetchSockets();
+      return sockets.flatMap((s) => {
+        const auth = (s.data as { auth?: { userId: string; tabId: string } }).auth;
+        return auth ? [{ userId: auth.userId, tabId: auth.tabId }] : [];
+      });
     },
   };
 }

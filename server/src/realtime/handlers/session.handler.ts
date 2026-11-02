@@ -2,7 +2,7 @@
 // - SessionNotifier: phát session:revoked vào room session:{sid} rồi ngắt socket của session đó (kiến trúc §7(a)).
 // - Subscribe kênh Redis ops:user-locked (job user:lock chạy ở process khác, DG-03): phát session:revoked
 //   ACCOUNT_LOCKED vào room user:{userId} rồi disconnectSockets(true).
-// D-08 (đẩy call:incoming đang chờ khi callee kết nối) bổ sung ở M5.
+// - Khóa tài khoản: kết thúc cuộc gọi của user (T27/T28) trước khi ngắt socket. D-08 nằm ở call.handler.
 import { EVENTS, SessionRevokeReason } from '@hustalo/shared';
 import type { Redis } from 'ioredis';
 import type { Logger } from 'pino';
@@ -30,20 +30,25 @@ export async function subscribeUserLocked(
   subscriber: Redis,
   emitter: Emitter,
   logger: Logger,
+  onLocked?: (userId: string) => Promise<void>,
 ): Promise<UserLockedSubscription> {
   const channel = keys.opsUserLocked();
   subscriber.on('message', (ch: string, message: string) => {
     if (ch !== channel) return;
+    void handle(message);
+  });
+  async function handle(message: string) {
     try {
       const { userId } = JSON.parse(message) as { userId?: unknown };
       if (typeof userId !== 'string') return;
+      await onLocked?.(userId).catch(() => undefined);
       emitter.toUser(userId, EVENTS.SESSION_REVOKED, { reason: SessionRevokeReason.ACCOUNT_LOCKED });
       emitter.disconnect(userRoom(userId));
       logger.info({ userId }, 'đã ngắt socket của tài khoản bị khóa');
     } catch {
       logger.warn({ channel }, 'message ops:user-locked không hợp lệ');
     }
-  });
+  }
   await subscriber.subscribe(channel);
   return {
     close: async () => {

@@ -1,6 +1,7 @@
 // server/src/main.ts — bootstrap: env → logger → key ring → mongo → redis → app → gateway → listen; SIGTERM (kiến trúc §10.3)
 // createRuntime() ghép mọi thành phần (dùng chung cho process thật và integration test).
 import { createServer, type RequestListener, type Server as HttpServer } from 'node:http';
+import { CALL_RING_TIMEOUT_MS, XIRSYS_TIMEOUT_MS } from '@hustalo/shared';
 import type { Logger } from 'pino';
 import { env } from './config/env';
 import { createApp } from './app';
@@ -11,8 +12,14 @@ import { metrics, startMetricsServer } from './infra/metrics/metrics';
 import { createRateLimiters } from './infra/rate-limit/rate-limiter';
 import { connectRedis, createRedis, type RedisHandle } from './infra/redis/redis';
 import { isMainModule } from './infra/runtime/is-main';
+import { fetchXirsysIceServers } from './infra/turn/xirsys.client';
+import { reconcileCalls } from './jobs/reconcile-calls';
 import { createAuthRepository } from './modules/auth/auth.repository';
 import { createAuthService, type AuthService } from './modules/auth/auth.service';
+import { createCallStateRepository } from './modules/calls/callState.repository';
+import { callsRepository } from './modules/calls/calls.repository';
+import { createCallsService, type CallTiming, type CallsService } from './modules/calls/calls.service';
+import { createIceServersService, type IceConfig } from './modules/calls/iceServers.service';
 import { createConversationsService, type ConversationsService } from './modules/conversations/conversations.service';
 import { createMessagesService, messagesCore, type MessagesService } from './modules/messages/messages.service';
 import { createPresenceRepository } from './modules/presence/presence.repository';
@@ -22,6 +29,7 @@ import { createReceiptsService } from './modules/messages/receipts.service';
 import { usersService } from './modules/users/users.service';
 import { createEmitter, type Emitter } from './realtime/emitter';
 import { createGateway, type HustaloServer } from './realtime/gateway';
+import { registerCallHandlers } from './realtime/handlers/call.handler';
 import { registerConversationHandlers } from './realtime/handlers/conversation.handler';
 import { registerMessageHandlers } from './realtime/handlers/message.handler';
 import { registerPresenceHandlers } from './realtime/handlers/presence.handler';
@@ -39,6 +47,7 @@ export interface Runtime {
   conversations: ConversationsService;
   messages: MessagesService;
   presence: PresenceService;
+  calls: CallsService;
   redis: RedisHandle;
   setDraining(v: boolean): void;
   close(): Promise<void>;
@@ -51,7 +60,32 @@ export interface RuntimeOptions {
   messageHooks?: { afterInsert?: () => Promise<void> };
   /** Chỉ test: rút ngắn lease/grace/heartbeat/sweep của presence. */
   presenceTiming?: Partial<PresenceTiming>;
+  /** Chỉ test: rút ngắn ring/connect/reconnect/peer grace/ack/sweep của cuộc gọi. */
+  callTiming?: Partial<CallTiming>;
+  /** Chỉ test: cấu hình ICE thay cho env (Xirsys giả). */
+  ice?: IceConfig;
 }
+
+/** DG-08: DEV_CALL_RING_TIMEOUT_MS chỉ có hiệu lực ngoài production. */
+const ringTimeoutMs = () =>
+  env.NODE_ENV !== 'production' && env.DEV_CALL_RING_TIMEOUT_MS ? env.DEV_CALL_RING_TIMEOUT_MS : CALL_RING_TIMEOUT_MS;
+
+const iceConfigFromEnv = (): IceConfig => ({
+  stunUrls: env.STUN_URLS,
+  xirsys: {
+    ident: env.XIRSYS_IDENT,
+    secret: env.XIRSYS_SECRET,
+    channel: env.XIRSYS_CHANNEL,
+    apiUrl: env.XIRSYS_API_URL,
+    timeoutMs: XIRSYS_TIMEOUT_MS,
+  },
+  turnFallback: {
+    urls: env.TURN_FALLBACK_URLS,
+    username: env.TURN_FALLBACK_USERNAME,
+    credential: env.TURN_FALLBACK_CREDENTIAL,
+  },
+  iceTransportPolicy: env.ICE_TRANSPORT_POLICY,
+});
 
 export async function createRuntime(opts: RuntimeOptions): Promise<Runtime> {
   const { redis } = opts;
@@ -79,7 +113,13 @@ export async function createRuntime(opts: RuntimeOptions): Promise<Runtime> {
     auth: { isSessionRevoked: (sid) => authRepo.isRevoked(sid) },
   });
   const emitter = createEmitter(io);
-  const auth = createAuthService({ repo: authRepo, notifier: createSessionNotifier(emitter) });
+  // calls cần conversations/messages (tạo sau auth) → auth gọi calls qua tham chiếu trễ.
+  let calls: CallsService | null = null;
+  const auth = createAuthService({
+    repo: authRepo,
+    notifier: createSessionNotifier(emitter),
+    calls: { endCallsForSession: async (sid, cause) => calls?.endCallsForSession(sid, cause) },
+  });
   const rateLimiters = createRateLimiters(redis.client);
   const conversations = createConversationsService({ emitter, users: usersService, messages: messagesCore, redis });
   const messages = createMessagesService({
@@ -89,6 +129,31 @@ export async function createRuntime(opts: RuntimeOptions): Promise<Runtime> {
     ...(opts.messageHooks ? { hooks: opts.messageHooks } : {}),
   });
   const receipts = createReceiptsService({ conversations, emitter });
+  calls = createCallsService({
+    state: createCallStateRepository(redis.client),
+    history: callsRepository,
+    conversations,
+    users: usersService,
+    messages,
+    emitter,
+    logger: opts.logger,
+    timing: { ringMs: ringTimeoutMs(), ...opts.callTiming },
+    limitInvite: (userId) => rateLimiters.consume('callInvite', userId),
+  });
+  const iceServers = createIceServersService({
+    config: opts.ice ?? iceConfigFromEnv(),
+    cache: {
+      get: (k) => redis.client.get(k),
+      set: async (k, v, ttlS) => {
+        await redis.client.set(k, v, 'EX', ttlS);
+      },
+    },
+    fetchXirsys: fetchXirsysIceServers,
+    onFallback: (reason) => {
+      metrics.iceServersFallback.inc({ reason });
+      opts.logger.warn({ provider: 'xirsys', err: reason }, 'xirsys lỗi, dùng ICE fallback');
+    },
+  });
   const presenceRepo = createPresenceRepository(redis.client);
   const presence = createPresenceService({
     repo: presenceRepo,
@@ -104,6 +169,13 @@ export async function createRuntime(opts: RuntimeOptions): Promise<Runtime> {
   registerTypingHandlers(io, { typing, logger: opts.logger, rateLimiters });
   registerConversationHandlers(io, { conversations, typing, logger: opts.logger, rateLimiters });
   registerMessageHandlers(io, { messages, receipts, logger: opts.logger, rateLimiters });
+  const callsSvc = calls;
+  registerCallHandlers(io, {
+    calls: callsSvc,
+    logger: opts.logger,
+    rateLimiters,
+    incomingAckMs: callsSvc.timing.incomingAckMs,
+  });
 
   const app = createApp({
     logger: opts.logger,
@@ -111,7 +183,16 @@ export async function createRuntime(opts: RuntimeOptions): Promise<Runtime> {
     trustProxy: env.TRUST_PROXY,
     production: env.NODE_ENV === 'production',
     health: { pingMongo, isRedisHealthy: () => redis.isHealthy(), isDraining: () => draining },
-    modules: { auth, users: usersService, conversations, messages, receipts, rateLimiters },
+    modules: {
+      auth,
+      users: usersService,
+      conversations,
+      messages,
+      receipts,
+      calls: callsSvc,
+      iceServers,
+      rateLimiters,
+    },
   });
   handleRequest = app;
 
@@ -124,7 +205,7 @@ export async function createRuntime(opts: RuntimeOptions): Promise<Runtime> {
   });
   // Không chặn boot quá SUBSCRIBE_BOOT_TIMEOUT_MS khi Redis down; lệnh SUBSCRIBE vẫn nằm trong hàng đợi.
   const lockSub = await Promise.race([
-    subscribeUserLocked(subscriber, emitter, opts.logger),
+    subscribeUserLocked(subscriber, emitter, opts.logger, (userId) => callsSvc.endCallsForUser(userId)),
     new Promise<never>((_, reject) => {
       setTimeout(() => reject(new Error('timeout')), SUBSCRIBE_BOOT_TIMEOUT_MS).unref();
     }),
@@ -134,6 +215,8 @@ export async function createRuntime(opts: RuntimeOptions): Promise<Runtime> {
   });
 
   presence.start();
+  callsSvc.start();
+  void reconcileCalls(callsSvc, opts.logger); // §8.5 bước 1
 
   return {
     httpServer,
@@ -143,12 +226,14 @@ export async function createRuntime(opts: RuntimeOptions): Promise<Runtime> {
     conversations,
     messages,
     presence,
+    calls: callsSvc,
     redis,
     setDraining: (v) => {
       draining = v;
     },
     close: async () => {
       presence.stop();
+      callsSvc.stop();
       await lockSub?.close();
       subscriber.disconnect();
       await io.close(); // đóng luôn httpServer
@@ -193,7 +278,7 @@ export async function main(): Promise<void> {
     shuttingDown = true;
     logger.info({ signal }, 'shutdown bắt đầu');
     runtime.setDraining(true); // (1) /health → 503 draining
-    clearInterval(depTimer); // (2) dừng job nền (sweeper thêm ở M4/M5)
+    clearInterval(depTimer); // (2) dừng job nền (sweeper presence/cuộc gọi dừng trong runtime.close)
     // (3) ngừng nhận kết nối mới; (5) chờ request đang chạy tối đa 10 s
     const httpClosed = new Promise<void>((resolve) => httpServer.close(() => resolve()));
     io.disconnectSockets(true); // (4) client reconnect sang instance khác / sau restart

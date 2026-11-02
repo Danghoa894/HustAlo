@@ -36,6 +36,10 @@ export interface SystemInput {
   targetUserIds?: string[];
   title?: string | null;
   role?: 'ADMIN' | 'MEMBER' | null;
+  /** Chỉ CALL_MISSED / CALL_ENDED (kiến trúc §8.2). */
+  callId?: string;
+  callType?: 'VOICE' | 'VIDEO';
+  durationSec?: number | null;
 }
 
 export interface CreatedSystemMessage {
@@ -72,9 +76,9 @@ export const messagesCore = {
           targetUserIds: (input.targetUserIds ?? []).map((t) => new Types.ObjectId(t)),
           title: input.title ?? null,
           role: input.role ?? null,
-          callId: null,
-          callType: null,
-          durationSec: null,
+          callId: input.callId ? new Types.ObjectId(input.callId) : null,
+          callType: input.callType ?? null,
+          durationSec: input.durationSec ?? null,
         },
       },
       session,
@@ -112,7 +116,7 @@ export interface ConversationsPort {
   activeMemberIds(conversationId: Types.ObjectId, session?: ClientSession): Promise<string[]>;
   touchLastMessage(
     conversationId: Types.ObjectId,
-    last: { messageId: Types.ObjectId; senderId: Types.ObjectId; type: 'TEXT'; createdAt: Date },
+    last: { messageId: Types.ObjectId; senderId: Types.ObjectId; type: 'TEXT' | 'SYSTEM'; createdAt: Date },
     session: ClientSession,
   ): Promise<unknown>;
   advanceCursors(
@@ -243,6 +247,25 @@ export function createMessagesService(deps: MessagesDeps) {
 
   return {
     toDTOs,
+
+    /**
+     * SYSTEM của module khác không có transaction riêng (calls: CALL_MISSED / CALL_ENDED, kiến trúc §5.2, §8.2):
+     * insert + tin cuối trong một transaction, rồi message:new tới thành viên (Traceability FR-CALL-008).
+     */
+    async createSystemMessage(conversationId: string, input: SystemInput): Promise<void> {
+      const convId = new Types.ObjectId(conversationId);
+      const { id, memberIds } = await withTxn(async (session) => {
+        const msg = await messagesCore.createSystemMessage(conversationId, input, session);
+        await conversations.touchLastMessage(
+          convId,
+          { messageId: msg.id, senderId: msg.senderId, type: 'SYSTEM', createdAt: msg.createdAt },
+          session,
+        );
+        return { id: msg.id, memberIds: await conversations.activeMemberIds(convId, session) };
+      });
+      const doc = await repo.findById(id);
+      if (doc) await fanOut(EVENTS.MESSAGE_NEW, doc, memberIds);
+    },
 
     /** DB §4.4, kiến trúc §7(b): ACK chỉ sau commit; trùng clientMessageId → bản cũ, duplicate: true (EC-NET-004). */
     async send(auth: { userId: string; deviceId: string }, p: z.output<typeof MessageSendPayload>) {

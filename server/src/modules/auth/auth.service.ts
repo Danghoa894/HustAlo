@@ -29,7 +29,8 @@ export interface SessionNotifier {
 
 /** Kết thúc cuộc gọi của session khi logout/thu hồi (calls.endCallsForSession, M5). M1: no-op. */
 export interface CallTerminator {
-  endCallsForSession(sid: string): Promise<void>;
+  /** LOGOUT: logout / đổi mật khẩu / reuse (T11, T27); LOCK: khóa tài khoản (T27, T28). */
+  endCallsForSession(sid: string, cause?: 'LOGOUT' | 'LOCK'): Promise<void>;
 }
 
 export interface RequestMeta {
@@ -246,7 +247,7 @@ export function createAuthService(deps: AuthServiceDeps) {
       await repo.revokeFamilies(families, SessionRevokeReason.ACCOUNT_LOCKED, now());
       for (const familyId of families) {
         await repo.markRevoked(String(familyId), SessionRevokeReason.ACCOUNT_LOCKED);
-        await calls.endCallsForSession(String(familyId));
+        await calls.endCallsForSession(String(familyId), 'LOCK');
       }
       await repo.publishUserLocked(String(user._id));
       return true;

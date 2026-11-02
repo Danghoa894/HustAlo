@@ -306,9 +306,15 @@ export function createConversationsService(deps: ConversationsDeps) {
       return (await repo.activeMembers(conversationId, session)).map((m) => String(m.userId));
     },
 
+    /** Port cho calls (kiến trúc §5.2): thành viên còn lại của DIRECT/SECRET, null nếu không có. */
+    async getOtherMember(conversationId: Types.ObjectId, me: string): Promise<string | null> {
+      const ids = (await repo.activeMembers(conversationId)).map((m) => String(m.userId));
+      return ids.find((id) => id !== me) ?? null;
+    },
+
     touchLastMessage: (
       conversationId: Types.ObjectId,
-      last: { messageId: Types.ObjectId; senderId: Types.ObjectId; type: 'TEXT'; createdAt: Date },
+      last: { messageId: Types.ObjectId; senderId: Types.ObjectId; type: 'TEXT' | 'SYSTEM'; createdAt: Date },
       session: ClientSession,
     ) => repo.setLastMessage(conversationId, last, session),
 
