@@ -720,7 +720,7 @@ hook: features/calls/useRingtone.ts — phát /sounds/ringtone.mp3 lặp
 - **Tương tác:**
   - "Trả lời" → `localPhase = PREPARING_MEDIA` (nút chuyển `Spinner`, chữ "Đang chuẩn bị micro/camera…") → `getUserMedia` (fallback theo FR-CALL-009) → `E:call:accept` → điều hướng `/call/:callId` → `InCallScreen`.
   - "Trả lời bằng âm thanh" → `getUserMedia({ audio: true })`, video `recvonly`.
-  - "Từ chối" → `E:call:reject` → đóng màn hình.
+  - "Từ chối" → `E:call:reject` → đóng màn hình. ACK `CALL_INVALID_STATE` (cuộc gọi đã bị hủy/nhỡ/trả lời ở nơi khác trong lúc bấm) → vẫn đóng màn hình, **không** hiện lỗi hay toast.
   - Không có phím tắt chấp nhận/từ chối; Esc không làm gì (tránh vô tình từ chối).
 - **Thoát khi:** `call:state` terminal → đóng + toast theo §8.6 kiến trúc ("Cuộc gọi nhỡ từ {tên}" với MISSED/CANCELLED); `call:answered-elsewhere` → đóng + toast "Đã trả lời trên thiết bị khác"; ACK `CALL_ALREADY_ANSWERED` → như trên; ACK `CALL_TIMEOUT` hoặc `CALL_INVALID_STATE` → đóng + toast "Cuộc gọi đã kết thúc", stop track đã lấy (EC-CALL-MEDIA-012).
 - **Tab không hiển thị:** tiêu đề tab nhấp nháy luân phiên "📞 Cuộc gọi đến" / "HUSTALO" mỗi 1 s; dừng khi tab visible hoặc cuộc gọi rời INITIATED/RINGING.

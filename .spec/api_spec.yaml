@@ -3797,7 +3797,7 @@ x-socket-events:
         $ref: '#/components/schemas/CallIdPayload'
       ack:
         $ref: '#/components/schemas/CallStatusAckData'
-      authorization: Là callee; status ∈ {INITIATED, RINGING}; từ chối ở một tab là từ chối cho mọi tab (D-07)
+      authorization: Là callee; status ∈ {INITIATED, RINGING}; từ chối ở một tab là từ chối cho mọi tab (D-07). Đã REJECTED → ACK ok REJECTED (idempotent); terminal khác → CALL_INVALID_STATE (client đóng màn hình, không báo lỗi)
       rateLimit: socketGeneric
       errors: [VALIDATION_ERROR, CALL_NOT_FOUND, FORBIDDEN, CALL_INVALID_STATE, RATE_LIMITED]
       requirements: [FR-CALL-004, AC-072]

@@ -1059,7 +1059,7 @@ export const CallStateReportPayload = z.object({
 | `call:accept` | C→S | `CallIdPayload` | Là callee; status ∈ {INITIATED, RINGING} | socketGeneric | `{ callId, status: 'ACCEPTED' }` | VALIDATION_ERROR, CALL_NOT_FOUND, FORBIDDEN, CALL_ALREADY_ANSWERED, CALL_TIMEOUT, CALL_INVALID_STATE, RATE_LIMITED, SERVICE_UNAVAILABLE |
 | `call:accepted` | S→C (room `tab:{callerTabId}` + `tab:{acceptedTabId}`) | `{ callId, acceptedDeviceId, acceptedTabId }` | — | — | — | — |
 | `call:answered-elsewhere` | S→C (mọi tab khác của callee) | `{ callId, reason: 'ANSWERED_ELSEWHERE' }` | — | — | — | — |
-| `call:reject` | C→S | `CallIdPayload` | Là callee; status ∈ {INITIATED, RINGING} | socketGeneric | `{ callId, status: 'REJECTED' }` | VALIDATION_ERROR, CALL_NOT_FOUND, FORBIDDEN, CALL_INVALID_STATE, RATE_LIMITED |
+| `call:reject` | C→S | `CallIdPayload` | Là callee; status ∈ {INITIATED, RINGING}. Đã `REJECTED` (bấm hai lần, tab khác đã từ chối) → ACK ok `REJECTED`, không phát lại (idempotent). Terminal khác (`CANCELLED`, `MISSED`, …) hoặc đã trả lời → `CALL_INVALID_STATE`; client lặng lẽ đóng màn hình cuộc gọi đến, không hiện lỗi | socketGeneric | `{ callId, status: 'REJECTED' }` | VALIDATION_ERROR, CALL_NOT_FOUND, FORBIDDEN, CALL_INVALID_STATE, RATE_LIMITED |
 | `call:cancel` | C→S | `CallIdPayload` | Là tab caller (`callerTabId`). Status ∈ {INITIATED, RINGING} → CANCELLED; status ∈ {ACCEPTED, CONNECTING, CONNECTED, RECONNECTING} → xử lý như `call:end` HANGUP; terminal → ACK ok trạng thái hiện tại | socketGeneric | `{ callId, status: CallStatus }` | VALIDATION_ERROR, CALL_NOT_FOUND, FORBIDDEN, RATE_LIMITED |
 | `call:busy` | S→C (room `user:{calleeId}`) | `{ callId, caller: UserPublic, callType }` — thông báo "có người vừa gọi khi bạn đang bận" | — | — | — | — |
 | `call:offer` | C→S và S→C | `CallSdpPayload` | Chỉ tab caller (`callerTabId`); status ∈ {ACCEPTED, CONNECTING, CONNECTED, RECONNECTING}; `revision` = `offerRevision` hiện tại + 1 | callSignal | `{ revision }` | VALIDATION_ERROR, CALL_NOT_FOUND, FORBIDDEN, CALL_INVALID_STATE, RATE_LIMITED |
@@ -1581,7 +1581,7 @@ Alice A1                       Gateway / call-invite.lua (atomic, serialize trê
 ```
 
 Quy tắc:
-- Gộp chỉ khi lời mời thứ hai đến từ **chính callee** của cuộc gọi đang ở `INITIATED`/`RINGING` và cùng conversation. Mọi trường hợp khác khi callee đã có `user:incall` → `CALL_BUSY`.
+- Gộp chỉ khi đủ **cả ba** điều kiện: (1) ngược chiều — lời mời thứ hai đến từ **chính callee** của cuộc gọi đang có và gọi tới chính caller của nó, cùng conversation (alice gọi bob hai lần là gọi trùng, không phải glare → `CALL_INVALID_STATE`); (2) cuộc gọi đó đang ở `INITIATED`/`RINGING`; (3) `user:incall` trỏ tới cuộc gọi còn sống — key treo trỏ tới cuộc gọi đã terminal hoặc `call:active` đã mất bị bỏ qua và xóa (DB §5.4). Callee đang trong cuộc gọi khác → `CALL_BUSY`.
 - Nếu Bob gửi `call:invite` sau khi C1 đã `ACCEPTED` trở đi → `CALL_INVALID_STATE` (Bob đã ở trong cuộc gọi).
 - Client Bob đã nhận `call:incoming C1` trước ACK: khi ACK `merged: true` → chuyển thẳng sang màn hình đang kết nối của C1.
 - Kết quả xác định: luôn đúng một cuộc gọi; người có lời mời đến server trước là caller/offerer.
@@ -1679,7 +1679,7 @@ Actor: `CALLER_TAB` (tab `callerTabId`), `CALLEE_ANY` (bất kỳ tab nào của
 | T29 | bất kỳ active, state Redis đã mất | `call:state` từ participant, `callHistory` chưa terminal | SERVER | `connectedAt != null` → ENDED, ngược lại FAILED | SERVER_RESTART | — | Mục 8.5 |
 | T30 | CONNECTING, CONNECTED, RECONNECTING | `call:ice-restart` hợp lệ | PARTICIPANT | (giữ nguyên) | — | — | `iceRestarts += 1`; vượt `CALL_MAX_ICE_RESTARTS` → `CALL_INVALID_STATE` |
 | T31 | CONNECTED, RECONNECTING | `call:offer` revision n+1 (ICE restart) | CALLER_TAB | (giữ nguyên) | — | — | relay |
-| T32 | terminal (ENDED, REJECTED, CANCELLED, MISSED, BUSY, FAILED) | `call:end`, `call:cancel`, `call:reject`, `call:state` | bất kỳ participant | (giữ nguyên) | (giữ nguyên) | — | **Idempotent**: ACK✔ trả `{status, endReason}` hiện tại, không phát lại event (EC-CALL-SIG-015) |
+| T32 | terminal (ENDED, REJECTED, CANCELLED, MISSED, BUSY, FAILED) | `call:end`, `call:cancel`, `call:reject`, `call:state` | bất kỳ participant | (giữ nguyên) | (giữ nguyên) | — | **Idempotent**: ACK✔ trả `{status, endReason}` hiện tại, không phát lại event (EC-CALL-SIG-015). Riêng `call:reject`: ACK chỉ mang `REJECTED`, nên chỉ idempotent khi status = `REJECTED`; terminal khác → `CALL_INVALID_STATE` (§4.5) |
 | T33 | terminal | `call:accept` | CALLEE_ANY | (giữ nguyên) | — | — | MISSED → `CALL_TIMEOUT`; ACCEPTED-by-other không áp dụng (không terminal); còn lại → `CALL_INVALID_STATE` |
 | T34 | ACCEPTED, CONNECTING, CONNECTED, RECONNECTING | `call:accept` | CALLEE_ANY | (giữ nguyên) | — | — | Tab khác `acceptedTabId` → `CALL_ALREADY_ANSWERED`; chính `acceptedTabId` → ACK✔ (idempotent) |
 | T35 | bất kỳ | `call:offer/answer/ice-candidate/ice-restart` với revision/role sai hoặc status không cho phép | — | (giữ nguyên) | — | — | `CALL_INVALID_STATE` (sai role → `FORBIDDEN`; không phải caller/callee → `CALL_NOT_FOUND`) |

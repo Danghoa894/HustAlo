@@ -1375,11 +1375,25 @@ Subject rate limit: `ip+email` → `${ip}:${sha256(email).slice(0,16)}` (không 
 -- ARGV: 1 newCallId, 2 callerId, 3 calleeId, 4 conversationId, 5 callType, 6 callerDeviceId,
 --       7 callerTabId, 8 nowMs, 9 ringTimeoutMs, 10 stateTtlS, 11 keyPrefix, 12 connectTimeoutMs
 local now = tonumber(ARGV[8])
-local mine = redis.call('GET', KEYS[1])
-if mine then return {'CALLER_IN_CALL', mine} end
+local TERMINAL = { ENDED = true, REJECTED = true, CANCELLED = true, MISSED = true, BUSY = true, FAILED = true }
+-- Key user:incall "treo" (trỏ tới cuộc gọi đã terminal hoặc call:active đã mất) không chặn cuộc gọi mới: xóa đi.
+local function liveOrNil(key)
+  local id = redis.call('GET', key)
+  if not id then return nil end
+  local st = redis.call('HGET', ARGV[11] .. 'call:active:' .. id, 'status')
+  if not st or TERMINAL[st] then
+    redis.call('DEL', key)
+    return nil
+  end
+  return id
+end
+local mine = liveOrNil(KEYS[1])
+local theirs = liveOrNil(KEYS[2])
 
-local theirs = redis.call('GET', KEYS[2])
-if theirs then
+-- GLARE chỉ khi đủ 3 điều kiện: (1) ngược chiều — callerId của cuộc gọi đang có = callee hiện tại và calleeId =
+-- caller hiện tại, cùng conversation; (2) cuộc gọi đó còn ở INITIATED/RINGING; (3) cuộc gọi còn sống (liveOrNil).
+-- D-06 set user:incall cho cả hai bên nên ở glare cả hai key cùng trỏ một callId; phải xét glare TRƯỚC CALLER_IN_CALL.
+if mine and mine == theirs then
   local otherKey = ARGV[11] .. 'call:active:' .. theirs
   local h = redis.call('HMGET', otherKey, 'status', 'callerId', 'calleeId', 'conversationId', 'version', 'callType')
   local st = h[1]
@@ -1393,8 +1407,9 @@ if theirs then
     redis.call('SREM', ARGV[11] .. 'call:pending:' .. ARGV[2], theirs)
     return {'GLARE', theirs, tostring(v), h[6]}
   end
-  return {'BUSY', theirs}
 end
+if mine then return {'CALLER_IN_CALL', mine} end -- gọi trùng cùng chiều, hoặc đang trong cuộc gọi đã trả lời
+if theirs then return {'BUSY', theirs} end
 
 redis.call('HSET', KEYS[3],
   'status', 'INITIATED', 'version', 1, 'callType', ARGV[5], 'conversationId', ARGV[4],
@@ -1410,7 +1425,7 @@ redis.call('PEXPIRE', KEYS[5], tonumber(ARGV[9]))
 return {'CREATED', ARGV[1]}
 ```
 
-Kết quả → service: `CREATED` → T01; `GLARE` → T05 (ACK `merged: true`); `BUSY` → T02 (`CALL_BUSY`); `CALLER_IN_CALL` → `CALL_INVALID_STATE`.
+Kết quả → service: `CREATED` → T01; `GLARE` → T05 (ACK `merged: true`); `BUSY` → T02 (`CALL_BUSY`); `CALLER_IN_CALL` → `CALL_INVALID_STATE`. Rate limit `callInvite` chỉ tính khi kết quả không phải `GLARE` (kiến trúc §7(g)): service kiểm khả năng glare trước rồi mới tăng bộ đếm.
 
 **`call-transition.lua`** — compare-and-set (kiến trúc §8.1).
 
