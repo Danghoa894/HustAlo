@@ -29,6 +29,7 @@ const { CallHistoryList } = await import('./CallHistoryList');
 const { ChatHeader } = await import('../chat/ChatHeader');
 const { setCallControllerForTest } = await import('./useCallController');
 const { formatCallClock } = await import('../../lib/time/format');
+const { useUiStore } = await import('../../stores/ui.store');
 
 const ME = userMe().id;
 const BOB = { id: '6720a1b2c3d4e5f601234562', displayName: 'Bob', avatarUrl: null };
@@ -45,6 +46,8 @@ const actions = {
   dismiss: vi.fn(),
   retry: vi.fn(() => Promise.resolve()),
   callAgain: vi.fn(() => Promise.resolve()),
+  switchCamera: vi.fn(() => Promise.resolve()),
+  setSpeaker: vi.fn(),
 };
 
 const active = (over: Partial<ActiveCall> = {}): ActiveCall => ({
@@ -429,5 +432,214 @@ describe('CallHistoryList (§3.2)', () => {
     expect(screen.getAllByRole('button', { name: 'Gọi lại cho Bob' })).toHaveLength(2);
     fireEvent.click(screen.getAllByRole('button', { name: 'Gọi lại cho Bob' })[1] as HTMLElement);
     expect(actions.startCall).toHaveBeenCalledWith({ conversationId: CONV, callType: 'VOICE', peer: BOB });
+  });
+});
+
+describe('chi tiết InCallScreen (§3.7)', () => {
+  const mobile = (on: boolean) => {
+    vi.stubGlobal('matchMedia', (q: string) => ({
+      matches: on && q.includes('max-width'),
+      media: q,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+    }));
+  };
+
+  it('"Đổi camera" chỉ khi ≥ 2 camera (VIDEO); bấm → switchCamera', () => {
+    useCallStore.getState().patch({
+      call: active({ status: 'CONNECTED' }),
+      localPhase: 'IN_CALL',
+      hasLocalVideo: true,
+      cameraCount: 1,
+    });
+    const { rerender } = render(<CallOverlay />);
+    expect(screen.queryByRole('button', { name: 'Đổi camera' })).toBeNull();
+    act(() => {
+      useCallStore.getState().patch({ cameraCount: 2 });
+    });
+    rerender(<CallOverlay />);
+    fireEvent.click(screen.getByRole('button', { name: 'Đổi camera' }));
+    expect(actions.switchCamera).toHaveBeenCalled();
+  });
+
+  it('"Chọn loa" chỉ khi trình duyệt hỗ trợ setSinkId; chọn thiết bị → setSpeaker; RemoteAudio áp sinkId', async () => {
+    useCallStore.getState().patch({
+      call: active({ status: 'CONNECTED', callType: 'VOICE' }),
+      localPhase: 'IN_CALL',
+      audioOutputs: [{ deviceId: 'spk', label: 'Loa ngoài' }],
+    });
+    const { unmount } = render(<CallOverlay />);
+    expect(screen.queryByRole('button', { name: 'Chọn loa' })).toBeNull();
+    unmount();
+    const setSinkId = vi.fn(() => Promise.resolve());
+    Object.defineProperty(HTMLMediaElement.prototype, 'setSinkId', { value: setSinkId, configurable: true });
+    try {
+      render(<CallOverlay />);
+      fireEvent.click(screen.getByRole('button', { name: 'Chọn loa' }));
+      fireEvent.click(screen.getByRole('menuitemradio', { name: 'Loa ngoài' }));
+      expect(actions.setSpeaker).toHaveBeenCalledWith('spk');
+      act(() => {
+        useCallStore.getState().patch({ sinkId: 'spk', remoteStream: stream(track('audio')) });
+      });
+      await waitFor(() => {
+        expect(setSinkId).toHaveBeenCalledWith('spk');
+      });
+    } finally {
+      delete (HTMLMediaElement.prototype as { setSinkId?: unknown }).setSinkId;
+    }
+  });
+
+  it('VIDEO trên mobile: ẩn điều khiển sau 4 s không chạm, chạm hiện lại; không ẩn khi focus trong thanh điều khiển; desktop luôn hiện', () => {
+    vi.useFakeTimers();
+    mobile(true);
+    useCallStore
+      .getState()
+      .patch({ call: active({ status: 'CONNECTED' }), localPhase: 'IN_CALL', hasLocalVideo: true });
+    const { unmount } = render(<CallOverlay />);
+    const bar = screen.getByTestId('call-controls');
+    expect(bar).toHaveAttribute('data-hidden', 'false');
+    act(() => {
+      vi.advanceTimersByTime(4000);
+    });
+    expect(bar).toHaveAttribute('data-hidden', 'true');
+    fireEvent.pointerDown(screen.getByTestId('in-call'));
+    expect(bar).toHaveAttribute('data-hidden', 'false');
+    act(() => {
+      screen.getByRole('button', { name: 'Tắt micro' }).focus();
+    });
+    act(() => {
+      vi.advanceTimersByTime(8000);
+    });
+    expect(bar).toHaveAttribute('data-hidden', 'false');
+    unmount();
+    mobile(false);
+    render(<CallOverlay />);
+    act(() => {
+      vi.advanceTimersByTime(8000);
+    });
+    expect(screen.getByTestId('call-controls')).toHaveAttribute('data-hidden', 'false');
+  });
+
+  it('wake lock: VIDEO + CONNECTED → request("screen"); tab ẩn hoặc kết thúc → release; VOICE không xin', async () => {
+    const release = vi.fn(() => Promise.resolve());
+    const request = vi.fn(() => Promise.resolve({ release }));
+    Object.defineProperty(navigator, 'wakeLock', { value: { request }, configurable: true });
+    try {
+      useCallStore
+        .getState()
+        .patch({ call: active({ status: 'CONNECTED' }), localPhase: 'IN_CALL', hasLocalVideo: true });
+      const { unmount } = render(<CallOverlay />);
+      await waitFor(() => {
+        expect(request).toHaveBeenCalledWith('screen');
+      });
+      Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+      document.dispatchEvent(new Event('visibilitychange'));
+      await waitFor(() => {
+        expect(release).toHaveBeenCalledTimes(1);
+      });
+      Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+      document.dispatchEvent(new Event('visibilitychange'));
+      await waitFor(() => {
+        expect(request).toHaveBeenCalledTimes(2);
+      });
+      unmount();
+      await waitFor(() => {
+        expect(release).toHaveBeenCalledTimes(2);
+      });
+      request.mockClear();
+      useCallStore.getState().patch({ call: active({ status: 'CONNECTED', callType: 'VOICE' }) });
+      render(<CallOverlay />);
+      await act(() => Promise.resolve());
+      expect(request).not.toHaveBeenCalled();
+    } finally {
+      delete (navigator as { wakeLock?: unknown }).wakeLock;
+    }
+  });
+
+  it('PiP mặc định góc dưới phải; kéo tới gần góc trên trái → dính góc đó; double-click đổi chỗ local/remote', () => {
+    useCallStore.getState().patch({
+      call: active({ status: 'CONNECTED' }),
+      localPhase: 'IN_CALL',
+      hasLocalVideo: true,
+      localStream: stream(track('audio'), track('video')),
+      remoteStream: stream(track('audio'), track('video')),
+    });
+    render(<CallOverlay />);
+    const pip = screen.getByTestId('pip');
+    expect(pip).toHaveAttribute('data-corner', 'br');
+    vi.stubGlobal('innerWidth', 1000);
+    vi.stubGlobal('innerHeight', 800);
+    fireEvent.pointerDown(pip, { clientX: 900, clientY: 700, pointerId: 1 });
+    fireEvent.pointerMove(pip, { clientX: 120, clientY: 90, pointerId: 1 });
+    fireEvent.pointerUp(pip, { clientX: 120, clientY: 90, pointerId: 1 });
+    expect(pip).toHaveAttribute('data-corner', 'tl');
+    expect(screen.getByTestId('in-call')).toHaveAttribute('data-swapped', 'false');
+    fireEvent.doubleClick(pip);
+    expect(screen.getByTestId('in-call')).toHaveAttribute('data-swapped', 'true');
+  });
+});
+
+describe('nút gọi bị khóa sau RATE_LIMITED (§4.3: disabled 60 s)', () => {
+  it('callBlockedUntil > now → aria-disabled + tooltip "Bạn thao tác quá nhanh…"; hết 60 s → bấm được', () => {
+    vi.useFakeTimers({ now: Date.parse('2026-10-27T10:00:00.000Z') });
+    useCallStore.getState().patch({ callBlockedUntil: Date.now() + 60_000 });
+    const member = (userId: string, displayName: string, username: string) => ({
+      userId,
+      user: { ...BOB, id: userId, username, displayName },
+      role: 'MEMBER' as const,
+      joinedAt: '2026-10-01T00:00:00.000Z',
+      lastDeliveredMessageId: null,
+      lastReadMessageId: null,
+    });
+    const conv: Conversation = {
+      id: CONV,
+      type: 'DIRECT',
+      title: null,
+      createdBy: ME,
+      memberCount: 2,
+      members: [member(ME, 'Alice', 'alice'), member(BOB.id, 'Bob', 'bob')],
+      lastMessageAt: '2026-10-01T00:00:00.000Z',
+      blockedByMe: false,
+      canMessage: true,
+      createdAt: '2026-10-01T00:00:00.000Z',
+      updatedAt: '2026-10-01T00:00:00.000Z',
+    };
+    renderPage(<ChatHeader conversation={conv} />, { path: '/chats/:id', at: `/chats/${CONV}` });
+    const btn = screen.getByRole('button', { name: 'Gọi thoại cho Bob' });
+    expect(btn).toHaveAttribute('aria-disabled', 'true');
+    expect(btn).toHaveAttribute('title', 'Bạn thao tác quá nhanh, vui lòng thử lại sau');
+    fireEvent.click(btn);
+    expect(actions.startCall).not.toHaveBeenCalled();
+    act(() => {
+      vi.advanceTimersByTime(60_000);
+    });
+    expect(btn).not.toHaveAttribute('aria-disabled');
+    fireEvent.click(btn);
+    expect(actions.startCall).toHaveBeenCalled();
+  });
+});
+
+describe('cuộc gọi đến hết hạn theo ringExpiresAt (§3.5)', () => {
+  it('không nhận được call:state (mất mạng) → tự đóng sau ringExpiresAt + 2 s theo giờ server, toast "Cuộc gọi nhỡ từ Bob"', () => {
+    vi.useFakeTimers({ now: Date.parse('2026-10-27T10:00:00.000Z') });
+    useCallStore.getState().patch({
+      incoming: {
+        callId: CALL,
+        conversationId: CONV,
+        callType: 'VOICE',
+        caller: BOB,
+        ringExpiresAt: '2026-10-27T10:00:45.000Z',
+      },
+    });
+    render(<IncomingCallScreen />);
+    act(() => {
+      vi.advanceTimersByTime(46_000);
+    });
+    expect(useCallStore.getState().incoming).not.toBeNull();
+    act(() => {
+      vi.advanceTimersByTime(1_500);
+    });
+    expect(useCallStore.getState().incoming).toBeNull();
+    expect(useUiStore.getState().toasts[0]?.text).toBe('Cuộc gọi nhỡ từ Bob');
   });
 });

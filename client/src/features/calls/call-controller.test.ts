@@ -104,6 +104,7 @@ function setup(over: Partial<CallControllerDeps> = {}) {
         setMicEnabled: vi.fn(),
         setCamEnabled: vi.fn(),
         replaceAudioTrack: vi.fn(() => Promise.resolve()),
+        replaceVideoTrack: vi.fn(() => Promise.resolve()),
         close: vi.fn(),
       };
       peers.push(p);
@@ -537,5 +538,79 @@ describe('trong cuộc gọi (kiến trúc §8.4, §8.6)', () => {
     await c2.startCall({ conversationId: CONV, callType: 'VOICE', peer: BOB });
     c2.hangup();
     expect(sent(EVENTS.CALL_CANCEL)).toEqual([{ callId: CALL }]);
+  });
+});
+
+describe('chi tiết trong cuộc gọi (ui_ux_spec.md §3.7, §4.3; PRD FR-CALL-001/002)', () => {
+  const inviteOk = () =>
+    emit.mockImplementation((ev) =>
+      Promise.resolve(
+        ev === EVENTS.CALL_INVITE
+          ? { ok: true, data: { callId: CALL, status: 'INITIATED', merged: false, callType: 'VIDEO' } }
+          : { ok: true, data: {} },
+      ),
+    );
+
+  it('ACK RATE_LIMITED → khóa nút gọi 60 s (callBlockedUntil); gọi lại trong lúc khóa không xin media', async () => {
+    const requestMedia = okMedia();
+    const c = setup({ requestMedia });
+    emit.mockResolvedValue({ ok: false, error: { code: 'RATE_LIMITED', message: '' } });
+    const t0 = Date.now();
+    await c.startCall({ conversationId: CONV, callType: 'VOICE', peer: BOB });
+    expect(useCallStore.getState().callBlockedUntil).toBe(t0 + 60_000);
+    await vi.advanceTimersByTimeAsync(3000); // CallEndedNotice tự đóng
+    requestMedia.mockClear();
+    await c.startCall({ conversationId: CONV, callType: 'VOICE', peer: BOB });
+    expect(requestMedia).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(60_000);
+    await c.startCall({ conversationId: CONV, callType: 'VOICE', peer: BOB });
+    expect(requestMedia).toHaveBeenCalledTimes(1);
+  });
+
+  it('sau khi có media: đếm camera và loa (enumerateDevices) cho nút "Đổi camera" / "Chọn loa"', async () => {
+    const c = setup();
+    devices = [
+      { deviceId: 'a1', kind: 'audioinput', label: 'Micro', groupId: '' },
+      { deviceId: 'front', kind: 'videoinput', label: 'Camera trước', groupId: '' },
+      { deviceId: 'back', kind: 'videoinput', label: 'Camera sau', groupId: '' },
+      { deviceId: 'spk', kind: 'audiooutput', label: 'Loa ngoài', groupId: '' },
+    ] as MediaDeviceInfo[];
+    inviteOk();
+    await c.startCall({ conversationId: CONV, callType: 'VIDEO', peer: BOB });
+    await flush();
+    expect(useCallStore.getState().cameraCount).toBe(2);
+    expect(useCallStore.getState().audioOutputs).toEqual([{ deviceId: 'spk', label: 'Loa ngoài' }]);
+  });
+
+  it('"Đổi camera": xin camera facingMode còn lại, replaceTrack video, cập nhật facingMode (mirror chỉ camera trước)', async () => {
+    const c = setup({
+      requestMedia: vi.fn(() => ({
+        promise: Promise.resolve({ stream: mkStream(mkTrack('audio'), mkTrack('video')), video: true, warning: null }),
+        cancel: vi.fn(),
+      })),
+    });
+    inviteOk();
+    await c.startCall({ conversationId: CONV, callType: 'VIDEO', peer: BOB });
+    socket.emit(EVENTS.CALL_ACCEPTED, {
+      eventId: 'a',
+      occurredAt: '',
+      callId: CALL,
+      acceptedDeviceId: 'd',
+      acceptedTabId: 't',
+    });
+    await flush();
+    const back = mkTrack('video');
+    vi.mocked(deps.getUserMedia).mockResolvedValueOnce(mkStream(back));
+    expect(useCallStore.getState().facingMode).toBe('user');
+    await c.switchCamera();
+    expect(deps.getUserMedia).toHaveBeenLastCalledWith({ video: { facingMode: 'environment' } });
+    expect(peers[0]?.replaceVideoTrack).toHaveBeenCalledWith(back);
+    expect(useCallStore.getState().facingMode).toBe('environment');
+  });
+
+  it('"Chọn loa": lưu sinkId để RemoteAudio gọi setSinkId', () => {
+    const c = setup();
+    c.setSpeaker('spk');
+    expect(useCallStore.getState().sinkId).toBe('spk');
   });
 });

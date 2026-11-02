@@ -96,12 +96,20 @@ const mkTrack = (kind: 'audio' | 'video') => {
   const t = { kind, onended: null as null | (() => void), stop: vi.fn(), enabled: true };
   return t as unknown as MediaStreamTrack & { onended: null | (() => void) };
 };
-const mkStream = (...tracks: MediaStreamTrack[]) =>
-  ({
+const mkStream = (...initial: MediaStreamTrack[]) => {
+  let tracks = [...initial];
+  return {
     getTracks: () => tracks,
     getAudioTracks: () => tracks.filter((t) => t.kind === 'audio'),
     getVideoTracks: () => tracks.filter((t) => t.kind === 'video'),
-  }) as unknown as MediaStream;
+    addTrack: (t: MediaStreamTrack) => {
+      tracks = [...tracks, t];
+    },
+    removeTrack: (t: MediaStreamTrack) => {
+      tracks = tracks.filter((x) => x !== t);
+    },
+  } as unknown as MediaStream;
+};
 
 let pc: FakePC;
 function make(role: 'caller' | 'callee', over: Partial<PeerSessionDeps> = {}) {
@@ -300,6 +308,32 @@ describe('PeerSession — media trong cuộc gọi', () => {
     const remote = mkStream(mkTrack('audio'));
     pc.ontrack?.({ streams: [remote], track: mkTrack('audio') });
     expect(deps.onRemoteStream).toHaveBeenCalledWith(remote);
+  });
+});
+
+describe('PeerSession — camera (FR-CALL-002, AC-071)', () => {
+  it('tắt camera → ngừng gửi (replaceTrack(null)) để bên kia nhận mute và hiện avatar; bật lại → gửi lại đúng track', async () => {
+    const v = mkTrack('video');
+    const { s } = make('caller');
+    s.addLocalStream(mkStream(mkTrack('audio'), v), { wantVideo: true });
+    const videoSender = pc.senders.find((x) => x.track === v);
+    await s.setCamEnabled(false);
+    expect(videoSender?.replaceTrack).toHaveBeenLastCalledWith(null);
+    expect(v.enabled).toBe(false);
+    await s.setCamEnabled(true);
+    expect(videoSender?.replaceTrack).toHaveBeenLastCalledWith(v);
+    expect(v.enabled).toBe(true);
+  });
+
+  it('đổi camera (facingMode) → sender video dùng track mới, track cũ stop', async () => {
+    const stopOld = vi.fn();
+    const v = Object.assign(mkTrack('video'), { stop: stopOld });
+    const { s } = make('caller');
+    s.addLocalStream(mkStream(mkTrack('audio'), v), { wantVideo: true });
+    const back = mkTrack('video');
+    await s.replaceVideoTrack(back);
+    expect(pc.senders[1]?.replaceTrack).toHaveBeenCalledWith(back);
+    expect(stopOld).toHaveBeenCalled();
   });
 });
 
