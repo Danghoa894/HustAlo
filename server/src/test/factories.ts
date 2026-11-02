@@ -10,6 +10,8 @@ import { connectMongo, disconnectMongo } from '../infra/db/mongo';
 import { createLogger } from '../infra/logger/logger';
 import { createRedis, type RedisHandle } from '../infra/redis/redis';
 import { createRuntime, type Runtime } from '../main';
+import type { CallTiming } from '../modules/calls/calls.service';
+import type { IceConfig } from '../modules/calls/iceServers.service';
 import type { PresenceTiming } from '../modules/presence/presence.service';
 import { UserModel } from '../modules/users/user.model';
 
@@ -21,6 +23,8 @@ export interface TestServer {
   redis: RedisHandle;
   http: () => ReturnType<typeof request>;
   reset(): Promise<void>;
+  /** Runtime thứ hai dùng chung Mongo/Redis, không listen (giả lập instance mới sau khi process cũ chết). */
+  spawnRuntime(): Promise<{ close(): Promise<void> }>;
   close(): Promise<void>;
 }
 
@@ -29,17 +33,22 @@ export async function startTestServer(
     redisUrl?: string;
     messageHooks?: { afterInsert?: () => Promise<void> };
     presenceTiming?: Partial<PresenceTiming>;
+    callTiming?: Partial<CallTiming>;
+    ice?: IceConfig;
   } = {},
 ): Promise<TestServer> {
   await connectMongo(process.env.MONGODB_URI ?? '');
   const redis = createRedis(opts.redisUrl ?? process.env.REDIS_URL ?? '');
   if (!opts.redisUrl) await redis.client.connect();
-  const runtime = await createRuntime({
+  const runtimeOpts = {
     redis,
     logger: createLogger({ level: 'silent' }),
     ...(opts.messageHooks ? { messageHooks: opts.messageHooks } : {}),
     ...(opts.presenceTiming ? { presenceTiming: opts.presenceTiming } : {}),
-  });
+    ...(opts.callTiming ? { callTiming: opts.callTiming } : {}),
+    ...(opts.ice ? { ice: opts.ice } : {}),
+  };
+  const runtime = await createRuntime(runtimeOpts);
   await new Promise<void>((resolve) => runtime.httpServer.listen(0, '127.0.0.1', resolve));
   const { port } = runtime.httpServer.address() as AddressInfo;
   const url = `http://127.0.0.1:${port}`;
@@ -51,6 +60,10 @@ export async function startTestServer(
     async reset() {
       if (redis.isHealthy()) await redis.client.flushdb();
       for (const m of ALL_MODELS) await (m as unknown as { deleteMany(f: object): Promise<unknown> }).deleteMany({});
+    },
+    async spawnRuntime() {
+      const other = await createRuntime(runtimeOpts);
+      return { close: () => other.close() };
     },
     async close() {
       await runtime.close();
