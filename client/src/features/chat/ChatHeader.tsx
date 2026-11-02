@@ -1,12 +1,15 @@
 // client/src/features/chat/ChatHeader.tsx — header phòng chat (ui_ux_spec.md §3.3): ← (mobile), avatar, tên,
 // dòng phụ "{n} thành viên" (GROUP) hoặc "Đang hoạt động" / lastSeen (DIRECT/SECRET, M4; degraded → không hiện);
-// nút gọi (M5), E2eeBadge (M7) bổ sung theo milestone.
+// nút gọi thoại / video (M5: ẩn với GROUP — D-22; aria-disabled + tooltip khi thiếu HTTPS/WebRTC hoặc không nhắn được),
+// E2eeBadge (M7).
 import type { Conversation } from '@hustalo/shared';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Phone, Video } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Avatar } from '../../components/ui/Avatar';
 import { vi } from '../../i18n/vi';
+import { callSupport } from '../../lib/webrtc/support';
 import { useAuthStore } from '../../stores/auth.store';
+import { useCallActions } from '../calls/useCallController';
 import { serverNow } from '../../lib/time/server-clock';
 import { OnlineDot } from '../presence/OnlineDot';
 import { formatLastSeen } from '../presence/presence-text';
@@ -19,6 +22,48 @@ function PresenceLine({ userId }: { userId: string | undefined }) {
   if (p.status === 'ONLINE') return <p className="text-sm text-text-secondary">{vi.presence.online}</p>;
   if (!p.lastSeenAt) return null;
   return <p className="text-sm text-text-secondary">{formatLastSeen(p.lastSeenAt, serverNow())}</p>;
+}
+
+function CallButtons({ conversation, meId }: { conversation: Conversation; meId: string }) {
+  const actions = useCallActions();
+  const peer = conversation.members.find((m) => m.userId !== meId)?.user;
+  if (conversation.type === 'GROUP' || !peer) return null;
+  const support = callSupport();
+  const reason = !support.ok
+    ? support.reason === 'INSECURE_CONTEXT'
+      ? vi.calls.insecure
+      : vi.calls.unsupported
+    : !conversation.canMessage
+      ? vi.calls.inviteError.USER_BLOCKED
+      : null;
+  const button = (callType: 'VOICE' | 'VIDEO') => {
+    const label = callType === 'VIDEO' ? vi.calls.callVideo(peer.displayName) : vi.calls.callVoice(peer.displayName);
+    return (
+      <button
+        type="button"
+        aria-label={label}
+        title={reason ?? label}
+        aria-disabled={reason ? true : undefined}
+        onClick={() => {
+          if (reason) return;
+          void actions.startCall({
+            conversationId: conversation.id,
+            callType,
+            peer: { id: peer.id, displayName: peer.displayName, avatarUrl: peer.avatarUrl },
+          });
+        }}
+        className={`inline-flex h-11 w-11 items-center justify-center rounded-pill text-text hover:bg-surface-3 ${reason ? 'cursor-not-allowed opacity-50' : ''}`}
+      >
+        {callType === 'VIDEO' ? <Video size={20} aria-hidden="true" /> : <Phone size={20} aria-hidden="true" />}
+      </button>
+    );
+  };
+  return (
+    <>
+      {button('VOICE')}
+      {button('VIDEO')}
+    </>
+  );
 }
 
 export function roomName(c: Conversation, meId: string): string {
@@ -55,6 +100,7 @@ export function ChatHeader({ conversation }: { conversation: Conversation }) {
           <PresenceLine userId={peerId} />
         )}
       </div>
+      <CallButtons conversation={conversation} meId={meId} />
       <RoomMenu conversation={conversation} />
     </header>
   );

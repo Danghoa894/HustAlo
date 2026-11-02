@@ -42,3 +42,10 @@ export function formatClock(iso: string): string {
 export function formatDuration(sec: number): string {
   return `${pad(Math.floor(sec / 60))}:${pad(sec % 60)}`;
 }
+
+/** Đồng hồ trong cuộc gọi: mm:ss, từ 1 giờ: h:mm:ss (ui_ux_spec.md §3.7). */
+export function formatCallClock(sec: number): string {
+  const s = Math.max(0, Math.floor(sec));
+  if (s < 3600) return formatDuration(s);
+  return `${Math.floor(s / 3600)}:${pad(Math.floor((s % 3600) / 60))}:${pad(s % 60)}`;
+}

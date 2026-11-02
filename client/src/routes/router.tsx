@@ -1,10 +1,26 @@
 // client/src/routes/router.tsx — bảng route ui_ux_spec.md §2.
 // RootLayout bọc mọi route: useSessionLifecycle (socket + refresh + session:*) và SessionModal cần router để điều hướng.
-// Overlay /call/:callId (Routes thứ hai theo backgroundLocation) thêm ở M5.
-import { Navigate, Outlet, createBrowserRouter, useParams, type RouteObject } from 'react-router-dom';
+// M5: useCallController + CallOverlay / IncomingCallScreen trong RootLayout (lớp phủ đọc S.call trên mọi route);
+// /call/:callId giữ URL cuộc gọi và vẽ trang nền theo state.backgroundLocation (ui_ux_spec.md §2).
+import { useEffect } from 'react';
+import {
+  Navigate,
+  Outlet,
+  createBrowserRouter,
+  useLocation,
+  useParams,
+  useRoutes,
+  type RouteObject,
+} from 'react-router-dom';
 import { AppShell } from '../components/layout/AppShell';
 import { ConnectionBanner } from '../components/layout/ConnectionBanner';
 import { LoginPage } from '../features/auth/LoginPage';
+import { CallOverlay } from '../features/calls/CallOverlay';
+import { IncomingCallScreen } from '../features/calls/IncomingCallScreen';
+import { useCallController } from '../features/calls/useCallController';
+import { vi } from '../i18n/vi';
+import { useCallStore } from '../stores/call.store';
+import { useUiStore } from '../stores/ui.store';
 import { RegisterPage } from '../features/auth/RegisterPage';
 import { SessionModal } from '../features/auth/SessionModal';
 import { useSessionLifecycle } from '../features/auth/useSessionLifecycle';
@@ -41,16 +57,33 @@ function ChatsLayout() {
 function RootLayout() {
   useSessionLifecycle();
   useChatRuntime(); // outbox tiếp tục gửi cả khi đang ở /settings
+  useCallController();
   return (
     <>
       <Outlet />
+      <CallOverlay />
+      <IncomingCallScreen />
       <SessionModal />
       <LiveRegions />
     </>
   );
 }
 
-export const routes: RouteObject[] = [
+/** /call/:callId: không có cuộc gọi khớp trong S.call → /chats + toast "Cuộc gọi đã kết thúc" (CallRouteGuard, §2). */
+function CallRoute() {
+  const { callId } = useParams();
+  const location = useLocation();
+  const active = useCallStore((s) => s.call?.callId === callId || s.ended !== null);
+  const background = (location.state as { backgroundLocation?: string } | null)?.backgroundLocation ?? '/chats';
+  const page = useRoutes(pageRoutes, { pathname: background.startsWith('/call/') ? '/chats' : background });
+  useEffect(() => {
+    if (!active) useUiStore.getState().pushToast('call', vi.calls.ended.HANGUP);
+  }, [active]);
+  if (!active) return <Navigate to="/chats" replace />;
+  return page;
+}
+
+const pageRoutes: RouteObject[] = [
   { path: '/', element: <Navigate to="/chats" replace /> },
   {
     path: '/login',
@@ -91,6 +124,18 @@ export const routes: RouteObject[] = [
     ],
   },
   { path: '*', element: <NotFoundPage /> },
+];
+
+export const routes: RouteObject[] = [
+  {
+    path: '/call/:callId',
+    element: (
+      <RequireAuth>
+        <CallRoute />
+      </RequireAuth>
+    ),
+  },
+  ...pageRoutes,
 ];
 
 export const createAppRouter = () =>
