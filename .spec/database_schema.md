@@ -1376,19 +1376,24 @@ Subject rate limit: `ip+email` → `${ip}:${sha256(email).slice(0,16)}` (không 
 --       7 callerTabId, 8 nowMs, 9 ringTimeoutMs, 10 stateTtlS, 11 keyPrefix, 12 connectTimeoutMs
 local now = tonumber(ARGV[8])
 local TERMINAL = { ENDED = true, REJECTED = true, CANCELLED = true, MISSED = true, BUSY = true, FAILED = true }
--- Key user:incall "treo" (trỏ tới cuộc gọi đã terminal hoặc call:active đã mất) không chặn cuộc gọi mới: xóa đi.
-local function liveOrNil(key)
+-- Key user:incall "treo" (trỏ tới cuộc gọi đã terminal hoặc call:active không còn) không chặn cuộc gọi mới: kiểm và
+-- xóa ngay trong script (atomic); danh sách "userId=callId" đã dọn trả về phần tử 5 để service log warn.
+local stale = {}
+local function liveOrNil(key, userId)
   local id = redis.call('GET', key)
   if not id then return nil end
   local st = redis.call('HGET', ARGV[11] .. 'call:active:' .. id, 'status')
   if not st or TERMINAL[st] then
     redis.call('DEL', key)
+    table.insert(stale, userId .. '=' .. id)
     return nil
   end
   return id
 end
-local mine = liveOrNil(KEYS[1])
-local theirs = liveOrNil(KEYS[2])
+-- Mọi kết quả cùng dạng {result, callId, version|'', callType|'', staleCsv}
+local function out(result, id, v, t) return {result, id, v or '', t or '', table.concat(stale, ',')} end
+local mine = liveOrNil(KEYS[1], ARGV[2])
+local theirs = liveOrNil(KEYS[2], ARGV[3])
 
 -- GLARE chỉ khi đủ 3 điều kiện: (1) ngược chiều — callerId của cuộc gọi đang có = callee hiện tại và calleeId =
 -- caller hiện tại, cùng conversation; (2) cuộc gọi đó còn ở INITIATED/RINGING; (3) cuộc gọi còn sống (liveOrNil).
@@ -1405,11 +1410,11 @@ if mine and mine == theirs then
     redis.call('ZREM', KEYS[4], theirs .. ':RING')
     redis.call('ZADD', KEYS[4], now + tonumber(ARGV[12]), theirs .. ':CONNECT')
     redis.call('SREM', ARGV[11] .. 'call:pending:' .. ARGV[2], theirs)
-    return {'GLARE', theirs, tostring(v), h[6]}
+    return out('GLARE', theirs, tostring(v), h[6])
   end
 end
-if mine then return {'CALLER_IN_CALL', mine} end -- gọi trùng cùng chiều, hoặc đang trong cuộc gọi đã trả lời
-if theirs then return {'BUSY', theirs} end
+if mine then return out('CALLER_IN_CALL', mine) end -- gọi trùng cùng chiều, hoặc đang trong cuộc gọi đã trả lời
+if theirs then return out('BUSY', theirs) end
 
 redis.call('HSET', KEYS[3],
   'status', 'INITIATED', 'version', 1, 'callType', ARGV[5], 'conversationId', ARGV[4],
@@ -1422,10 +1427,10 @@ redis.call('SET', KEYS[2], ARGV[1], 'EX', tonumber(ARGV[10]))
 redis.call('ZADD', KEYS[4], now + tonumber(ARGV[9]), ARGV[1] .. ':RING')
 redis.call('SADD', KEYS[5], ARGV[1])
 redis.call('PEXPIRE', KEYS[5], tonumber(ARGV[9]))
-return {'CREATED', ARGV[1]}
+return out('CREATED', ARGV[1])
 ```
 
-Kết quả → service: `CREATED` → T01; `GLARE` → T05 (ACK `merged: true`); `BUSY` → T02 (`CALL_BUSY`); `CALLER_IN_CALL` → `CALL_INVALID_STATE`. Rate limit `callInvite` chỉ tính khi kết quả không phải `GLARE` (kiến trúc §7(g)): service kiểm khả năng glare trước rồi mới tăng bộ đếm.
+Kết quả → service: `CREATED` → T01; `GLARE` → T05 (ACK `merged: true`); `BUSY` → T02 (`CALL_BUSY`); `CALLER_IN_CALL` → `CALL_INVALID_STATE`. Rate limit `callInvite` chỉ tính khi kết quả không phải `GLARE` (kiến trúc §7(g)): service kiểm khả năng glare trước rồi mới tăng bộ đếm. Race chấp nhận được: cuộc gọi ngược chiều kết thúc giữa lúc service kiểm và lúc script chạy → lời mời được tính bù sau khi đã tạo, giới hạn có thể vượt tối đa +1 trong cửa sổ (không chuyển rate limit vào Lua). Phần tử 5 khác rỗng (key `user:incall` treo đã dọn) → service log `warn { callId, userId }` cho từng mục — dấu hiệu sweeper/transition bỏ sót.
 
 **`call-transition.lua`** — compare-and-set (kiến trúc §8.1).
 

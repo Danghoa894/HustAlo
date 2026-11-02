@@ -1139,12 +1139,13 @@ Chỉ gọi qua **service** của module khác, không bao giờ gọi repositor
 | **conversations** | ✘ | ✔ (isBlockedEitherWay, getPublic) | — | ✔ (createSystemMessage; previewsFor, countUnread cho danh sách hội thoại — DB §4.1) | ✘ | ✘ | ✔ (hasActiveDevice khi tạo SECRET) |
 | **messages** | ✘ | ✔ (isBlockedEitherWay) | ✔ (assertMember, listMemberIds, getType, activeMemberIds, touchLastMessage, advanceCursors, memberCursors, groupReadStats) | — | ✘ | ✘ | ✔ (assertEnvelopeRecipients, isDeviceActive) |
 | **presence** | ✘ | ✔ (getPrivacy, setLastSeen, isBlockedEitherWay) | ✔ (shareConversation, assertMember, getType, activeMemberIds) | ✘ | — | ✘ | ✘ |
-| **calls** | ✘ | ✔ (isBlockedEitherWay, getPublic) | ✔ (assertMember, getType, getOtherMember) | ✔ (createSystemMessage CALL_MISSED/CALL_ENDED) | ✔ (listOnlineDevices) | — | ✘ |
+| **calls** | ✘ | ✔ (isBlockedEitherWay, getPublicMany) | ✔ (assertMember — trả kèm `type` của hội thoại; getOtherMember) | ✔ (createSystemMessage CALL_MISSED/CALL_ENDED) | ✘ (không dùng: tab online của callee lấy từ socket room, xem dưới) | — | ✘ |
 | **e2ee** | ✔ (revokeFamilyByDevice khi thu hồi device) | ✘ | ✘ | ✘ | ✘ | ✘ | — |
 
 Quy tắc chống vòng lặp: `messages` không gọi `calls`; `calls` gọi `messages` chỉ qua `createSystemMessage` (không gọi ngược lại). `auth → calls` và `e2ee → auth` là phụ thuộc một chiều. Import vòng được ESLint `import/no-cycle` chặn.
 
 Các lớp khác:
+- `calls` xác định callee online và danh sách tab của callee bằng **socket room `user:{calleeId}`** qua adapter (`fetchSockets`, đúng cả khi nhiều instance), không qua presence: không có socket nào → callee offline, cuộc gọi giữ `INITIATED` và nằm trong `call:pending:{calleeId}` (D-08); có socket → `call:incoming` phát tới từng socket (room `socket.id`), ACK đầu tiên → RINGING (T03). Thu hồi phiên tìm tab bằng room `session:{sid}`.
 - Handler socket được ghép kết quả của nhiều service mà không tạo phụ thuộc module (ví dụ `conversation:join` = `conversations.join` + `typing.activeTypers` cho `typingUserIds`).
 - `realtime/handlers/*` chỉ gọi service; không truy cập model.
 - `realtime/emitter.ts` được mọi service dùng để phát event (inject qua `deps` khi khởi tạo, để unit test mock).
