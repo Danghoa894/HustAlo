@@ -481,6 +481,8 @@ export function createCallsService(deps: CallsDeps) {
         stateTtlS: CALL_STATE_TTL_S,
       });
 
+      // Key user:incall treo đã được script dọn: dấu hiệu sweeper/transition bỏ sót (DB §5.4).
+      for (const s of res.stale) logger.warn({ callId: s.callId, userId: s.userId }, 'đã dọn user:incall treo');
       // Hiếm: cuộc gọi ngược chiều vừa kết thúc giữa lúc kiểm và lúc chạy Lua → tính bù (không chặn lời mời đã xử lý).
       if (glare && res.result !== 'GLARE') await deps.limitInvite?.(me).catch(() => undefined);
 

@@ -41,11 +41,18 @@ export interface InviteArgs {
   stateTtlS?: number;
 }
 
-export type InviteResult =
+/** Key user:incall treo đã được script dọn (DB §5.4). */
+export interface StaleInCall {
+  userId: string;
+  callId: string;
+}
+
+export type InviteResult = (
   | { result: 'CREATED'; callId: string }
   | { result: 'GLARE'; callId: string; version: number; callType: CallType }
   | { result: 'BUSY'; callId: string }
-  | { result: 'CALLER_IN_CALL'; callId: string };
+  | { result: 'CALLER_IN_CALL'; callId: string }
+) & { stale: StaleInCall[] };
 
 export interface TransitionArgs {
   callId: string;
@@ -118,9 +125,17 @@ export function createCallStateRepository(client: Redis) {
         keys.prefix,
         a.connectTimeoutMs,
       );
-      const [result, callId = ''] = res;
-      if (result === 'GLARE') return { result, callId, version: Number(res[2]), callType: res[3] as CallType };
-      return { result: result as 'CREATED' | 'BUSY' | 'CALLER_IN_CALL', callId };
+      // {result, callId, version|'', callType|'', staleCsv "userId=callId,…"}
+      const [result, callId = '', version = '', callType = '', staleCsv = ''] = res;
+      const stale = staleCsv
+        ? staleCsv.split(',').map((pair) => {
+            const [userId = '', id = ''] = pair.split('=');
+            return { userId, callId: id };
+          })
+        : [];
+      if (result === 'GLARE')
+        return { result, callId, version: Number(version), callType: callType as CallType, stale };
+      return { result: result as 'CREATED' | 'BUSY' | 'CALLER_IN_CALL', callId, stale };
     },
 
     async get(callId: string): Promise<CallActiveState | null> {
