@@ -51,6 +51,7 @@ export const CALL_RECONNECT_GRACE_MS = 20 * SECOND;
 export const CALL_MAX_ICE_RESTARTS = 2; // kiểm trong state machine (T30), KHÔNG ở Zod
 export const CALL_INCOMING_ACK_TIMEOUT_MS = 5 * SECOND; // [NEW] chờ device ack call:incoming
 export const ICE_DISCONNECTED_GRACE_MS = 3 * SECOND; // [NEW] 'disconnected' kéo dài > 3s mới coi là mất
+export const REMOTE_VIDEO_STALL_MS = 1 * SECOND; // [NEW] không có khung hình video mới ≥ 1s → "Camera đang tạm dừng" (EC-CALL-MEDIA-011)
 export const CALL_STATE_TTL_S = 6 * 60 * 60; // [NEW] TTL tối đa call:active / user:incall
 export const CALL_DEADLINE_SWEEP_INTERVAL_MS = 1 * SECOND; // [NEW] D-05
 export const CALL_SDP_MAX_LENGTH = 20000; // [NEW] ký tự

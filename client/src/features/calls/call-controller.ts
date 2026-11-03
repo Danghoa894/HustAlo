@@ -143,7 +143,7 @@ export function createCallController(deps: CallControllerDeps) {
     iceAttempts = 0;
     restartPending = false;
     offeredAttempt = 0;
-    store().patch({ localIceLost: false });
+    store().patch({ localIceLost: false, remoteVideoStalled: false });
   }
 
   function closeNow() {
@@ -257,6 +257,9 @@ export function createCallController(deps: CallControllerDeps) {
       },
       onFatalMedia: () => {
         void deps.emit(EVENTS.CALL_END, { callId: id, reason: 'MEDIA_FAILURE' }).catch(() => undefined);
+      },
+      onRemoteVideoStalled: (stalled) => {
+        store().patch({ remoteVideoStalled: stalled });
       },
       onVideoLost: () => {
         store().patch({ camEnabled: false, hasLocalVideo: false });

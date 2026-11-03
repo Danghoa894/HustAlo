@@ -4,8 +4,9 @@
 // - connectionState: 'connected' → báo; 'disconnected' kéo dài ICE_DISCONNECTED_GRACE_MS → báo + yêu cầu ICE restart;
 //   'failed' → ngay (EC-CALL-NET-002). Sau close() mọi callback im lặng (EC-CALL-NET-008).
 // - networkQuality từ getStats mỗi 2 s: mất gói > 5% hoặc RTT > 400 ms trong 3 mẫu liên tiếp → 'poor'; 3 mẫu tốt → 'good'.
+// - VIDEO: framesReceived của bên kia đứng yên ≥ REMOTE_VIDEO_STALL_MS → onRemoteVideoStalled(true) (EC-CALL-MEDIA-011).
 // - Track cục bộ ended → lấy lại 1 lần; audio thất bại → onFatalMedia, video thất bại → onVideoLost (EC-CALL-MEDIA-007).
-import { ICE_DISCONNECTED_GRACE_MS, type IceServer } from '@hustalo/shared';
+import { ICE_DISCONNECTED_GRACE_MS, REMOTE_VIDEO_STALL_MS, type IceServer } from '@hustalo/shared';
 import { CandidateQueue, type IceCandidateInit } from './candidate-queue';
 
 export type ConnectionReport = 'connected' | 'disconnected' | 'failed';
@@ -39,6 +40,9 @@ export interface PeerSessionDeps {
   onQuality: (q: NetworkQuality) => void;
   onFatalMedia: (kind: 'audio') => void;
   onVideoLost: () => void;
+  /** VIDEO: không có khung hình mới từ bên kia ≥ REMOTE_VIDEO_STALL_MS (tắt camera = replaceTrack(null) không phát
+   * `mute` ở bên nhận) → true; khung hình chảy lại → false (EC-CALL-MEDIA-011, AC-071). */
+  onRemoteVideoStalled?: (stalled: boolean) => void;
   reacquire: (kind: 'audio' | 'video') => Promise<MediaStreamTrack>;
 }
 
@@ -65,6 +69,11 @@ export class PeerSession {
   /** Sender theo loại: camera tắt thì sender.track = null nên không tìm lại được qua getSenders(). */
   private readonly senders: Partial<Record<'audio' | 'video', RTCRtpSender>> = {};
   private videoTrack: MediaStreamTrack | null = null;
+  private wantVideo = false;
+  private videoTimer: ReturnType<typeof setInterval> | null = null;
+  private lastFrames = -1;
+  private framesChangedAt = 0;
+  private videoStalled = false;
 
   constructor(private readonly deps: PeerSessionDeps) {
     const create = deps.createPeerConnection ?? ((c: RTCConfiguration) => new RTCPeerConnection(c));
@@ -95,6 +104,7 @@ export class PeerSession {
   /** Gắn media cục bộ; VIDEO không có camera → nhận video một chiều (recvonly, EC-CALL-MEDIA-002). */
   addLocalStream(stream: MediaStream, opts: { wantVideo: boolean }): void {
     this.local = stream;
+    this.wantVideo = opts.wantVideo;
     for (const t of stream.getTracks()) {
       const kind = t.kind === 'audio' ? 'audio' : 'video';
       this.senders[kind] = this.pc.addTrack(t, stream);
@@ -194,6 +204,7 @@ export class PeerSession {
     this.closed = true;
     if (this.lostTimer) clearTimeout(this.lostTimer);
     if (this.statsTimer) clearInterval(this.statsTimer);
+    if (this.videoTimer) clearInterval(this.videoTimer);
     for (const t of this.local?.getTracks() ?? []) t.stop();
     this.queue.clear();
     this.pc.close();
@@ -227,6 +238,7 @@ export class PeerSession {
       this.lostTimer = null;
       if (this.lastReport !== 'connected') this.report('connected');
       this.startStats();
+      this.startVideoWatch();
     } else if (state === 'disconnected') {
       if (this.lostTimer) return;
       this.lostTimer = setTimeout(() => {
@@ -248,6 +260,36 @@ export class PeerSession {
     this.statsTimer = setInterval(() => {
       void this.sampleStats();
     }, STATS_INTERVAL_MS);
+  }
+
+  /** VIDEO đã kết nối: đọc framesReceived mỗi REMOTE_VIDEO_STALL_MS / 4 (EC-CALL-MEDIA-011). */
+  private startVideoWatch(): void {
+    if (this.videoTimer || !this.wantVideo || !this.deps.onRemoteVideoStalled) return;
+    this.framesChangedAt = Date.now();
+    this.videoTimer = setInterval(() => {
+      void this.sampleVideo();
+    }, REMOTE_VIDEO_STALL_MS / 4);
+  }
+
+  private async sampleVideo(): Promise<void> {
+    const report = await this.pc.getStats();
+    if (this.closed) return;
+    let frames = 0;
+    report.forEach((x: { type?: string; kind?: string; framesReceived?: number }) => {
+      if (x.type === 'inbound-rtp' && x.kind === 'video') frames += x.framesReceived ?? 0;
+    });
+    const now = Date.now();
+    if (frames !== this.lastFrames) {
+      this.lastFrames = frames;
+      this.framesChangedAt = now;
+      if (this.videoStalled) {
+        this.videoStalled = false;
+        this.deps.onRemoteVideoStalled?.(false);
+      }
+    } else if (!this.videoStalled && now - this.framesChangedAt >= REMOTE_VIDEO_STALL_MS) {
+      this.videoStalled = true;
+      this.deps.onRemoteVideoStalled?.(true);
+    }
   }
 
   private async sampleStats(): Promise<void> {

@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Avatar } from '../../components/ui/Avatar';
 import { vi } from '../../i18n/vi';
-import type { CallPeer } from '../../stores/call.store';
+import { useCallStore, type CallPeer } from '../../stores/call.store';
 import { playOrQueue } from './autoplay';
 
 function useVideoVisible(stream: MediaStream | null): boolean {
@@ -28,7 +28,9 @@ function useVideoVisible(stream: MediaStream | null): boolean {
 
 export function RemoteVideo({ stream, peer }: { stream: MediaStream | null; peer: CallPeer }) {
   const ref = useRef<HTMLVideoElement>(null);
-  const visible = useVideoVisible(stream);
+  // Tắt camera bên kia (replaceTrack(null)) không phát `mute` → PeerSession báo qua remoteVideoStalled (AC-071).
+  const stalled = useCallStore((s) => s.remoteVideoStalled);
+  const visible = useVideoVisible(stream) && !stalled;
   useEffect(() => {
     const el = ref.current;
     if (!el || !stream || !visible) return;
