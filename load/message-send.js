@@ -59,19 +59,22 @@ export default function (data) {
       {
         connected: () => {
           // Rải đều thời điểm gửi giữa các VU để tổng tải ~USERS/INTERVAL_S msg/s.
-          socket.setTimeout(() => {
-            socket.setInterval(() => {
-              const t0 = Date.now();
-              io.emit(
-                'message:send',
-                { kind: 'PLAINTEXT', conversationId, clientMessageId: uuidV4(), content: `load ${Date.now()}` },
-                (ack) => {
-                  ackMs.add(Date.now() - t0);
-                  if (!check(ack, { 'ACK ok': (a) => a && a.ok === true })) ackFailed.add(1);
-                },
-              );
-            }, INTERVAL_S * 1000);
-          }, (me % INTERVAL_S) * 1000 + Math.random() * 1000);
+          socket.setTimeout(
+            () => {
+              socket.setInterval(() => {
+                const t0 = Date.now();
+                io.emit(
+                  'message:send',
+                  { kind: 'PLAINTEXT', conversationId, clientMessageId: uuidV4(), content: `load ${Date.now()}` },
+                  (ack) => {
+                    ackMs.add(Date.now() - t0);
+                    if (!check(ack, { 'ACK ok': (a) => a && a.ok === true })) ackFailed.add(1);
+                  },
+                );
+              }, INTERVAL_S * 1000);
+            },
+            (me % INTERVAL_S) * 1000 + Math.random() * 1000,
+          );
           socket.setTimeout(() => socket.close(), durationS * 1000);
         },
         connectError: (e) => {

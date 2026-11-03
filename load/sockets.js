@@ -101,7 +101,9 @@ export default function (data) {
         },
         'call:accepted': (p) => {
           if (!caller || p.callId !== callId) return;
-          io.emit('call:offer', { callId, revision: 1, sdp }, (a) => check(a, { 'offer ok': (x) => x && x.ok === true }));
+          io.emit('call:offer', { callId, revision: 1, sdp }, (a) =>
+            check(a, { 'offer ok': (x) => x && x.ok === true }),
+          );
         },
         'call:offer': (p) => {
           if (!callee || p.callId !== callId) return;

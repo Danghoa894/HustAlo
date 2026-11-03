@@ -38,7 +38,11 @@ beforeAll(async () => {
     ice: {
       stunUrls: ['stun:stun.l.google.com:19302'],
       xirsys: { ident: '', secret: '', channel: '', apiUrl: 'https://global.xirsys.net', timeoutMs: 1000 },
-      turnFallback: { urls: ['turn:localhost:3478?transport=udp'], username: 'hustalo', credential: SECRETS.turnCredential },
+      turnFallback: {
+        urls: ['turn:localhost:3478?transport=udp'],
+        username: 'hustalo',
+        credential: SECRETS.turnCredential,
+      },
       iceTransportPolicy: 'all',
     },
   });
@@ -109,7 +113,9 @@ describe('log không lộ dữ liệu nhạy cảm (FR-SEC-007, kiến trúc §1
 
     bSock.on(EVENTS.CALL_INCOMING, (_p: unknown, ack?: (r: { ok: true }) => void) => ack?.({ ok: true }));
     const ringing = waitFor(aSock, EVENTS.CALL_RINGING);
-    const { callId } = ok(await emitAck<{ callId: string }>(aSock, EVENTS.CALL_INVITE, { conversationId, callType: 'VIDEO' }));
+    const { callId } = ok(
+      await emitAck<{ callId: string }>(aSock, EVENTS.CALL_INVITE, { conversationId, callType: 'VIDEO' }),
+    );
     await ringing;
     ok(await emitAck(bSock, EVENTS.CALL_ACCEPT, { callId }));
     ok(await emitAck(aSock, EVENTS.CALL_OFFER, { callId, revision: 1, sdp }));

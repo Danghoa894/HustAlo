@@ -2,6 +2,8 @@
 coverage
 client/playwright-report
 client/test-results
+client/lighthouse-report
+client/.lighthouseci
 infra/certs
 package-lock.json
 .spec

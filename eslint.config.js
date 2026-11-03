@@ -174,5 +174,13 @@ export default tseslint.config(
       sourceType: 'script',
     },
   },
+  {
+    // Load test k6 (load/*.js, M6): chạy trong runtime k6 (goja), không phải Node — biến toàn cục của k6.
+    files: ['load/**/*.js'],
+    languageOptions: {
+      ...tseslint.configs.disableTypeChecked.languageOptions,
+      globals: { __ENV: 'readonly', __VU: 'readonly', __ITER: 'readonly' },
+    },
+  },
   prettier,
 );

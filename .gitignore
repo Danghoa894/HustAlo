@@ -8,6 +8,8 @@ infra/mongo/keyfile
 coverage
 client/playwright-report/
 client/test-results/
+client/lighthouse-report/
+client/.lighthouseci/
 *.tsbuildinfo
 
 .claude/worktrees/

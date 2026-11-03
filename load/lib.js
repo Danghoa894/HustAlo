@@ -98,7 +98,7 @@ export class SocketIo {
   constructor(socket, auth, handlers = {}) {
     this.socket = socket;
     this.nextAck = 1;
-    this.acks = {};
+    this.acks = new Map();
     this.handlers = handlers;
     socket.on('message', (data) => this.onFrame(String(data)));
     socket.on('open', () => undefined);
@@ -117,8 +117,8 @@ export class SocketIo {
     } else if (f.startsWith('43')) {
       const m = /^43(\d+)(.*)$/.exec(f);
       if (!m) return;
-      const cb = this.acks[m[1]];
-      delete this.acks[m[1]];
+      const cb = this.acks.get(m[1]);
+      this.acks.delete(m[1]);
       if (cb) cb(JSON.parse(m[2])[0]);
     } else if (f.startsWith('42')) {
       const m = /^42(\d*)(.*)$/.exec(f);
@@ -135,7 +135,7 @@ export class SocketIo {
   emit(event, payload, cb) {
     const id = this.nextAck;
     this.nextAck += 1;
-    this.acks[String(id)] = cb;
+    this.acks.set(String(id), cb);
     this.socket.send(`42${id}${JSON.stringify([event, { requestId: uuidV4(), payload }])}`);
   }
 }

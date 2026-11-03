@@ -11,9 +11,11 @@ describe('no-console cho mã client (EC-SEC-007)', () => {
     'TC-SEC-007 %s → no-console ở mức error',
     async (file) => {
       const eslint = new ESLint({ cwd: repoRoot });
-      const config = (await eslint.calculateConfigForFile(file)) as { rules?: Record<string, unknown> };
+      const config: { rules?: Record<string, unknown> } = (await eslint.calculateConfigForFile(file)) as {
+        rules?: Record<string, unknown>;
+      };
       const rule = config.rules?.['no-console'];
-      const level = Array.isArray(rule) ? rule[0] : rule;
+      const level: unknown = Array.isArray(rule) ? (rule as unknown[])[0] : rule;
       expect([2, 'error']).toContain(level);
     },
   );

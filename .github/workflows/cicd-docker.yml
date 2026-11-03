@@ -136,4 +136,5 @@ jobs:
       - run: npm run test:e2e -- --project=chromium --grep @smoke
       - name: Ghi SHA để rollback khi verify fail
         if: failure()
-        run: echo "::error::verify fail cho ${SHA} — rollback: đặt IMAGE_TAG về SHA trước đó trong infra/.env.prod rồi pull + up -d --wait (§9.6)"
+        run: |
+          echo "::error::verify fail cho ${SHA} — rollback = đặt IMAGE_TAG về SHA trước đó trong infra/.env.prod rồi pull + up -d --wait (§9.6)"
