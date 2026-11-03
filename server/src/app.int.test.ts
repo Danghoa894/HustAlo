@@ -44,6 +44,10 @@ describe('HTTP security (AC-107, kiến trúc §9.6)', () => {
     expect(csp).toContain("frame-ancestors 'none'");
     expect(csp).toContain("object-src 'none'");
     expect(csp).toContain('connect-src');
+    // Font tự host (NFR-05): không còn domain Google Fonts.
+    expect(csp).toContain("font-src 'self'");
+    expect(csp).not.toContain('fonts.googleapis.com');
+    expect(csp).not.toContain('fonts.gstatic.com');
     expect(res.headers['x-content-type-options']).toBe('nosniff');
     expect(res.headers['referrer-policy']).toBe('no-referrer');
     expect(res.headers['x-powered-by']).toBeUndefined();

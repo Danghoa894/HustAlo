@@ -1,8 +1,7 @@
 {
   "ci": {
     "collect": {
-      "staticDistDir": "./dist",
-      "url": ["http://localhost/"],
+      "url": ["http://localhost:8080/"],
       "numberOfRuns": 3,
       "settings": {
         "formFactor": "mobile",

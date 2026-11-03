@@ -24,8 +24,9 @@ export function securityMiddleware(opts: { corsOrigins: readonly string[]; produ
         directives: {
           defaultSrc: ["'self'"],
           scriptSrc: ["'self'"],
-          styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
-          fontSrc: ["'self'", 'https://fonts.gstatic.com'],
+          // Font Inter tự host (NFR-05) → không còn domain Google Fonts.
+          styleSrc: ["'self'", "'unsafe-inline'"],
+          fontSrc: ["'self'"],
           imgSrc: ["'self'", 'data:', 'blob:'],
           mediaSrc: ["'self'", 'blob:'],
           connectSrc: connectSources(opts.corsOrigins),

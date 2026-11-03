@@ -1,8 +1,9 @@
 /* client/src/styles/index.css */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Font Inter tự host: đăng ký bằng FontFace API sau lần render đầu (lib/fonts/fonts.ts, NFR-05). */
 
 :root {
   --color-primary: 0 104 255;
