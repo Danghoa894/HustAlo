@@ -19,7 +19,7 @@ export interface HandlerContext<S extends AckSocket> {
   requestId: string;
 }
 
-export interface WithAckOptions<P extends z.ZodTypeAny> {
+export interface WithAckOptions<P extends z.ZodType> {
   event: string;
   schema: P;
   /** null: handler tự áp rate limit (call:invite chỉ tính khi không phải glare, kiến trúc §7(g)). */
@@ -47,7 +47,7 @@ function rateSubject(rule: RateRule, socket: AckSocket): string {
   return RATE_LIMITS[rule].key === 'socket' ? `${auth.userId}:${auth.tabId}` : auth.userId;
 }
 
-export function withAck<S extends AckSocket, P extends z.ZodTypeAny, D>(
+export function withAck<S extends AckSocket, P extends z.ZodType, D>(
   deps: WithAckDeps,
   socket: S,
   opts: WithAckOptions<P>,

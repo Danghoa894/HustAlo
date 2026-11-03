@@ -12,15 +12,13 @@ import { normalizedText, objectId, uuidV4 } from './common.schema';
 
 export const NIL_UUID = '00000000-0000-0000-0000-000000000000';
 
-export const clientEnvelope = <T extends z.ZodTypeAny>(payload: T) =>
-  z.object({ requestId: z.string().uuid(), payload }).strict();
+export const clientEnvelope = <T extends z.ZodType>(payload: T) => z.object({ requestId: z.uuid(), payload }).strict();
 
-export const ackOk = <T extends z.ZodTypeAny>(data: T) =>
-  z.object({ ok: z.literal(true), requestId: z.string().uuid(), data });
+export const ackOk = <T extends z.ZodType>(data: T) => z.object({ ok: z.literal(true), requestId: z.uuid(), data });
 
 export const ackErr = z.object({
   ok: z.literal(false),
-  requestId: z.string().uuid(), // = requestId của envelope; envelope hỏng không đọc được requestId → NIL_UUID
+  requestId: z.uuid(), // = requestId của envelope; envelope hỏng không đọc được requestId → NIL_UUID
   error: z.object({
     code: z.enum(Object.values(ErrorCode) as [ErrorCode, ...ErrorCode[]]),
     message: z.string(),
@@ -29,11 +27,11 @@ export const ackErr = z.object({
 
 // Mọi event server → client có thêm 2 trường
 export const serverEventMeta = z.object({
-  eventId: z.string().uuid(),
-  occurredAt: z.string().datetime(), // ISO-8601 UTC, đồng hồ server
+  eventId: z.uuid(),
+  occurredAt: z.iso.datetime(), // ISO-8601 UTC, đồng hồ server
 });
 
-const uuid = z.string().uuid();
+const uuid = z.uuid();
 
 // ---- Conversation ----
 export const ConversationJoinPayload = z.object({ conversationId: objectId }).strict();

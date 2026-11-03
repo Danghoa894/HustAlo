@@ -13,8 +13,7 @@ export interface SafeParser {
   safeParse(
     input: unknown,
   ):
-    | { success: true }
-    | { success: false; error: { issues: { path: (string | number)[]; code: string; message: string }[] } };
+    { success: true } | { success: false; error: { issues: { path: PropertyKey[]; code: string; message: string }[] } };
 }
 
 /**
@@ -31,7 +30,8 @@ export function zodFieldErrors<K extends string>(
   if (result.success) return {};
   const errors: FieldErrors<K> = {};
   for (const issue of result.error.issues) {
-    const field = issue.path[0] as K | undefined;
+    const key = issue.path[0];
+    const field = typeof key === 'string' ? (key as K) : undefined;
     if (field === undefined || !(field in fallback) || errors[field] !== undefined) continue;
     errors[field] =
       values[field] === '' ? vi.common.required : issue.code === 'custom' ? issue.message : fallback[field];

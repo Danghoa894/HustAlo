@@ -44,7 +44,7 @@ export type AckResponse<D> =
 
 export type AckCallback<D> = (res: AckResponse<D>) => void;
 
-type C2S<P extends z.ZodTypeAny, D> = (envelope: ClientEnvelope<z.input<P>>, ack: AckCallback<D>) => void;
+type C2S<P extends z.ZodType, D> = (envelope: ClientEnvelope<z.input<P>>, ack: AckCallback<D>) => void;
 
 export interface ServerEventMeta {
   eventId: string;

@@ -9,7 +9,7 @@ export const uuidV4 = z
   .string()
   .regex(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/, 'UUID v4 không hợp lệ');
 
-export const isoDate = z.string().datetime();
+export const isoDate = z.iso.datetime();
 
 export const pageCursor = z
   .string()

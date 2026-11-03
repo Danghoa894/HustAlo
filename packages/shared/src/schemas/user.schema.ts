@@ -12,9 +12,8 @@ import { countCodePoints, normalizeDisplayName } from '../utils/text';
 import { isoDate, objectId } from './common.schema';
 
 export const avatarUrlSchema = z
-  .string()
-  .max(2048)
   .url()
+  .max(2048)
   .regex(/^https:\/\//, 'Ảnh đại diện phải là URL https://');
 
 export const PrivacySchema = z.object({ showLastSeen: z.boolean() }).strict();

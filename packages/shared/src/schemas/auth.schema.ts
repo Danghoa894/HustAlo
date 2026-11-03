@@ -8,7 +8,7 @@ import { UserMeSchema, displayNameSchema } from './user.schema';
 /** Email chuẩn hóa trim + lowercase trước khi kiểm (kiến trúc §9.4). */
 export const emailSchema = z.preprocess(
   (v) => (typeof v === 'string' ? v.trim().toLowerCase() : v),
-  z.string().max(254).email('Email không hợp lệ'),
+  z.email('Email không hợp lệ').max(254),
 );
 
 export const usernameSchema = z.string().regex(USERNAME_PATTERN, 'Tên người dùng không hợp lệ');
@@ -34,7 +34,7 @@ export const RegisterRequestSchema = z
     const pw = v.password.toLowerCase();
     if (pw === v.email || pw === v.username) {
       ctx.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: 'custom',
         path: ['password'],
         message: 'Mật khẩu không được trùng email hoặc tên người dùng',
       });

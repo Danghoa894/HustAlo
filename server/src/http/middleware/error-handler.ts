@@ -27,7 +27,7 @@ interface BodyParserError {
 export function toAppError(err: unknown): AppError {
   if (err instanceof AppError) return err;
   if (err instanceof ZodError) {
-    const details = err.issues.map((i) => ({ path: i.path.join('.'), message: i.message }));
+    const details = err.issues.map((i) => ({ path: i.path.map(String).join('.'), message: i.message }));
     return new AppError('VALIDATION_ERROR', 'Dữ liệu không hợp lệ', details);
   }
   const bp = err as BodyParserError | null;

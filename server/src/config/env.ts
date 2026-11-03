@@ -18,7 +18,7 @@ export const EnvSchema = z
     NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
     PORT: z.coerce.number().int().min(1).max(65535).default(4000),
     TRUST_PROXY: z.coerce.number().int().min(0).max(5).default(1),
-    CORS_ORIGINS: csv.pipe(z.array(z.string().url()).min(1)),
+    CORS_ORIGINS: csv.pipe(z.array(z.url()).min(1)),
     LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal']).default('info'),
     METRICS_PORT: z.coerce.number().int().min(1).max(65535).default(9464),
 
@@ -46,7 +46,7 @@ export const EnvSchema = z
         if (typeof v !== 'object' || v === null || Array.isArray(v)) throw new Error();
         return v as Record<string, string>;
       } catch {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'DATA_ENCRYPTION_KEYS phải là JSON object' });
+        ctx.addIssue({ code: 'custom', message: 'DATA_ENCRYPTION_KEYS phải là JSON object' });
         return z.NEVER;
       }
     }),
@@ -61,8 +61,9 @@ export const EnvSchema = z
     XIRSYS_IDENT: z.string().default(''),
     XIRSYS_SECRET: z.string().default(''),
     XIRSYS_CHANNEL: z.string().default('hustalo-dev'),
-    XIRSYS_API_URL: z.string().url().default('https://global.xirsys.net'),
-    TURN_FALLBACK_URLS: csv.pipe(z.array(z.string().regex(/^turns?:/))).default(''),
+    XIRSYS_API_URL: z.url().default('https://global.xirsys.net'),
+    // zod 4: .default() trả thẳng giá trị output khi thiếu biến (không chạy transform) → mảng rỗng.
+    TURN_FALLBACK_URLS: csv.pipe(z.array(z.string().regex(/^turns?:/))).default([]),
     TURN_FALLBACK_USERNAME: z.string().default(''),
     TURN_FALLBACK_CREDENTIAL: z.string().default(''),
     ICE_TRANSPORT_POLICY: z.enum(['all', 'relay']).default('all'),
@@ -71,8 +72,7 @@ export const EnvSchema = z
     SEED_PASSWORD: z.string().min(8).max(128).optional(),
   })
   .superRefine((e, ctx) => {
-    const fail = (path: string, message: string) =>
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: [path], message });
+    const fail = (path: string, message: string) => ctx.addIssue({ code: 'custom', path: [path], message });
     // EC-SEC-009: cookie phiên luôn Secure ở production; dev/test chạy http://localhost (DG-01).
     if (e.NODE_ENV === 'production' && !e.COOKIE_SECURE)
       fail('COOKIE_SECURE', 'chỉ được false khi NODE_ENV là development hoặc test');
@@ -92,7 +92,7 @@ const parsed = EnvSchema.safeParse(process.env);
 if (!parsed.success) {
   // Chỉ in tên biến và thông điệp — KHÔNG in giá trị (có thể là secret).
   for (const issue of parsed.error.issues) {
-    process.stderr.write(`[env] ${issue.path.join('.')}: ${issue.message}\n`);
+    process.stderr.write(`[env] ${issue.path.map(String).join('.')}: ${issue.message}\n`);
   }
   process.exit(1);
 }
