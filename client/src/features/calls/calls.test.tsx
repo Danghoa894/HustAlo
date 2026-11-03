@@ -298,6 +298,19 @@ describe('Media phía nhận (§4.3, §4.4)', () => {
     expect(screen.queryByText('Camera đang tạm dừng')).toBeNull();
   });
 
+  it('TC-AC-071 TC-CALL-MEDIA-011 người kia bấm tắt camera (S.call.remoteVideoStalled) → Avatar + "Camera đang tạm dừng"; khung hình chảy lại → video', () => {
+    render(<RemoteVideo stream={stream(track('audio'), track('video'))} peer={BOB} />);
+    expect(screen.getByTestId('remote-video')).toBeInTheDocument();
+    act(() => {
+      useCallStore.getState().patch({ remoteVideoStalled: true });
+    });
+    expect(screen.getByText('Camera đang tạm dừng')).toBeInTheDocument();
+    act(() => {
+      useCallStore.getState().patch({ remoteVideoStalled: false });
+    });
+    expect(screen.queryByText('Camera đang tạm dừng')).toBeNull();
+  });
+
   it('không có track video (VIDEO nhưng người kia thiếu camera) → Avatar + "Camera đang tạm dừng"', () => {
     render(<RemoteVideo stream={stream(track('audio'))} peer={BOB} />);
     expect(screen.getByText('Camera đang tạm dừng')).toBeInTheDocument();

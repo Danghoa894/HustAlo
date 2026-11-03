@@ -2,7 +2,7 @@
 // (EC-CALL-SIG-007), xả candidate-queue (EC-CALL-SIG-008), grace 3 s cho 'disconnected' và restart ngay khi 'failed'
 // (EC-CALL-NET-002), setConfiguration trước ICE restart (EC-CALL-NET-005), track ended (EC-CALL-MEDIA-007),
 // đóng khi terminal (EC-CALL-NET-008), networkQuality (§8.4).
-import { ICE_DISCONNECTED_GRACE_MS } from '@hustalo/shared';
+import { ICE_DISCONNECTED_GRACE_MS, REMOTE_VIDEO_STALL_MS } from '@hustalo/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PeerSession, type PeerSessionDeps } from './peer-session';
 
@@ -342,6 +342,55 @@ describe('PeerSession — statsSnapshot (development_guide.md §6.6, window.__hu
     const { s } = make('caller');
     pc.stats = [{ type: 'candidate-pair', state: 'succeeded', nominated: true, currentRoundTripTime: 0.05 }];
     await expect(s.statsSnapshot()).resolves.toEqual(pc.stats);
+  });
+});
+
+describe('PeerSession — video bên kia ngừng khung hình (EC-CALL-MEDIA-011, AC-071)', () => {
+  const frames = (n: number) => [{ type: 'inbound-rtp', kind: 'video', framesReceived: n }];
+  const step = REMOTE_VIDEO_STALL_MS / 4;
+
+  it('TC-CALL-MEDIA-011 VIDEO: framesReceived không tăng ≥ REMOTE_VIDEO_STALL_MS → stalled(true); chảy lại → stalled(false)', async () => {
+    const onRemoteVideoStalled = vi.fn();
+    const { s } = make('caller', { onRemoteVideoStalled });
+    s.addLocalStream(mkStream(mkTrack('audio'), mkTrack('video')), { wantVideo: true });
+    pc.stats = frames(10);
+    pc.setConnection('connected');
+    // khung hình đang tăng → không báo
+    for (let i = 1; i <= 8; i += 1) {
+      pc.stats = frames(10 + i * 5);
+      await vi.advanceTimersByTimeAsync(step);
+    }
+    expect(onRemoteVideoStalled).not.toHaveBeenCalled();
+    // bên kia tắt camera (replaceTrack(null)): framesReceived đứng yên
+    await vi.advanceTimersByTimeAsync(REMOTE_VIDEO_STALL_MS - step);
+    expect(onRemoteVideoStalled).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(2 * step);
+    expect(onRemoteVideoStalled).toHaveBeenCalledTimes(1);
+    expect(onRemoteVideoStalled).toHaveBeenLastCalledWith(true);
+    await vi.advanceTimersByTimeAsync(5 * step); // vẫn đứng yên → không báo lặp
+    expect(onRemoteVideoStalled).toHaveBeenCalledTimes(1);
+    // bật lại camera
+    pc.stats = frames(100);
+    await vi.advanceTimersByTimeAsync(step);
+    expect(onRemoteVideoStalled).toHaveBeenLastCalledWith(false);
+    expect(onRemoteVideoStalled).toHaveBeenCalledTimes(2);
+  });
+
+  it('VOICE (wantVideo false) → không đọc stats video, không báo; close() dừng theo dõi', async () => {
+    const onRemoteVideoStalled = vi.fn();
+    const { s } = make('caller', { onRemoteVideoStalled });
+    s.addLocalStream(mkStream(mkTrack('audio')), { wantVideo: false });
+    pc.setConnection('connected');
+    await vi.advanceTimersByTimeAsync(REMOTE_VIDEO_STALL_MS * 3);
+    expect(onRemoteVideoStalled).not.toHaveBeenCalled();
+
+    const v = make('callee', { onRemoteVideoStalled });
+    v.s.addLocalStream(mkStream(mkTrack('audio'), mkTrack('video')), { wantVideo: true });
+    pc.stats = frames(1);
+    pc.setConnection('connected');
+    v.s.close();
+    await vi.advanceTimersByTimeAsync(REMOTE_VIDEO_STALL_MS * 3);
+    expect(onRemoteVideoStalled).not.toHaveBeenCalled();
   });
 });
 

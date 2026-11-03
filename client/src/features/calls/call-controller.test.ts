@@ -562,6 +562,19 @@ describe('trong cuộc gọi (kiến trúc §8.4, §8.6)', () => {
       expect(sent(EVENTS.CALL_OFFER)).toHaveLength(offersBefore + 1);
     });
 
+    it('TC-CALL-MEDIA-011 PeerSession báo video bên kia stall → S.call.remoteVideoStalled; kết thúc cuộc gọi → reset', async () => {
+      const c = withNetwork();
+      const peer = await connected(c);
+      peer.deps.onRemoteVideoStalled?.(true);
+      expect(useCallStore.getState().remoteVideoStalled).toBe(true);
+      peer.deps.onRemoteVideoStalled?.(false);
+      expect(useCallStore.getState().remoteVideoStalled).toBe(false);
+      peer.deps.onRemoteVideoStalled?.(true);
+      socket.emit(EVENTS.CALL_STATE, state({ status: 'ENDED', endReason: 'HANGUP', version: 99 }));
+      await flush();
+      expect(useCallStore.getState().remoteVideoStalled).toBe(false);
+    });
+
     it('mất ICE cục bộ → localIceLost (UI "Đang kết nối lại…" không chờ server); connected → tắt', async () => {
       const c = withNetwork();
       const peer = await connected(c);
