@@ -212,7 +212,8 @@ npm install -D typescript concurrently eslint @eslint/js typescript-eslint eslin
 - `// Xác minh với tài liệu chính thức của tsx: giả định tsx chuyển tiếp cờ Node --env-file cho process con.` Nếu không, thay bằng `process.loadEnvFile('.env')` ở đầu `config/env.ts` khi `NODE_ENV !== 'production'` và file tồn tại.
 - `src/jobs/user-lock.ts` `[NEW]`: nhận `lock|unlock <email>`; `lock` gọi `auth.service.lockUser(email)` (kiến trúc §7(a): set `users.status = LOCKED`, thu hồi mọi family với lý do `ACCOUNT_LOCKED`, phát `session:revoked`, ngắt socket, kết thúc cuộc gọi `LOGOUT`); `unlock` set `status = ACTIVE`. Cách dùng: `npm run user:lock -w server -- alice@hustalo.local`. Vì job chạy ở process riêng, việc phát event tới socket đi qua Redis: job publish lên kênh Redis `${REDIS_KEY_PREFIX}ops:user-locked` `{ userId }`, `session.handler` của mọi instance subscribe kênh này và thực hiện `disconnectSockets(true)` cho room `user:{userId}` (DG-03).
 - `src/infra/db/migrate.ts` và `src/infra/db/migrations/` theo `database_schema.md` §6.4.
-- `test:coverage` `[NEW]`: unit test kèm `@vitest/coverage-v8` (cùng phiên bản `vitest`). Ngưỡng đặt theo file trong `vitest.config.ts`: hiện chỉ `src/modules/calls/call.state-machine.ts` 100% nhánh (NFR-14); ngưỡng 80% cho `modules/**` là việc của M6.
+- `test:coverage` `[NEW]`: unit rồi integration kèm `@vitest/coverage-v8` (cùng phiên bản `vitest`), ghi `coverage/{unit,integration}/coverage-final.json`. `call.state-machine.ts` 100% nhánh là ngưỡng theo file trong `vitest.config.ts` (unit). Ngưỡng 80% dòng cho `src/modules/**` tính trên unit + integration gộp bằng `scripts/coverage-merge.mjs` (`istanbul-lib-coverage`); `packages/shared` tự đặt ngưỡng 80% dòng. Ở gốc: `npm run test:coverage` chạy cả hai workspace rồi gộp (NFR-14, M6).
+- `build` ở gốc chạy thêm `scripts/check-bundle-size.mjs` sau `check-bundle-secrets.mjs`: JS khởi tạo ≤ 300 KB gzip (NFR-05).
 
 `client/package.json`:
 
@@ -984,7 +985,7 @@ Firefox: `about:webrtc`. Safari: Develop → WebRTC logging.
 
 | Sự cố | Cách tạo | Ghi chú |
 |---|---|---|
-| Mất cả signaling lẫn media | Tắt Wi-Fi máy/điện thoại; hoặc Playwright `context.setOffline(true)` kết hợp `docker compose ... pause coturn` ở chế độ relay | `// Xác minh với tài liệu Playwright: setOffline chặn HTTP/WebSocket; giả định KHÔNG chặn chắc chắn UDP của WebRTC.` Vì vậy E2E mạng luôn chạy relay-only và pause coturn để cắt media một cách tất định |
+| Mất cả signaling lẫn media | Tắt Wi-Fi máy/điện thoại; hoặc Playwright `context.setOffline(true)` kết hợp `docker compose ... pause coturn` ở chế độ relay | Đã xác minh (M5, Chromium): setOffline chặn HTTP/WebSocket nhưng **không** chặn lưu lượng WebRTC. Vì vậy E2E mạng luôn chạy relay-only và pause coturn để cắt media một cách tất định |
 | Chỉ mất media (socket còn) | Relay-only + `pause coturn` | Kiểm tra đường ICE restart thuần (EC-CALL-NET-002/010) |
 | Chỉ mất socket (media còn) | Restart server (`npm run dev:server` tự reload, hoặc kill process) | EC-CALL-NET-009, AC-092 |
 | Đổi mạng Wi-Fi → 4G | Thiết bị thật: tắt Wi-Fi điện thoại giữa cuộc gọi | EC-CALL-NET-001 |
@@ -1020,6 +1021,8 @@ export default defineConfig({
     },
     {
       name: 'firefox',
+      // E2E mạng (relay qua coturn local 127.0.0.1) chỉ chạy Chromium: Firefox loại candidate loopback.
+      testIgnore: /call-network\.spec\.ts/,
       use: {
         ...devices['Desktop Firefox'],
         launchOptions: {
@@ -1053,7 +1056,7 @@ export default defineConfig({
 Quy ước E2E:
 - Tên test bắt đầu bằng Test ID và tag: `test('TC-AC-070 gọi thoại thành công @media', …)`.
 - Tag `@smoke`: tập spec chạy được trên môi trường đã deploy (không dùng `dockerCompose`, không cần seed ngoài 2 tài khoản smoke) — `TC-ARCH-017` (mục 9.7).
-- `e2e/fixtures.ts` cung cấp: `loginAs(page, 'alice')` (gọi REST login, nạp token qua `/auth/refresh` như reload thật), `twoUsers()` (2 browser context độc lập), `mockGetUserMediaError(page, name, kinds)` (dùng `page.addInitScript` ném `DOMException(name)` — phục vụ AC-078, AC-080, EC-CALL-MEDIA-001/003/005/013 vì thiết bị giả luôn tồn tại), `setIcePolicyRelay()` (đọc env test của server — E2E mạng chạy với một server riêng khởi bởi `call-network.spec.ts` có `ICE_TRANSPORT_POLICY=relay`), `dockerCompose(cmd, service)` (pause/unpause/stop/start).
+- `e2e/fixtures.ts` cung cấp: `loginAs(page, 'alice')` (gọi REST login, nạp token qua `/auth/refresh` như reload thật), `twoUsers()` (2 browser context độc lập), `mockGetUserMediaError(page, name, kinds)` (dùng `page.addInitScript` ném `DOMException(name)` — phục vụ AC-078, AC-080, EC-CALL-MEDIA-001/003/005/013 vì thiết bị giả luôn tồn tại), `setIcePolicyRelay(env)` (khởi server riêng `node --import tsx` cổng 4100 với `ICE_TRANSPORT_POLICY=relay` + `env` ghi đè, và Vite thứ hai cổng 5174 theo `e2e/vite.network.config.ts`; `restartServer()` dừng đột ngột rồi chạy lại — AC-092), `dockerCompose(cmd, service)` (pause/unpause/stop/start), `recordCallStates(page)` / `recordSent(page)` (frame `call:state`, ACK và event `call:*` gửi đi, gắn trước khi trang mở socket), `callStats(page)` (đọc `window.__hustaloCallStats`). Autoplay bị chặn (AC-093) giả lập bằng init script: `play()` có tiếng bị từ chối `NotAllowedError` tới khi có thao tác nhập `isTrusted` — Chromium headless luôn cho autoplay và `page.evaluate` được tính là cử chỉ người dùng.
 - Kiểm tra media bằng `page.evaluate(() => window.__hustaloCallStats())` — hàm async trả về mảng `RTCStats` (giá trị của `pc.getStats()` của cuộc gọi hiện tại, dạng mảng để `page.evaluate` tuần tự hóa được), `[]` khi chưa có `PeerSession`. Hook do `features/calls/call-stats-hook.ts` gắn **chỉ khi `import.meta.env.DEV`** (E2E chạy trên Vite dev server, mục 6.6); build production không có hook — kiểm bằng unit test `call-stats-hook.test.ts` (DEV=false → `window.__hustaloCallStats` không tồn tại). Nếu sau này E2E chạy trên bản build thì phải sửa điều kiện này trước.
 - Accessibility: mỗi spec màn hình chính gọi `new AxeBuilder({ page }).analyze()` và assert 0 vi phạm `serious`/`critical` (NFR-11).
 - Safari 17 (macOS/iOS) test tay theo mục 6.2 trước mỗi release (rủi ro R-02).
@@ -1485,10 +1488,10 @@ sudo chown 999:999 infra/mongo/keyfile   # uid/gid user mongodb trong image mong
 
 `infra/nginx/nginx.conf` (yêu cầu bắt buộc):
 - `server { listen 80; }`: phục vụ `/.well-known/acme-challenge/` từ webroot; mọi đường dẫn khác `return 301 https://$host$request_uri;`.
-- `server { listen 443 ssl; http2 on; }`: `ssl_certificate /etc/letsencrypt/live/<domain>/fullchain.pem`, `ssl_certificate_key …/privkey.pem`; `ssl_protocols TLSv1.2 TLSv1.3`; `add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;`; CSP và header theo kiến trúc §9.6; `client_max_body_size` ≥ giới hạn REST body.
+- `server { listen 443 ssl; http2 on; }`: `ssl_certificate /etc/letsencrypt/live/hustalo/fullchain.pem`, `ssl_certificate_key …/privkey.pem` (chứng chỉ lấy bằng `certbot certonly --webroot -w /var/www/certbot --cert-name hustalo -d <domain>` nên đường dẫn không phụ thuộc tên miền); `ssl_protocols TLSv1.2 TLSv1.3`; `add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;`; CSP và header theo kiến trúc §9.6; `client_max_body_size` ≥ giới hạn REST body.
 - `location /api/` → `proxy_pass http://server:4000;` + `proxy_set_header Host $host; X-Forwarded-For $proxy_add_x_forwarded_for; X-Forwarded-Proto $scheme; X-Request-Id $request_id`.
 - `location /socket.io/` → `proxy_pass http://server:4000;` + `proxy_http_version 1.1; proxy_set_header Upgrade $http_upgrade; proxy_set_header Connection "upgrade"; proxy_read_timeout 75s;` (> ping interval + timeout của Socket.IO, kiến trúc §6.4; T-07).
-- `location /` → `root /usr/share/nginx/html; try_files $uri $uri/ /index.html;` (SPA fallback cho `/chats/:id`, `/call/:callId`…); `/assets/*` → `Cache-Control: public, max-age=31536000, immutable`; `index.html` → `Cache-Control: no-cache`.
+- `location /` → `proxy_pass http://client:8080;`. Container client (`client/nginx.conf`) phục vụ `root /usr/share/nginx/html; try_files $uri $uri/ /index.html;` (SPA fallback cho `/chats/:id`, `/call/:callId`…); `/assets/*` → `Cache-Control: public, max-age=31536000, immutable`; `index.html` → `Cache-Control: no-cache`. Header bảo mật chỉ đặt ở cấp `server` của nginx biên (không `add_header` trong `location`) để mọi response thừa hưởng.
 - `// Xác minh với tài liệu chính thức của nginx: cú pháp "http2 on" (nginx ≥ 1.25.1) so với "listen 443 ssl http2" ở bản cũ.`
 
 ### 9.4 Biến môi trường production
@@ -1624,7 +1627,7 @@ docker compose --env-file infra/.env.prod -f infra/docker-compose.prod.yml exec 
 - [x] **Không có secret thật, không chỗ trống:** mọi file `.env.example` dùng giá trị mẫu `replace-…`; `SEED_PASSWORD` là mật khẩu dev cục bộ, bị env.ts cấm ở production; chỗ chưa chắc chắn về công cụ bên thứ ba đều có `// Xác minh với tài liệu chính thức của …` (tsx `--env-file`, tag image coturn/mongo-express, Xirsys base URL và quota, Playwright `setOffline`, GitHub Actions, menu Android).
 - [x] **Không mâu thuẫn với file đã sinh — các điểm đã đối chiếu:**
   - Cây thư mục kiến trúc §4.1: dùng đúng `infra/docker-compose.yml`, `infra/mongo/init-replica.js` (host `mongo:27017`), `infra/coturn/turnserver.conf`, `infra/certs/localhost+lan*.pem`, `scripts/gen-secrets.mjs` (có `--data-key` như §9.2.4), `scripts/check-bundle-secrets.mjs`, `server/src/infra/db/{indexes,seed}.ts`, `jobs/reencrypt-messages.ts`, `test/{global-setup,fake-clock}.ts`, `client/{vite,playwright}.config.ts`, `client/e2e/*`.
-  - File `[NEW]` bổ sung (không đổi cấu trúc): `.gitattributes`, `.npmrc`, `.prettierignore`, `infra/.env.example`, `scripts/make-certs.mjs`, `scripts/check-traceability.mjs`, `scripts/ci-env.mjs`, `server/src/infra/runtime/is-main.ts`, `server/src/jobs/user-lock.ts`, `.github/workflows/ci.yml`, `load/*.js`; M6.5: `.dockerignore`, `server/Dockerfile`, `client/Dockerfile`, `.github/workflows/cicd-docker.yml`, `infra/docker-compose.prod.yml`, `infra/mongo/init-prod.js`, `infra/nginx/nginx.conf`, `infra/.env.prod.example`, `server/.env.prod.example` (mục 9).
+  - File `[NEW]` bổ sung (không đổi cấu trúc): `.gitattributes`, `.npmrc`, `.prettierignore`, `infra/.env.example`, `scripts/make-certs.mjs`, `scripts/check-traceability.mjs`, `scripts/ci-env.mjs`, `server/src/infra/runtime/is-main.ts`, `server/src/jobs/user-lock.ts`, `.github/workflows/ci.yml`, `load/*.js`; M5–M6: `client/e2e/vite.network.config.ts`, `client/e2e/smoke.spec.ts`, `client/lighthouserc.json`, `scripts/check-bundle-size.mjs`, `scripts/coverage-merge.mjs`; M6.5: `.dockerignore`, `server/Dockerfile`, `client/Dockerfile`, `.github/workflows/cicd-docker.yml`, `infra/docker-compose.prod.yml`, `infra/mongo/init-prod.js`, `infra/nginx/nginx.conf`, `infra/.env.prod.example`, `server/.env.prod.example`, `client/nginx.conf` (nginx trong image client: SPA fallback + cache header) (mục 9).
   - Cổng (kiến trúc §3): 5173, 4000, 9464, 27017, 6379, 3478/5349, 8081 — khớp.
   - Biến môi trường: đủ danh sách gốc + Phụ lục D (`NODE_ENV`, `METRICS_PORT`, `REDIS_KEY_PREFIX`, `REDIS_URL_TEST`, `SOCKET_ADAPTER`, `TRUST_PROXY`) + `SEED_PASSWORD` (`database_schema.md` §6.5).
   - Cookie/CSRF (kiến trúc §6.3), Socket.IO path/ping (§6.4), ICE servers/Xirsys/fallback/`ICE_TRANSPORT_POLICY` (§9.5), Redis/Mongo down (§10.1–10.2), `db:indexes`/`db:migrate`/`db:seed` (`database_schema.md` §6.3–6.5), `user:lock`/`user:unlock` (PRD FR-AUTH-006), `job:reencrypt` (kiến trúc §9.2.4), lint OpenAPI bằng `@redocly/cli` (`api_spec.yaml` header), DoD (PRD §7), NFR-05/09/11/13/14 (PRD §6).

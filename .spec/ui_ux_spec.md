@@ -61,8 +61,7 @@ Token định nghĩa dạng kênh RGB trong CSS variables để Tailwind dùng �
 | `--color-call-bg` | `17 24 39` (#111827) | `2 6 23` (#020617) | Nền màn hình cuộc gọi (luôn tối cả hai theme) | Chữ trắng 17,7:1 |
 
 ```css
-/* client/src/styles/index.css */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+/* client/src/styles/index.css — font Inter KHÔNG khai báo ở đây: lib/fonts/fonts.ts đăng ký sau FCP (§1.1 bên dưới) */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -133,7 +132,7 @@ body {
 }
 ```
 
-Font Inter tải qua Google Fonts CSS2: API này trả các `@font-face` theo `unicode-range`, trong đó có dải tiếng Việt, nên trình duyệt chỉ tải subset cần dùng. Domain đã có trong CSP của kiến trúc §9.6. `// Xác minh với tài liệu chính thức của Google Fonts: CSS2 API tự phục vụ subset vietnamese theo unicode-range.` Fallback: `system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif`.
+Font Inter **tự host** (`client/public/fonts/inter-{latin,latin-ext,vietnamese}.woff2`, font variable 400–700, giấy phép SIL OFL 1.1 trong `public/fonts/OFL.txt`; tách subset theo `unicode-range` giống Google Fonts CSS2, có dải tiếng Việt). Không dùng `@import` Google Fonts (chặn render, thêm origin mới — LCP 3,6 s, vượt NFR-05). `client/src/lib/fonts/fonts.ts` đăng ký 3 `FontFace` (`display: 'swap'`, không gọi `load()` → trình duyệt chỉ tải subset có ký tự đang hiển thị) **sau** mốc `first-contentful-paint` (`PerformanceObserver` 'paint', tối đa 3 s) và lúc rảnh (`requestIdleCallback` tối đa 2 s; thiếu API → sau 1 s), gọi từ `main.tsx` sau `render()`. Trước đó chữ hiển thị bằng font fallback rồi đổi sang Inter. Fallback: `system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif`.
 
 ### 1.2 Cấu hình Tailwind
 
@@ -801,7 +800,7 @@ Cây component:
 ```text
 features/calls/InCallScreen.tsx
 ├── CallTopBar [NEW] (features/calls/CallTopBar.tsx) — tên, đồng hồ mm:ss (từ connectedAt server), NetworkQualityBadge [NEW]
-├── RemoteVideo [NEW] (features/calls/RemoteVideo.tsx) — <video autoPlay playsInline>; không có track video / track muted → Avatar + "Camera đang tạm dừng" (EC-CALL-MEDIA-011)
+├── RemoteVideo [NEW] (features/calls/RemoteVideo.tsx) — <video autoPlay playsInline>; không có track video / track muted / không có khung hình mới trong REMOTE_VIDEO_STALL_MS (S.call.remoteVideoStalled) → Avatar + "Camera đang tạm dừng" (EC-CALL-MEDIA-011)
 ├── RemoteAudio [NEW] (features/calls/RemoteAudio.tsx) — <audio autoPlay>; play() bị từ chối → AutoplayUnlockButton
 ├── LocalVideo (PiP, kéo thả được tới 4 góc, mặc định dưới phải; double-click/chạm 2 lần đổi chỗ với remote)
 ├── CallStatusText — "Đang kết nối…" / "Đang kết nối lại…" (aria-live assertive)
@@ -815,7 +814,7 @@ features/calls/InCallScreen.tsx
 └── CallEndedNotice (features/calls/CallEndedNotice.tsx) — hiển thị 2 s rồi đóng overlay
 ```
 
-- **Nguồn dữ liệu:** `S.call` (`status` theo `E:call:state` có `version` lớn nhất, `localPhase`, `micEnabled`, `camEnabled`, `networkQuality`), `PeerSession` (`lib/webrtc/peer-session.ts`) cho stream; `E:call:offer/answer/ice-candidate/ice-restart` do `useCallController` xử lý.
+- **Nguồn dữ liệu:** `S.call` (`status` theo `E:call:state` có `version` lớn nhất, `localPhase`, `micEnabled`, `camEnabled`, `networkQuality`, `localIceLost` — PeerSession mất ICE: hiện "Đang kết nối lại…" khi CONNECTED mà chưa nhận RECONNECTING từ server (AC-081), `remoteVideoStalled` — EC-CALL-MEDIA-011), `PeerSession` (`lib/webrtc/peer-session.ts`) cho stream; `E:call:offer/answer/ice-candidate/ice-restart` do `useCallController` xử lý.
 - **Đồng hồ:** `mm:ss` (≥ 1 giờ: `h:mm:ss`) tính từ `connectedAt` của `call:state`, cộng bù lệch giờ server.
 - **Ẩn điều khiển:** VIDEO trên mobile tự ẩn thanh điều khiển sau 4 s không chạm; chạm màn hình hiện lại. Desktop luôn hiện. Không bao giờ ẩn khi focus nằm trong thanh điều khiển.
 - **Kết thúc:** `E:call:end { reason: 'HANGUP' }` → `CallEndedNotice` với chuỗi theo §8.6 kiến trúc → sau 2 s đóng overlay, stop mọi track, `pc.close()`.
@@ -938,7 +937,7 @@ Chuỗi trong cột "Văn bản tiếng Việt chính xác" là khóa `t()` tron
 | Không gọi được (chặn) | ACK `USER_BLOCKED`; hoặc `canMessage = false` | Nút gọi disabled (tooltip) / `CallEndedNotice` | — | "Không thể gọi cho người này" | — |
 | Gọi quá nhanh | ACK `RATE_LIMITED` | `CallEndedNotice`; nút gọi disabled 60 s | — | "Bạn thao tác quá nhanh, vui lòng thử lại sau" | Hết 60 s |
 | Hạ tầng lỗi | ACK `SERVICE_UNAVAILABLE` | `CallEndedNotice` | — | "Không thể thực hiện cuộc gọi lúc này" | Tự đóng 3 s |
-| Camera người kia tạm dừng | Remote video track `mute` hoặc không có | Avatar + chú thích ở `RemoteVideo` | — | "Camera đang tạm dừng" | Track `unmute` |
+| Camera người kia tạm dừng | Remote video track `mute`, không có, hoặc không có khung hình mới trong `REMOTE_VIDEO_STALL_MS` (người kia bấm tắt camera) | Avatar + chú thích ở `RemoteVideo` | — | "Camera đang tạm dừng" | Track `unmute` / khung hình chảy lại |
 | Đổi thiết bị âm thanh | `devicechange` làm mất thiết bị đang dùng | Toast | — | "Đã chuyển sang {tên thiết bị}" | Tự ẩn 4 s |
 
 ### 4.4 Lỗi media và hỗ trợ trình duyệt

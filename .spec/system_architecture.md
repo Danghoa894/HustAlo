@@ -235,7 +235,7 @@ hustalo/
 ├── eslint.config.js                  # flat config: typescript-eslint, react-hooks, import, no-restricted-syntax
 ├── .prettierrc.json
 ├── .editorconfig
-├── .gitignore                        # node_modules/, .env*, !.env.example, infra/certs/, **/dist, coverage
+├── .gitignore                        # node_modules/, .env*, !.env.example, !.env.*.example, infra/certs/, infra/mongo/keyfile, **/dist, coverage, graphify-out/, .codegraph/
 ├── .nvmrc                            # 22
 ├── .npmrc
 ├── .gitattributes                    # eol=lf (development_guide.md §1.4)
@@ -263,17 +263,20 @@ hustalo/
 │   ├── docker-compose.yml            # CHỈ local: mongo (rs0), redis, coturn, mongo-express (profile tools)
 │   ├── docker-compose.prod.yml       # [NEW] M6.5: nginx, server, mongo (rs0 + auth + keyFile), redis (requirepass)
 │   ├── .env.example                  # biến cho compose local (development_guide.md §4.1)
+│   ├── .env.prod.example             # [NEW] M6.5: biến docker-compose.prod.yml (development_guide.md §9.4)
 │   ├── mongo/
 │   │   ├── init-replica.js           # rs.initiate({_id:"rs0", members:[{_id:0, host:"mongo:27017"}]})
 │   │   └── init-prod.js              # [NEW] M6.5: rs.initiate + tạo user root/app (development_guide.md §9.3)
 │   ├── nginx/
-│   │   └── nginx.conf                # [NEW] M6.5: TLS, HSTS, CSP; /api, /socket.io (Upgrade); SPA fallback
+│   │   └── nginx.conf                # [NEW] M6.5: nginx biên — TLS (--cert-name hustalo), HSTS, CSP; /api, /socket.io (Upgrade); / → container client
 │   ├── coturn/
 │   │   └── turnserver.conf           # cấu hình test, user tĩnh từ TURN_FALLBACK_*
 │   └── certs/                        # mkcert output (gitignored): localhost+lan.pem, localhost+lan-key.pem
 ├── scripts/
 │   ├── gen-secrets.mjs               # in ra JWT_ACCESS_SECRET, REFRESH_TOKEN_PEPPER, DATA_ENCRYPTION_KEYS
 │   ├── check-bundle-secrets.mjs      # quét client/dist tìm chuỗi XIRSYS_/SECRET/PEPPER (EC-SEC-006)
+│   ├── check-bundle-size.mjs         # [NEW] M6: JS khởi tạo (script + modulepreload trong index.html) ≤ 300 KB gzip (NFR-05), chạy trong npm run build
+│   ├── coverage-merge.mjs            # [NEW] M6: gộp coverage unit + integration server, ngưỡng 80% dòng modules/** (NFR-14)
 │   ├── check-traceability.mjs        # npm run trace:check (development_guide.md §8.8)
 │   ├── make-certs.mjs                # npm run certs: mkcert localhost + LAN-IP → infra/certs
 │   ├── ci-env.mjs                    # sinh file .env cho CI từ .env.example (development_guide.md §8.7)
@@ -281,6 +284,10 @@ hustalo/
 │   ├── __tests__/
 │   │   └── check-traceability.test.mjs  # node:test — tham số --milestone (M0..M7, M6.5)
 │   └── spec-check.mjs                # [NEW] đối chiếu chéo .spec/ (npm run spec:check)
+├── load/                             # [NEW] M6: k6 (chạy bằng Docker image grafana/k6), development_guide.md §7 M6
+│   ├── lib.js                        # register (X-Forwarded-For riêng — chỉ môi trường test), client Socket.IO v4 tối giản trên k6/ws
+│   ├── message-send.js               # NFR-01 / AC-ARCH-012: 50 user, 5 msg/s, 5 phút, p95 ACK ≤ 300 ms
+│   └── sockets.js                    # NFR-09: 1.000 socket + 200 cuộc gọi signaling, RSS server ≤ 1 GB
 ├── packages/
 │   └── shared/
 │       ├── package.json              # name "@hustalo/shared", exports trỏ tới src/index.ts (TS source)
@@ -319,6 +326,7 @@ hustalo/
 │   ├── vitest.integration.config.ts  # integration: src/**/*.int.test.ts, globalSetup mongo-memory replset
 │   ├── Dockerfile                    # [NEW] M6.5: multi-stage (deps → build tsup → runtime), USER node, HEALTHCHECK /api/v1/health
 │   ├── .env.example
+│   ├── .env.prod.example             # [NEW] M6.5: env production (development_guide.md §9.4)
 │   └── src/
 │       ├── main.ts                   # bootstrap: env → logger → mongo → redis → app → gateway → jobs → listen; SIGTERM
 │       ├── app.ts                    # createApp(deps): express + middleware + router + error handler
@@ -327,7 +335,11 @@ hustalo/
 │       ├── __tests__/                # test kiến trúc toàn server (không thuộc module nào)
 │       │   ├── arch.test.ts                # hợp đồng chỉ định nghĩa ở @hustalo/shared (AC-ARCH-002)
 │       │   ├── eslint-arch.test.ts         # import/no-cycle + ràng buộc import theo thư mục (AC-ARCH-001)
-│       │   └── bundle-secrets.test.ts      # check-bundle-secrets.mjs (EC-SEC-006)
+│       │   ├── bundle-secrets.test.ts      # check-bundle-secrets.mjs (EC-SEC-006, AC-105)
+│       │   ├── no-console.test.ts          # [NEW] M6: no-console mức error cho mã client (EC-SEC-007)
+│       │   └── deploy.test.ts              # [NEW] M6.5: TC-ARCH-016 — bảng §9.7 trên E2E_BASE_URL (bỏ qua khi không đặt)
+│       ├── redis-down.int.test.ts    # [NEW] M6: Redis down — health degraded, auth 503, limiter bộ nhớ, presence degraded, call:invite 503
+│       ├── log-scan.int.test.ts      # [NEW] M6: quét log toàn luồng (AC-104, AC-ARCH-010)
 │       ├── infra/
 │       │   ├── db/
 │       │   │   ├── mongo.ts                # connect (replicaSet bắt buộc), health ping
@@ -483,25 +495,30 @@ hustalo/
     ├── tsconfig.json
     ├── vite.config.ts                # http mặc định; https mkcert khi VITE_HTTPS=1; proxy /api + /socket.io → :4000 (ws: true)
     ├── vitest.config.ts              # jsdom, setupFiles src/test/setup.ts
-    ├── Dockerfile                    # [NEW] M6.5: multi-stage (vite build → nginx:alpine non-root phục vụ dist)
+    ├── Dockerfile                    # [NEW] M6.5: multi-stage (vite build + check-bundle-secrets → nginx-unprivileged :8080 phục vụ dist)
+    ├── nginx.conf                    # [NEW] M6.5: nginx trong image client — SPA fallback, /assets immutable, index.html no-cache
+    ├── lighthouserc.json             # [NEW] M6: Lighthouse CI trên client/dist — LCP ≤ 2,5 s (NFR-05)
     ├── tailwind.config.ts            # theme.extend từ ui_ux_spec.md
     ├── postcss.config.js
-    ├── playwright.config.ts          # projects chromium/firefox/webkit; launch args fake media
+    ├── playwright.config.ts          # projects chromium/firefox/webkit; launch args fake media; firefox bỏ call-network.spec.ts
     ├── index.html
     ├── .env.example
     ├── public/
     │   ├── sounds/ringtone.wav       # nhạc chuông cuộc gọi đến (sinh bằng scripts/gen-sounds.mjs)
     │   ├── sounds/ringback.wav       # âm chờ cuộc gọi đi (sinh bằng scripts/gen-sounds.mjs)
     │   ├── theme-init.js             # đặt class theme trước khi React mount (tránh nháy màu)
+    │   ├── fonts/                    # [NEW] M6: inter-{latin,latin-ext,vietnamese}.woff2 (Inter variable 400–700) + OFL.txt
     │   └── favicon.svg
     ├── e2e/
-    │   ├── fixtures.ts               # login nhanh qua API, 2 context (alice/bob)
+    │   ├── fixtures.ts               # login nhanh qua API, twoUsers, mockGetUserMediaError, recordCallStates/recordSent, callStats, dockerCompose, setIcePolicyRelay
+    │   ├── vite.network.config.ts    # [NEW] M5: Vite :5174 proxy tới server riêng :4100 cho call-network.spec.ts
     │   ├── auth.spec.ts
     │   ├── chat.spec.ts
     │   ├── group.spec.ts
     │   ├── presence.spec.ts
     │   ├── call.spec.ts
-    │   ├── call-network.spec.ts      # relay-only, offline/online context
+    │   ├── call-network.spec.ts      # relay-only (server riêng :4100), pause coturn + setOffline, restart server — chỉ Chromium
+    │   ├── smoke.spec.ts             # [NEW] M6.5: @smoke TC-ARCH-017 (chạy được với E2E_BASE_URL)
     │   └── e2ee.spec.ts
     └── src/
         ├── main.tsx
@@ -514,6 +531,8 @@ hustalo/
         │       ├── RequireAuth.tsx
         │       └── RedirectIfAuthed.tsx
         ├── lib/
+        │   ├── fonts/
+        │   │   └── fonts.ts          # [NEW] M6: đăng ký FontFace Inter tự host sau first-contentful-paint (ui_ux_spec.md §1.1, NFR-05)
         │   ├── api/
         │   │   ├── http.ts           # fetch wrapper: Bearer, X-CSRF-Token, refresh 1 lần khi TOKEN_EXPIRED
         │   │   ├── refresh.ts        # Web Locks + retry khi 409 (D-19)
@@ -712,6 +731,7 @@ export const CALL_RECONNECT_GRACE_MS = 20 * SECOND;
 export const CALL_MAX_ICE_RESTARTS = 2;               // kiểm trong state machine (T30), KHÔNG ở Zod
 export const CALL_INCOMING_ACK_TIMEOUT_MS = 5 * SECOND; // [NEW] chờ device ack call:incoming
 export const ICE_DISCONNECTED_GRACE_MS = 3 * SECOND;   // [NEW] 'disconnected' kéo dài > 3s mới coi là mất
+export const REMOTE_VIDEO_STALL_MS = 1 * SECOND;       // [NEW] không có khung hình video mới ≥ 1s → "Camera đang tạm dừng" (EC-CALL-MEDIA-011)
 export const CALL_STATE_TTL_S = 6 * 60 * 60;           // [NEW] TTL tối đa call:active / user:incall
 export const CALL_DEADLINE_SWEEP_INTERVAL_MS = 1 * SECOND; // [NEW] D-05
 export const CALL_SDP_MAX_LENGTH = 20000;              // [NEW] ký tự
@@ -1936,8 +1956,8 @@ Kỳ vọng response: { "s": "ok", "v": { "iceServers": { "username": "<u>", "cr
 ```text
 default-src 'self';
 script-src 'self';
-style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
-font-src 'self' https://fonts.gstatic.com;
+style-src 'self' 'unsafe-inline';
+font-src 'self';
 img-src 'self' data: blob:;
 media-src 'self' blob:;
 connect-src 'self' wss://<host> https://<host>;
@@ -1947,7 +1967,7 @@ form-action 'self';
 object-src 'none'
 ```
 
-  (`style-src 'unsafe-inline'` cần cho style động của video PiP; nếu dùng font tự host thì bỏ hai domain Google Fonts.)
+  (`style-src 'unsafe-inline'` cần cho style động của video PiP. Font Inter tự host (ui_ux_spec.md §1.1, NFR-05) nên không có domain Google Fonts.)
 - `Referrer-Policy: no-referrer`, `X-Content-Type-Options: nosniff`, `Permissions-Policy: camera=(self), microphone=(self), geolocation=()`.
 - CORS: `origin` ∈ `CORS_ORIGINS` (danh sách phân tách bằng dấu phẩy), `credentials: true`, methods `GET,POST,PATCH,PUT,DELETE`, headers `Authorization, Content-Type, X-CSRF-Token, X-Request-Id, Idempotency-Key`. Origin khác → không set header CORS (trình duyệt chặn); Socket.IO dùng cùng whitelist.
 - Hiển thị: React escape mặc định; ESLint `react/no-danger: error`; link trong tin nhắn hiển thị dạng text (MVP không tự động linkify). Bubble dùng `dir="auto"` và CSS `unicode-bidi: isolate` chống ký tự điều khiển RTL làm đảo giao diện (EC-MSG-003); payload XSS hiển thị nguyên văn (EC-MSG-004).
@@ -2289,7 +2309,7 @@ Ma trận edge case trong `product_requirements.md` phải chứa **đúng** cá
 | EC-CALL-MEDIA-008 | Trình duyệt không hỗ trợ WebRTC | Ẩn nút gọi, thông báo | 7(e) |
 | EC-CALL-MEDIA-009 | Insecure context | Ẩn nút gọi, thông báo cần HTTPS | 9.1 |
 | EC-CALL-MEDIA-010 | Autoplay bị chặn | Nút "Chạm để bật âm thanh" | (ui_ux_spec) |
-| EC-CALL-MEDIA-011 | Mobile tắt camera khi chuyển app | `track.muted` → peer hiển thị avatar; khôi phục khi `unmute` | (ui_ux_spec) |
+| EC-CALL-MEDIA-011 | Mobile tắt camera khi chuyển app; người kia bấm tắt camera | `track.muted` hoặc không có khung hình mới (`framesReceived`) trong `REMOTE_VIDEO_STALL_MS` → peer hiển thị avatar; khôi phục khi `unmute` / khung hình chảy lại (PeerSession đọc getStats mỗi `REMOTE_VIDEO_STALL_MS / 4` khi gọi VIDEO đã kết nối) | (ui_ux_spec) |
 | EC-CALL-MEDIA-012 | Cuộc gọi kết thúc khi `getUserMedia` còn chờ | Stop track muộn | 7(e) |
 | EC-CALL-MEDIA-013 | `OverconstrainedError` | Thử lại với constraint tối thiểu, rồi fallback audio | 7(e) |
 
