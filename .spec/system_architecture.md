@@ -277,6 +277,7 @@ hustalo/
 │   ├── check-traceability.mjs        # npm run trace:check (development_guide.md §8.8)
 │   ├── make-certs.mjs                # npm run certs: mkcert localhost + LAN-IP → infra/certs
 │   ├── ci-env.mjs                    # sinh file .env cho CI từ .env.example (development_guide.md §8.7)
+│   ├── gen-sounds.mjs                # [NEW] M5: sinh client/public/sounds/{ringtone,ringback}.wav (PCM, Node thuần)
 │   ├── __tests__/
 │   │   └── check-traceability.test.mjs  # node:test — tham số --milestone (M0..M7, M6.5)
 │   └── spec-check.mjs                # [NEW] đối chiếu chéo .spec/ (npm run spec:check)
@@ -489,8 +490,8 @@ hustalo/
     ├── index.html
     ├── .env.example
     ├── public/
-    │   ├── sounds/ringtone.mp3       # nhạc chuông cuộc gọi đến
-    │   ├── sounds/ringback.mp3       # âm chờ cuộc gọi đi
+    │   ├── sounds/ringtone.wav       # nhạc chuông cuộc gọi đến (sinh bằng scripts/gen-sounds.mjs)
+    │   ├── sounds/ringback.wav       # âm chờ cuộc gọi đi (sinh bằng scripts/gen-sounds.mjs)
     │   ├── theme-init.js             # đặt class theme trước khi React mount (tránh nháy màu)
     │   └── favicon.svg
     ├── e2e/
@@ -596,7 +597,10 @@ hustalo/
         │   │   ├── InCallScreen.tsx
         │   │   ├── CallControls.tsx
         │   │   ├── CallEndedNotice.tsx
-        │   │   ├── useCallController.ts      # điều phối PeerSession ↔ socket ↔ call.store
+        │   │   ├── useCallController.ts      # hook React mỏng bọc call-controller.ts
+        │   │   ├── call-controller.ts        # [NEW] lõi điều phối PeerSession ↔ socket ↔ call.store, không phụ thuộc React (test bằng socket giả)
+        │   │   ├── autoplay.ts               # [NEW] hàng chờ phần tử media bị chặn autoplay; AutoplayUnlockButton gọi lại play()
+        │   │   ├── call-stats-hook.ts        # [NEW] window.__hustaloCallStats() cho E2E, chỉ gắn khi import.meta.env.DEV
         │   │   ├── useRingtone.ts            # phát nhạc chuông, xử lý autoplay bị chặn
         │   │   ├── calls.api.ts
         │   │   └── CallHistoryList.tsx

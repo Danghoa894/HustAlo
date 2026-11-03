@@ -1,0 +1,103 @@
+# infra/docker-compose.prod.yml — production một VM (development_guide.md §9.1, §9.3). Chạy từ DEPLOY_PATH:
+#   docker compose --env-file infra/.env.prod -f infra/docker-compose.prod.yml pull
+#   docker compose --env-file infra/.env.prod -f infra/docker-compose.prod.yml up -d --wait
+# Chỉ nginx publish cổng (80, 443). Mongo/Redis/METRICS_PORT không ra Internet (TB-4, kiến trúc §11.1).
+name: hustalo-prod
+
+services:
+  nginx:
+    image: nginx:alpine
+    depends_on:
+      server:
+        condition: service_healthy
+      client:
+        condition: service_started
+    ports:
+      - '80:80'
+      - '443:443'
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+      - /var/www/certbot:/var/www/certbot:ro
+    restart: unless-stopped
+
+  client:
+    # Phục vụ file tĩnh SPA (non-root :8080); nginx biên proxy "/" sang đây.
+    image: ${DOCKERHUB_USERNAME:?Thiếu DOCKERHUB_USERNAME}/hustalo-client:${IMAGE_TAG:?Thiếu IMAGE_TAG}
+    restart: unless-stopped
+
+  server:
+    image: ${DOCKERHUB_USERNAME}/hustalo-server:${IMAGE_TAG}
+    env_file: ../server/.env.prod
+    depends_on:
+      mongo-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  mongo:
+    image: mongo:7.0
+    command:
+      - --replSet
+      - rs0
+      - --bind_ip_all
+      - --keyFile
+      - /etc/mongo/keyfile
+      - --auth
+      # VM 1 GB RAM (§9.1): giới hạn cache WiredTiger
+      - --wiredTigerCacheSizeGB
+      - '0.25'
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USERNAME:?Thiếu MONGO_ROOT_USERNAME}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:?Thiếu MONGO_ROOT_PASSWORD}
+    volumes:
+      - mongo-data:/data/db
+      - ./mongo/keyfile:/etc/mongo/keyfile:ro
+    healthcheck:
+      test: ['CMD', 'mongosh', '--quiet', '--eval', "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      start_period: 20s
+      retries: 10
+    restart: unless-stopped
+
+  mongo-init:
+    # One-shot, idempotent: rs.initiate + tạo user app (infra/mongo/init-prod.js). App không dùng root.
+    image: mongo:7.0
+    depends_on:
+      mongo:
+        condition: service_healthy
+    environment:
+      MONGO_ROOT_USERNAME: ${MONGO_ROOT_USERNAME}
+      MONGO_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
+      MONGO_APP_USERNAME: ${MONGO_APP_USERNAME:?Thiếu MONGO_APP_USERNAME}
+      MONGO_APP_PASSWORD: ${MONGO_APP_PASSWORD:?Thiếu MONGO_APP_PASSWORD}
+    volumes:
+      - ./mongo/init-prod.js:/scripts/init-prod.js:ro
+    entrypoint:
+      - sh
+      - -c
+      - >-
+        mongosh --quiet
+        "mongodb://$$MONGO_ROOT_USERNAME:$$MONGO_ROOT_PASSWORD@mongo:27017/admin?directConnection=true"
+        /scripts/init-prod.js
+    restart: 'no'
+
+  redis:
+    image: redis:7.2-alpine
+    command: ['sh', '-c', 'exec redis-server --requirepass "$$REDIS_PASSWORD" --appendonly yes']
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Thiếu REDIS_PASSWORD}
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ['CMD-SHELL', 'redis-cli -a "$$REDIS_PASSWORD" --no-auth-warning ping | grep -q PONG']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  mongo-data:
+  redis-data:

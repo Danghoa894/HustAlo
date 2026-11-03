@@ -8,6 +8,7 @@ import { hashPassword } from '../infra/crypto/password';
 import { ALL_MODELS } from '../infra/db/indexes';
 import { connectMongo, disconnectMongo } from '../infra/db/mongo';
 import { createLogger } from '../infra/logger/logger';
+import type { Logger } from 'pino';
 import { createRedis, type RedisHandle } from '../infra/redis/redis';
 import { createRuntime, type Runtime } from '../main';
 import type { CallTiming } from '../modules/calls/calls.service';
@@ -35,6 +36,8 @@ export async function startTestServer(
     presenceTiming?: Partial<PresenceTiming>;
     callTiming?: Partial<CallTiming>;
     ice?: IceConfig;
+    /** Mặc định logger silent; test quét log (AC-104) truyền logger ghi vào bộ nhớ. */
+    logger?: Logger;
   } = {},
 ): Promise<TestServer> {
   await connectMongo(process.env.MONGODB_URI ?? '');
@@ -42,7 +45,7 @@ export async function startTestServer(
   if (!opts.redisUrl) await redis.client.connect();
   const runtimeOpts = {
     redis,
-    logger: createLogger({ level: 'silent' }),
+    logger: opts.logger ?? createLogger({ level: 'silent' }),
     ...(opts.messageHooks ? { messageHooks: opts.messageHooks } : {}),
     ...(opts.presenceTiming ? { presenceTiming: opts.presenceTiming } : {}),
     ...(opts.callTiming ? { callTiming: opts.callTiming } : {}),

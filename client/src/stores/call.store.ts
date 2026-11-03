@@ -48,6 +48,8 @@ interface CallStoreState {
   camEnabled: boolean;
   hasLocalVideo: boolean;
   networkQuality: NetworkQuality;
+  /** PeerSession báo mất ICE (disconnected/failed) — hiện "Đang kết nối lại…" ngay cả khi socket đang đứt (AC-081). */
+  localIceLost: boolean;
   localStream: MediaStream | null;
   remoteStream: MediaStream | null;
   mediaError: MediaErrorKind | null;
@@ -75,6 +77,7 @@ const initial = {
   camEnabled: true,
   hasLocalVideo: false,
   networkQuality: 'good' as NetworkQuality,
+  localIceLost: false,
   localStream: null,
   remoteStream: null,
   mediaError: null,

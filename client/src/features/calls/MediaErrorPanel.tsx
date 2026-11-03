@@ -14,7 +14,7 @@ const TEXT: Partial<Record<MediaErrorKind, string>> = {
   UNSUPPORTED: vi.calls.unsupported,
 };
 
-// Mô tả cách mở quyền (§4.4 "Hướng dẫn cấp quyền" — "mở mô tả theo trình duyệt").
+// Mô tả cách mở quyền (§4.4 "Hướng dẫn cấp quyền" — hiện ngay trong panel).
 const HELP = vi.calls.media.permissionSteps;
 
 export function MediaErrorPanel(props: { kind: MediaErrorKind; onRetry?: () => void; onClose: () => void }) {

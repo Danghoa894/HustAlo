@@ -105,6 +105,9 @@ function setup(over: Partial<CallControllerDeps> = {}) {
         setCamEnabled: vi.fn(),
         replaceAudioTrack: vi.fn(() => Promise.resolve()),
         replaceVideoTrack: vi.fn(() => Promise.resolve()),
+        statsSnapshot: vi.fn((): Promise<RTCStats[]> =>
+          Promise.resolve([{ id: 'cp', type: 'candidate-pair', timestamp: 1 }]),
+        ),
         close: vi.fn(),
       };
       peers.push(p);
@@ -408,6 +411,14 @@ describe('trong cuộc gọi (kiến trúc §8.4, §8.6)', () => {
     expect(useCallStore.getState().call).toBeNull();
   });
 
+  it('stats() (window.__hustaloCallStats) → [] khi chưa có PeerSession; có cuộc gọi → statsSnapshot của PeerSession', async () => {
+    const c = setup();
+    await expect(c.stats()).resolves.toEqual([]);
+    const peer = await connected(c);
+    await expect(c.stats()).resolves.toEqual([{ id: 'cp', type: 'candidate-pair', timestamp: 1 }]);
+    expect(peer.statsSnapshot).toHaveBeenCalled();
+  });
+
   it('ánh xạ chuỗi kết thúc §8.6 theo status/endReason/vai trò', async () => {
     const cases: [Partial<CallState>, string, number][] = [
       [{ status: 'ENDED', endReason: 'HANGUP' }, 'Cuộc gọi đã kết thúc', 2000],
@@ -483,6 +494,82 @@ describe('trong cuộc gọi (kiến trúc §8.4, §8.6)', () => {
     await flush();
     expect(peer.createOffer).toHaveBeenLastCalledWith({ iceRestart: true });
     expect(sent(EVENTS.CALL_OFFER).at(-1)).toMatchObject({ callId: CALL, sdp: 'offer-r' });
+  });
+
+  describe('mất mạng giữa cuộc gọi (TC-AC-081, FR-CALL-006)', () => {
+    let online = true;
+    let onOnline: (() => void) | null = null;
+    const withNetwork = () =>
+      setup({
+        network: {
+          isOnline: () => online,
+          onOnline: (fn) => {
+            onOnline = fn;
+            return () => {
+              onOnline = null;
+            };
+          },
+        },
+      });
+    beforeEach(() => {
+      online = true;
+      onOnline = null;
+    });
+
+    it('đang offline → hoãn ICE restart (không tốn lượt); có mạng lại → call:ice-restart attempt 1 + offer iceRestart', async () => {
+      const c = withNetwork();
+      const peer = await connected(c);
+      online = false;
+      peer.deps.onNeedIceRestart();
+      await flush();
+      expect(sent(EVENTS.CALL_ICE_RESTART)).toEqual([]);
+      online = true;
+      onOnline?.();
+      await flush();
+      expect(sent(EVENTS.CALL_ICE_RESTART)).toEqual([{ callId: CALL, attempt: 1 }]);
+      expect(peer.createOffer).toHaveBeenLastCalledWith({ iceRestart: true });
+    });
+
+    it('call:ice-restart không có ACK (socket đứt) → giữ lượt; socket nối lại → gửi lại attempt 1', async () => {
+      const c = withNetwork();
+      const peer = await connected(c);
+      emit.mockImplementationOnce(() => Promise.reject(new Error('ack timeout')));
+      peer.deps.onNeedIceRestart();
+      await flush();
+      expect(sent(EVENTS.CALL_ICE_RESTART)).toEqual([{ callId: CALL, attempt: 1 }]);
+      socket.emit('connect');
+      await flush();
+      expect(sent(EVENTS.CALL_ICE_RESTART)).toEqual([
+        { callId: CALL, attempt: 1 },
+        { callId: CALL, attempt: 1 },
+      ]);
+      expect(peer.createOffer).toHaveBeenLastCalledWith({ iceRestart: true });
+    });
+
+    it('caller: bên kia đã đăng ký lượt này (CALL_INVALID_STATE, relay mất khi mình offline) → caller vẫn tạo offer, mỗi lượt một lần', async () => {
+      const c = withNetwork();
+      const peer = await connected(c);
+      const offersBefore = sent(EVENTS.CALL_OFFER).length;
+      emit.mockImplementationOnce(() =>
+        Promise.resolve({ ok: false, error: { code: 'CALL_INVALID_STATE', message: 'x' } }),
+      );
+      peer.deps.onNeedIceRestart();
+      await flush();
+      expect(sent(EVENTS.CALL_OFFER)).toHaveLength(offersBefore + 1);
+      // relay tới muộn cho cùng lượt → không tạo offer thứ hai
+      socket.emit(EVENTS.CALL_ICE_RESTART, { eventId: 'late', occurredAt: '', callId: CALL, attempt: 1 });
+      await flush();
+      expect(sent(EVENTS.CALL_OFFER)).toHaveLength(offersBefore + 1);
+    });
+
+    it('mất ICE cục bộ → localIceLost (UI "Đang kết nối lại…" không chờ server); connected → tắt', async () => {
+      const c = withNetwork();
+      const peer = await connected(c);
+      peer.deps.onReport('disconnected');
+      expect(useCallStore.getState().localIceLost).toBe(true);
+      peer.deps.onReport('connected');
+      expect(useCallStore.getState().localIceLost).toBe(false);
+    });
   });
 
   it('socket reconnect khi đang gọi → gửi call:state để server hủy deadline PEER (§7(f))', async () => {

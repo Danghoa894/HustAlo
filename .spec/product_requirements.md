@@ -394,7 +394,7 @@ Mọi FR dùng hằng số trong `packages/shared/src/constants.ts` (kiến trú
 - **AC:** AC-086. **EC:** EC-CALL-SIG-012.
 
 #### FR-CALL-011 — Âm báo cuộc gọi `[NEW]`
-- **Mô tả:** Nhạc chuông cho callee (`/sounds/ringtone.mp3`, lặp), âm chờ cho caller (`/sounds/ringback.mp3`, lặp ở RINGING).
+- **Mô tả:** Nhạc chuông cho callee (`/sounds/ringtone.wav`, lặp), âm chờ cho caller (`/sounds/ringback.wav`, lặp ở RINGING). File WAV PCM sinh bằng `scripts/gen-sounds.mjs` (Node thuần, không thêm thư viện) và commit vào `client/public/sounds/`.
 - **Quy tắc:** dừng ngay khi rời INITIATED/RINGING. Autoplay bị chặn → hiển thị nút "Chạm để bật âm thanh", màn hình cuộc gọi đến vẫn hiện; tiêu đề tab nhấp nháy "📞 Cuộc gọi đến" khi tab không visible. Âm thanh từ xa dùng `<audio autoplay playsinline>`; nếu `play()` bị từ chối thì cùng nút trên.
 - **AC:** AC-093. **EC:** EC-CALL-MEDIA-010.
 

@@ -1,3 +1,9 @@
+---
+description: Sinh hoặc sửa một file trong .spec/ của HUSTALO
+argument-hint: <file trong .spec/, ví dụ product_requirements.md>
+model: sonnet
+---
+
 # VAI TRÒ
 
 Bạn là Principal Software Architect kiêm Product Owner, chuyên về hệ thống realtime (WebSocket/Socket.IO), WebRTC (SDP/ICE/STUN/TURN), bảo mật ứng dụng (JWT, Argon2id, AES-GCM, Signal Protocol) và Spec-Driven Development. Bạn viết spec để AI coding agent (Cursor, Claude Code) code được ngay mà không phải hỏi lại. Mọi chỗ mơ hồ, bạn tự chốt bằng giá trị cụ thể và ghi rõ đó là quyết định thiết kế.
@@ -96,19 +102,6 @@ Nếu cần thêm hằng số, thêm vào danh sách này và dùng nhất quán
 - ACK `message:send` chỉ gửi sau khi transaction MongoDB commit.
 - Nội dung tin nhắn E2EE: server chỉ nhận `ciphertext`. Nếu payload SECRET có trường `content`, server từ chối bằng `VALIDATION_ERROR`.
 - Không log mật khẩu, token, nội dung tin nhắn, SDP hay ICE candidate.
-
-# 4. MÂU THUẪN TRONG BẢN NHÁP TRƯỚC — PHẢI SỬA
-
-Hai bản nháp trước có các lỗi sau. Bộ spec mới phải giải quyết hết:
-
-1. Cấu trúc thư mục server khác nhau (`socket/` + `infrastructure/` vs `realtime/` + `database/`). Chốt một cấu trúc duy nhất và dùng nhất quán.
-2. Tên event không thống nhất (`call:initiate` vs `call:invite`, có/không có `message:ack`). Dùng danh sách ở mục 3.3.
-3. State machine cuộc gọi có `OUTGOING` và `RECONNECTING`, nhưng enum DB lại thiếu. Dùng enum ở mục 3.1 cho cả state machine, DB và UI.
-4. PRD nói người tạo nhóm là "admin", schema lại có `OWNER`. Chốt theo mục 3.1.
-5. `message:edit` và `message:delete` có trong danh sách event nhưng không có yêu cầu nghiệp vụ. Phải bổ sung FR và AC: chỉ người gửi được sửa/xóa, trong vòng 15 phút, xóa thì giữ placeholder "Tin nhắn đã bị thu hồi".
-6. Yêu cầu gốc có AES-256 cho dữ liệu lưu trữ và E2EE cho phòng chat bí mật, nhưng bản nháp chỉ để E2EE là "roadmap" và không mô tả AES. Phải đặc tả cả hai ở mức code được (xem mục 5).
-7. Bản nháp bị cắt cụt vì lồng code block. Phải tuân thủ quy tắc định dạng ở mục 8.
-8. Thiếu các trường hợp: glare (hai bên gọi nhau cùng lúc), nhiều thiết bị cùng đổ chuông, chặn người dùng, OWNER rời nhóm, cuộc gọi trong nhóm (MVP không hỗ trợ, phải trả lỗi rõ ràng).
 
 # 5. ĐẶC TẢ BẢO MẬT BẮT BUỘC
 
@@ -290,6 +283,7 @@ Ma trận edge case (mục 6.2) và các AC phải phủ đủ các nhóm sau. M
 2. Ghi trực tiếp nội dung vào file `.spec/<tên>` bằng công cụ ghi file, không in toàn bộ nội dung ra chat.
 3. Mỗi lượt chỉ sinh 1 file, theo thứ tự ở mục 6. Nếu được truyền tham số thì sinh đúng file đó: $ARGUMENTS
    Sau khi ghi xong, tóm tắt 5 dòng và dừng lại chờ tôi review.
+   Nếu file đã tồn tại: chỉ sửa đúng phần được yêu cầu bằng Edit, không viết lại cả file.
 4. Không viết "...", "tương tự như trên", "TODO", hay "tùy chọn triển khai" thay cho nội dung. Mọi bảng, schema và ví dụ phải đầy đủ.
 5. Không bịa phiên bản thư viện hay API của nhà cung cấp mà bạn không chắc. Khi cần, ghi `// Xác minh với tài liệu chính thức của <nhà cung cấp>` kèm giả định đang dùng.
 
@@ -300,8 +294,8 @@ Cuối mỗi file, thêm mục `## Consistency Check` dạng checklist, xác nh�
 - [ ] Mọi FR/AC liên quan được tham chiếu bằng ID.
 - [ ] Mọi edge case liên quan file này có ID trong ma trận.
 - [ ] Không có secret thật, không có chỗ để trống.
-- [ ] Không mâu thuẫn với các file đã sinh trước đó (liệt kê các điểm đã đối chiếu).
+- [ ] Không mâu thuẫn với các file liên quan tới phần vừa sửa (chỉ đối chiếu các file đó, liệt kê điểm đã đối chiếu).
 
 Sau file thứ 6, sinh thêm `## Traceability Matrix`: bảng `FR → AC → Edge case → API/Event → Collection → Màn hình UI → Test ID`, phủ toàn bộ FR.
 
-Bắt đầu ngay với file 1/6: `.spec/system_architecture.md`.
+Không có $ARGUMENTS → hỏi tôi file nào, không tự sinh lại.

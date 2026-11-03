@@ -10,6 +10,12 @@ const isMongoUnavailable = (err: unknown): boolean =>
   err instanceof mongoose.mongo.MongoNetworkError ||
   (err instanceof mongoose.mongo.MongoError && err.hasErrorLabel('TransientTransactionError'));
 
+/** ioredis không gửi được lệnh (enableOfflineQueue: false, maxRetriesPerRequest: 1 — infra/redis/redis.ts). */
+const REDIS_DOWN_MESSAGE =
+  /enableOfflineQueue options is false|^Connection is closed|Reached the max retries per request limit/;
+const isRedisUnavailable = (err: unknown): boolean =>
+  err instanceof Error && (err.name === 'MaxRetriesPerRequestError' || REDIS_DOWN_MESSAGE.test(err.message));
+
 const isDuplicateKey = (err: unknown): boolean => err instanceof mongoose.mongo.MongoServerError && err.code === 11000;
 
 interface BodyParserError {
@@ -29,6 +35,9 @@ export function toAppError(err: unknown): AppError {
     return new AppError('VALIDATION_ERROR', 'Dữ liệu gửi lên quá lớn', undefined, 413);
   if (bp?.type === 'entity.parse.failed') return new AppError('VALIDATION_ERROR', 'JSON không hợp lệ');
   if (isMongoUnavailable(err))
+    return new AppError('SERVICE_UNAVAILABLE', 'Dịch vụ tạm thời không khả dụng, vui lòng thử lại');
+  // Redis lỗi trên luồng bắt buộc Redis (cuộc gọi, auth) → 503 (kiến trúc §10.2); luồng khác đã tự fail-open.
+  if (isRedisUnavailable(err))
     return new AppError('SERVICE_UNAVAILABLE', 'Dịch vụ tạm thời không khả dụng, vui lòng thử lại');
   if (isDuplicateKey(err)) return new AppError('CONFLICT', 'Dữ liệu đã tồn tại');
   return new AppError('INTERNAL_ERROR', 'Đã có lỗi xảy ra');

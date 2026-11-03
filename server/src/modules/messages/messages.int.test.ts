@@ -13,6 +13,7 @@ import { io, type Socket } from 'socket.io-client';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { decryptField } from '../../infra/crypto/aes-gcm';
 import { toAppError } from '../../http/middleware/error-handler';
+import { metrics } from '../../infra/metrics/metrics';
 import { chatUser, collect, emitAck, sleep, type ChatUser } from '../../test/chat';
 import { startTestServer, type TestServer } from '../../test/factories';
 import { connectAs, waitFor } from '../../test/socket-client';
@@ -55,6 +56,22 @@ const history = (u: ChatUser, convId: string, query: Record<string, string | num
   server.http().get(`/api/v1/conversations/${convId}/messages`).query(query).set(bearer(u));
 
 describe('message:send (FR-CHAT-002)', () => {
+  it('TC-ARCH-012 (công cụ đo NFR-ARCH-01) mỗi ACK message:send — kể cả lỗi — ghi một mẫu vào hustalo_message_send_ack_seconds{type}', async () => {
+    const alice = await chatUser(server, 'alice', sockets);
+    const bob = await chatUser(server, 'bob', sockets);
+    const conv = await direct(alice, bob);
+    const countOf = async () => {
+      const m = await metrics.messageSendAck.get();
+      return m.values
+        .filter((v) => v.metricName === 'hustalo_message_send_ack_seconds_count' && v.labels.type === 'PLAINTEXT')
+        .reduce((n, v) => n + v.value, 0);
+    };
+    const before = await countOf();
+    await sendOk(alice, conv, 'đo độ trễ');
+    expect((await send(alice, new Types.ObjectId().toString(), 'không phải thành viên')).ok).toBe(false);
+    expect(await countOf()).toBe(before + 2);
+  });
+
   it('TC-AC-020 TC-ARCH-006 ACK ok ≤ 300 ms, đã commit khi ACK; bob nhận message:new với senderId và createdAt server', async () => {
     const alice = await chatUser(server, 'alice', sockets);
     const bob = await chatUser(server, 'bob', sockets);

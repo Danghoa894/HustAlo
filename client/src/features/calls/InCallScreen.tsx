@@ -151,7 +151,8 @@ export function InCallScreen({ call }: { call: ActiveCall }) {
   }, [actions, video]);
 
   const connecting = call.status === 'ACCEPTED' || call.status === 'CONNECTING';
-  const reconnecting = call.status === 'RECONNECTING';
+  // Server báo RECONNECTING, hoặc chính PeerSession của mình mất ICE khi đã kết nối (socket có thể đang đứt — AC-081).
+  const reconnecting = call.status === 'RECONNECTING' || (call.status === 'CONNECTED' && s.localIceLost);
   const clockFrom = call.status === 'CONNECTED' || reconnecting ? call.connectedAt : null;
   const showPip = video && s.hasLocalVideo;
   const local = <LocalVideo stream={s.localStream} mirror={s.facingMode === 'user'} className="h-full w-full" />;
@@ -167,7 +168,8 @@ export function InCallScreen({ call }: { call: ActiveCall }) {
     >
       <RemoteAudio stream={s.remoteStream} sinkId={s.sinkId} />
       <CallTopBar name={call.peer.displayName} connectedAt={clockFrom} />
-      <div className="relative flex flex-1 items-center justify-center">
+      {/* min-h-0 + overflow-hidden: video có kích thước gốc lớn không được đẩy thanh điều khiển ra ngoài màn hình */}
+      <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden">
         {video ? (
           showPip && swapped ? (
             local

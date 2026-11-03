@@ -337,6 +337,14 @@ describe('PeerSession — camera (FR-CALL-002, AC-071)', () => {
   });
 });
 
+describe('PeerSession — statsSnapshot (development_guide.md §6.6, window.__hustaloCallStats)', () => {
+  it('trả về mảng RTCStats từ pc.getStats() để page.evaluate tuần tự hóa được', async () => {
+    const { s } = make('caller');
+    pc.stats = [{ type: 'candidate-pair', state: 'succeeded', nominated: true, currentRoundTripTime: 0.05 }];
+    await expect(s.statsSnapshot()).resolves.toEqual(pc.stats);
+  });
+});
+
 describe('PeerSession — networkQuality (§8.4: 3 mẫu liên tiếp)', () => {
   const sample = (lost: number, received: number, rtt: number) => [
     { type: 'inbound-rtp', kind: 'audio', packetsLost: lost, packetsReceived: received },

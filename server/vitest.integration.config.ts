@@ -18,5 +18,13 @@ export default defineConfig({
     hookTimeout: 120_000,
     environment: 'node',
     env: integrationEnv,
+    // Chỉ khi có --coverage; gộp với unit bằng scripts/coverage-merge.mjs (NFR-14).
+    coverage: {
+      provider: 'v8',
+      include: ['src/modules/**/*.ts'],
+      exclude: ['src/**/*.test.ts', 'src/**/*.int.test.ts'],
+      reporter: ['text-summary', 'json'],
+      reportsDirectory: 'coverage/integration',
+    },
   },
 });

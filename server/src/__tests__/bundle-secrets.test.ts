@@ -55,7 +55,7 @@ afterEach(() => {
 });
 
 describe('check-bundle-secrets', () => {
-  it('TC-ARCH-011 TC-SEC-006 dist sạch → exit 0', () => {
+  it('TC-ARCH-011 TC-SEC-006 TC-AC-105 .env server có XIRSYS_SECRET, dist sạch → exit 0', () => {
     const root = makeRepo({ dist: { 'index.html': '<html></html>', 'assets/app.js': 'console.log(1)' } });
     expect(run(root).status).toBe(0);
   });
@@ -73,7 +73,7 @@ describe('check-bundle-secrets', () => {
     expect(r.output).not.toContain(value);
   });
 
-  it('TC-SEC-006 biến VITE_* mang tên nhạy cảm trong client/.env → exit 1', () => {
+  it('TC-SEC-006 TC-AC-105 cố ý thêm VITE_XIRSYS_SECRET vào client/.env → exit 1 (npm run build fail)', () => {
     const root = makeRepo({ dist: { 'index.html': '' }, clientEnv: 'VITE_API_URL=/api/v1\nVITE_XIRSYS_SECRET=abc\n' });
     const r = run(root);
     expect(r.status).toBe(1);

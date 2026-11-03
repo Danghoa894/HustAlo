@@ -1,12 +1,12 @@
 // client/src/routes/router.tsx — bảng route ui_ux_spec.md §2.
 // RootLayout bọc mọi route: useSessionLifecycle (socket + refresh + session:*) và SessionModal cần router để điều hướng.
 // M5: useCallController + CallOverlay / IncomingCallScreen trong RootLayout (lớp phủ đọc S.call trên mọi route);
-// /call/:callId giữ URL cuộc gọi và vẽ trang nền theo state.backgroundLocation (ui_ux_spec.md §2).
-import { useEffect } from 'react';
+// /call/:callId giữ URL cuộc gọi và vẽ trang nền theo state.backgroundLocation (ui_ux_spec.md §2) — xem AppRoutes.
+import { useEffect, type ReactNode } from 'react';
 import {
   Navigate,
-  Outlet,
   createBrowserRouter,
+  matchPath,
   useLocation,
   useParams,
   useRoutes,
@@ -60,27 +60,13 @@ function RootLayout() {
   useCallController();
   return (
     <>
-      <Outlet />
+      <AppRoutes />
       <CallOverlay />
       <IncomingCallScreen />
       <SessionModal />
       <LiveRegions />
     </>
   );
-}
-
-/** /call/:callId: không có cuộc gọi khớp trong S.call → /chats + toast "Cuộc gọi đã kết thúc" (CallRouteGuard, §2). */
-function CallRoute() {
-  const { callId } = useParams();
-  const location = useLocation();
-  const active = useCallStore((s) => s.call?.callId === callId || s.ended !== null);
-  const background = (location.state as { backgroundLocation?: string } | null)?.backgroundLocation ?? '/chats';
-  const page = useRoutes(pageRoutes, { pathname: background.startsWith('/call/') ? '/chats' : background });
-  useEffect(() => {
-    if (!active) useUiStore.getState().pushToast('call', vi.calls.ended.HANGUP);
-  }, [active]);
-  if (!active) return <Navigate to="/chats" replace />;
-  return page;
 }
 
 const pageRoutes: RouteObject[] = [
@@ -126,17 +112,33 @@ const pageRoutes: RouteObject[] = [
   { path: '*', element: <NotFoundPage /> },
 ];
 
-export const routes: RouteObject[] = [
-  {
-    path: '/call/:callId',
-    element: (
-      <RequireAuth>
-        <CallRoute />
-      </RequireAuth>
-    ),
-  },
-  ...pageRoutes,
-];
+/** /call/:callId: không có cuộc gọi khớp trong S.call → /chats + toast "Cuộc gọi đã kết thúc" (CallRouteGuard, §2). */
+function CallRouteGuard({ callId, children }: { callId: string | undefined; children: ReactNode }) {
+  const active = useCallStore((s) => (callId !== undefined && s.call?.callId === callId) || s.ended !== null);
+  useEffect(() => {
+    if (!active) useUiStore.getState().pushToast('call', vi.calls.ended.HANGUP);
+  }, [active]);
+  if (!active) return <Navigate to="/chats" replace />;
+  return <>{children}</>;
+}
+
+/**
+ * Bảng route của app. /call/:callId không phải route cha của trang nền: useRoutes(…, location khác) đòi pathname bắt
+ * đầu bằng phần URL mà route cha đã khớp, nên trang nền (state.backgroundLocation, mặc định /chats) được vẽ từ chính
+ * cấp này — router gốc chỉ có một route `*`.
+ */
+export function AppRoutes({ pages = pageRoutes }: { pages?: RouteObject[] }) {
+  const location = useLocation();
+  const call = matchPath('/call/:callId', location.pathname);
+  const bg = (location.state as { backgroundLocation?: string } | null)?.backgroundLocation ?? '/chats';
+  const page = useRoutes(pages, call ? { pathname: bg.startsWith('/call/') ? '/chats' : bg } : location);
+  if (!call) return page;
+  return (
+    <RequireAuth>
+      <CallRouteGuard callId={call.params.callId}>{page}</CallRouteGuard>
+    </RequireAuth>
+  );
+}
 
 export const createAppRouter = () =>
-  createBrowserRouter([{ element: <RootLayout />, children: routes }], { future: ROUTER_FUTURE_FLAGS });
+  createBrowserRouter([{ path: '*', element: <RootLayout /> }], { future: ROUTER_FUTURE_FLAGS });

@@ -26,6 +26,7 @@ export type PeerLike = Pick<
   | 'setCamEnabled'
   | 'replaceAudioTrack'
   | 'replaceVideoTrack'
+  | 'statsSnapshot'
   | 'close'
 >;
 
@@ -43,6 +44,8 @@ export interface CallControllerDeps {
   navigate: (to: string) => void;
   closeOverlay: () => void;
   toast: (tone: ToastTone, text: string) => void;
+  /** navigator.onLine + sự kiện 'online' (AC-081: ICE restart chờ có mạng lại). Không có → coi như luôn online. */
+  network?: { isOnline(): boolean; onOnline(fn: () => void): () => void };
 }
 
 const PERMISSION_HINT_MS = 3000;
@@ -101,6 +104,11 @@ export function createCallController(deps: CallControllerDeps) {
   let peer: PeerLike | null = null;
   let lastReport: ConnectionReport | null = null;
   let iceAttempts = 0;
+  /** Cần ICE restart nhưng đang offline / call:ice-restart không có ACK → chạy lại khi có mạng hoặc socket nối lại. */
+  let restartPending = false;
+  /** Caller đã tạo offer ICE restart cho lượt này (relay tới muộn không tạo offer thứ hai). */
+  let offeredAttempt = 0;
+  let stopNetwork: (() => void) | null = null;
   let permTimer: ReturnType<typeof setTimeout> | null = null;
   let endTimer: ReturnType<typeof setTimeout> | null = null;
   let stopDevices: (() => void) | null = null;
@@ -133,6 +141,9 @@ export function createCallController(deps: CallControllerDeps) {
     stopDevices = null;
     lastReport = null;
     iceAttempts = 0;
+    restartPending = false;
+    offeredAttempt = 0;
+    store().patch({ localIceLost: false });
   }
 
   function closeNow() {
@@ -231,6 +242,8 @@ export function createCallController(deps: CallControllerDeps) {
       },
       onReport: (connectionState) => {
         lastReport = connectionState;
+        store().patch({ localIceLost: connectionState !== 'connected' });
+        if (connectionState === 'connected') restartPending = false;
         void deps.emit(EVENTS.CALL_STATE, { callId: id, connectionState }).catch(() => undefined);
       },
       onNeedIceRestart: () => {
@@ -267,7 +280,17 @@ export function createCallController(deps: CallControllerDeps) {
     await deps.emit(EVENTS.CALL_OFFER, { callId: id, revision: offer.revision, sdp: offer.sdp });
   }
 
-  /** Bên mình phát hiện mất kết nối (PeerSession): ICE restart với credential mới; hết lượt → NETWORK_FAILURE. */
+  /** Caller (offerer duy nhất, D-04) tạo offer ICE restart cho lượt `attempt` — tối đa một lần mỗi lượt. */
+  async function offerRestart(attempt: number) {
+    if (offeredAttempt >= attempt) return;
+    offeredAttempt = attempt;
+    await sendOffer({ iceRestart: true });
+  }
+
+  /**
+   * Bên mình phát hiện mất kết nối (PeerSession): ICE restart với credential mới; hết lượt → NETWORK_FAILURE.
+   * Đang offline hoặc không có ACK → hoãn (không tốn lượt) tới khi có mạng / socket nối lại (AC-081).
+   */
   async function restartIce() {
     const call = store().call;
     if (!peer || !call?.callId) return;
@@ -275,13 +298,35 @@ export function createCallController(deps: CallControllerDeps) {
       await deps.emit(EVENTS.CALL_END, { callId: call.callId, reason: 'NETWORK_FAILURE' }).catch(() => undefined);
       return;
     }
+    if (deps.network && !deps.network.isOnline()) {
+      restartPending = true;
+      return;
+    }
+    restartPending = false;
     const attempt = iceAttempts + 1;
     const ice = await deps.ice.forRestart();
     peer.updateIceServers({ iceServers: ice.iceServers, iceTransportPolicy: ice.iceTransportPolicy });
     const res = await deps.emit(EVENTS.CALL_ICE_RESTART, { callId: call.callId, attempt }).catch(() => null);
-    if (!res?.ok) return; // bên kia đã yêu cầu cùng lượt (7(f)) — sẽ nhận relay
+    if (!res) {
+      restartPending = true; // không có ACK (socket đứt): lượt chưa được server ghi nhận
+      return;
+    }
+    if (!res.ok) {
+      // Bên kia đã yêu cầu cùng lượt (7(f)). Relay của lượt đó có thể đã mất khi mình offline → caller vẫn tạo offer.
+      if (res.error?.code === 'CALL_INVALID_STATE' && call.role === 'caller') {
+        iceAttempts = Math.max(iceAttempts, attempt);
+        await offerRestart(attempt);
+      }
+      return;
+    }
     iceAttempts = attempt;
-    if (call.role === 'caller') await sendOffer({ iceRestart: true });
+    if (call.role === 'caller') await offerRestart(attempt);
+  }
+
+  /** Có mạng lại / socket nối lại: chạy ICE restart đã hoãn nếu ICE vẫn chưa hồi phục. */
+  function resumeRestart() {
+    if (!restartPending || lastReport === 'connected') return;
+    void restartIce().catch(() => undefined);
   }
 
   // ---- server → client ----
@@ -371,12 +416,12 @@ export function createCallController(deps: CallControllerDeps) {
     const call = store().call;
     if (!call || call.callId !== p.callId || !peer) return;
     iceAttempts = Math.max(iceAttempts, p.attempt);
-    if (call.role !== 'caller') return;
+    if (call.role !== 'caller' || offeredAttempt >= p.attempt) return;
     const session = peer;
     void (async () => {
       const ice = await deps.ice.forRestart();
       session.updateIceServers({ iceServers: ice.iceServers, iceTransportPolicy: ice.iceTransportPolicy });
-      await sendOffer({ iceRestart: true });
+      await offerRestart(p.attempt);
     })().catch(() => undefined);
   };
 
@@ -387,6 +432,7 @@ export function createCallController(deps: CallControllerDeps) {
     void deps
       .emit(EVENTS.CALL_STATE, { callId: call.callId, connectionState: lastReport ?? 'disconnected' })
       .catch(() => undefined);
+    resumeRestart();
   };
 
   const handlers: [string, Listener][] = [
@@ -406,12 +452,20 @@ export function createCallController(deps: CallControllerDeps) {
   return {
     start() {
       for (const [ev, fn] of handlers) deps.socket.on(ev, fn);
+      stopNetwork = deps.network?.onOnline(resumeRestart) ?? null;
     },
 
     stop() {
       for (const [ev, fn] of handlers) deps.socket.off(ev, fn);
+      stopNetwork?.();
+      stopNetwork = null;
       clearTimers();
       release();
+    },
+
+    /** getStats của cuộc gọi hiện tại cho window.__hustaloCallStats (chỉ bản dev); chưa có PeerSession → []. */
+    stats(): Promise<RTCStats[]> {
+      return peer ? peer.statsSnapshot() : Promise.resolve([]);
     },
 
     /** Bấm gọi trong ChatHeader (ui_ux_spec.md §3.6). */

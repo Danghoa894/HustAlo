@@ -1,0 +1,19 @@
+# .dockerignore — build context là gốc monorepo (development_guide.md §9.2)
+node_modules
+**/node_modules
+**/dist
+.git
+.env*
+**/.env*
+!**/.env.example
+infra/certs
+infra/mongo/keyfile
+coverage
+**/coverage
+client/playwright-report
+client/test-results
+.claude
+docs
+graphify-out
+.codegraph
+load

@@ -712,7 +712,7 @@ features/calls/IncomingCallScreen.tsx (role="alertdialog", aria-modal="true", ar
 ├── IconButton PhoneOff (danger, 64px) aria-label "Từ chối cuộc gọi từ {tên}"
 ├── IconButton Phone (success, 64px) aria-label "Trả lời cuộc gọi từ {tên}"
 └── Button "Trả lời bằng âm thanh" — chỉ khi callType = VIDEO (aria-label "Trả lời chỉ bằng âm thanh")
-hook: features/calls/useRingtone.ts — phát /sounds/ringtone.mp3 lặp
+hook: features/calls/useRingtone.ts — phát /sounds/ringtone.wav lặp
 ```
 
 - **Nguồn dữ liệu:** `E:call:incoming` (ACK `{ ok: true }` ngay khi nhận) → `S.call.incoming = { callId, conversationId, callType, caller, ringExpiresAt }` (thời gian đổ chuông còn lại tính từ `ringExpiresAt` theo `server-clock.ts`, không đọc `CALL_RING_TIMEOUT_MS`; caller dùng `ringExpiresAt` của `call:ringing`); `E:call:state`, `E:call:answered-elsewhere`, `E:call:accepted`.
@@ -752,7 +752,7 @@ features/calls/CallOverlay.tsx (route /call/:callId; khóa cuộn body)
     ├── CallStatusText [NEW] (features/calls/CallStatusText.tsx) — aria-live="assertive"
     ├── CallControls (features/calls/CallControls.tsx) — mic, camera (VIDEO), nút "Hủy" (PhoneOff, danger) aria-label "Hủy cuộc gọi"
     └── MediaErrorPanel [NEW] (features/calls/MediaErrorPanel.tsx) — khi getUserMedia lỗi
-hook: useRingtone (ringback.mp3 khi RINGING)
+hook: useRingtone (ringback.wav khi RINGING)
 ```
 
 - **Luồng:** bấm gọi trong `ChatHeader` → kiểm tra hỗ trợ (EC-CALL-MEDIA-008/009, nút đã ẩn nếu thiếu) → mở overlay với `localPhase = PREPARING_MEDIA` ("Đang chuẩn bị micro/camera…"; sau 3 s chưa có kết quả đổi thành "Đang chờ cấp quyền micro/camera…" — EC-CALL-MEDIA-004) → media sẵn sàng → `E:call:invite` → INITIATED "Đang gọi…" → `E:call:ringing` → RINGING "Đang đổ chuông…" + ringback.
@@ -968,7 +968,7 @@ export function mapMediaError(err: unknown, requested: 'audio' | 'video'): Media
 
 | Trạng thái | Điều kiện kích hoạt | Hiển thị | Hành động khả dụng | Văn bản tiếng Việt chính xác | Thoát khi |
 |---|---|---|---|---|---|
-| `NotAllowedError` | Người dùng/chính sách từ chối quyền | `MediaErrorPanel` trong overlay (caller) hoặc trên `IncomingCallScreen` (callee, sau khi đã gửi `call:end MEDIA_FAILURE`) | "Hướng dẫn cấp quyền" (mở mô tả theo trình duyệt), "Đóng" | "HUSTALO cần quyền dùng micro/camera. Hãy cấp quyền trong cài đặt trình duyệt." | "Đóng" |
+| `NotAllowedError` | Người dùng/chính sách từ chối quyền | `MediaErrorPanel` trong overlay (caller) hoặc trên `IncomingCallScreen` (callee, sau khi đã gửi `call:end MEDIA_FAILURE`) | "Hướng dẫn cấp quyền" (hiện đoạn hướng dẫn ngay trong panel: "Bấm biểu tượng ổ khóa cạnh thanh địa chỉ → Quyền trang web → cho phép Micro và Camera, rồi tải lại trang."), "Đóng" | "HUSTALO cần quyền dùng micro/camera. Hãy cấp quyền trong cài đặt trình duyệt." | "Đóng" |
 | `NotFoundError` — micro | Không có thiết bị audio | `MediaErrorPanel` | "Thử lại", "Đóng" | "Không tìm thấy micro. Hãy kết nối micro và thử lại." | Thử lại thành công / "Đóng" |
 | `NotFoundError` — camera (VIDEO) | Không có camera | Toast, tiếp tục bằng âm thanh | — | "Không tìm thấy camera, tiếp tục với âm thanh" | Tự ẩn 4 s |
 | `NotReadableError` — micro | Micro bị app khác giữ | `MediaErrorPanel` | "Thử lại", "Đóng" | "Micro hoặc camera đang được ứng dụng khác sử dụng." | Thử lại thành công / "Đóng" |

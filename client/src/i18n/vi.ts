@@ -279,7 +279,6 @@ export const vi = {
       CAMERA_NOT_FOUND: 'Không tìm thấy camera, tiếp tục với âm thanh',
       CAMERA_IN_USE: 'Micro hoặc camera đang được ứng dụng khác sử dụng.',
       permissionHelp: 'Hướng dẫn cấp quyền',
-      // Chưa có nguyên văn trong ui_ux_spec.md §4.4 ("mở mô tả theo trình duyệt") — đề xuất bổ sung spec.
       permissionSteps:
         'Bấm biểu tượng ổ khóa cạnh thanh địa chỉ → Quyền trang web → cho phép Micro và Camera, rồi tải lại trang.',
       retry: 'Thử lại',

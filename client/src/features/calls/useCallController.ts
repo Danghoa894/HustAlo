@@ -12,6 +12,7 @@ import { useAuthStore } from '../../stores/auth.store';
 import { useCallStore } from '../../stores/call.store';
 import { useUiStore } from '../../stores/ui.store';
 import { createCallController, type CallController, type CallControllerDeps } from './call-controller';
+import { installCallStatsHook } from './call-stats-hook';
 
 export type CallActions = Pick<
   CallController,
@@ -91,11 +92,22 @@ export function useCallController(): void {
       toast: (tone, text) => {
         useUiStore.getState().pushToast(tone, text);
       },
+      network: {
+        isOnline: () => navigator.onLine,
+        onOnline: (fn) => {
+          window.addEventListener('online', fn);
+          return () => {
+            window.removeEventListener('online', fn);
+          };
+        },
+      },
     };
     const c = createCallController(deps);
     c.start();
     current = c;
+    const uninstallStats = installCallStatsHook(() => c.stats());
     return () => {
+      uninstallStats();
       c.stop();
       current = null;
       useCallStore.getState().reset();

@@ -24,6 +24,8 @@ export interface WithAckOptions<P extends z.ZodTypeAny> {
   schema: P;
   /** null: handler tự áp rate limit (call:invite chỉ tính khi không phải glare, kiến trúc §7(g)). */
   rateRule?: RateRule | null;
+  /** Gọi ngay trước khi gửi ACK (ok hoặc lỗi) với thời gian từ lúc nhận event — metric độ trễ ACK (NFR-ARCH-01). */
+  observe?: (seconds: number, envelope: unknown) => void;
 }
 
 export interface WithAckDeps {
@@ -86,6 +88,7 @@ export function withAck<S extends AckSocket, P extends z.ZodTypeAny, D>(
           },
           'socket event',
         );
+        opts.observe?.((performance.now() - started) / 1000, envelope);
         reply({ ok: true, requestId, data });
       })
       .catch((err: unknown) => {
@@ -101,6 +104,7 @@ export function withAck<S extends AckSocket, P extends z.ZodTypeAny, D>(
         };
         if (appErr.code === 'INTERNAL_ERROR') deps.logger.error({ ...line, err }, 'socket event lỗi');
         else deps.logger.info(line, 'socket event');
+        opts.observe?.((performance.now() - started) / 1000, envelope);
         reply({ ok: false, requestId, error: { code: appErr.code, message: appErr.message } });
       });
   };

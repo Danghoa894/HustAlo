@@ -8,6 +8,7 @@ import {
   ReceiptCursorPayload,
 } from '@hustalo/shared';
 import type { Logger } from 'pino';
+import { metrics } from '../../infra/metrics/metrics';
 import type { RateLimiters } from '../../infra/rate-limit/rate-limiter';
 import type { MessagesService } from '../../modules/messages/messages.service';
 import type { ReceiptsService } from '../../modules/messages/receipts.service';
@@ -21,6 +22,16 @@ export interface MessageHandlerDeps {
   rateLimiters?: RateLimiters;
 }
 
+/** Label `type` của hustalo_message_send_ack_seconds = kind của payload (PLAINTEXT | E2EE); envelope sai → unknown. */
+function sendKind(envelope: unknown): string {
+  const kind = (envelope as { payload?: { kind?: unknown } } | null)?.payload?.kind;
+  return kind === 'PLAINTEXT' || kind === 'E2EE' ? kind : 'unknown';
+}
+
+const observeSendAck = (seconds: number, envelope: unknown) => {
+  metrics.messageSendAck.observe({ type: sendKind(envelope) }, seconds);
+};
+
 export function registerMessageHandlers(io: HustaloServer, deps: MessageHandlerDeps): void {
   const ackDeps = { logger: deps.logger, ...(deps.rateLimiters ? { rateLimiters: deps.rateLimiters } : {}) };
   io.on('connection', (socket) => {
@@ -30,8 +41,11 @@ export function registerMessageHandlers(io: HustaloServer, deps: MessageHandlerD
 
     socket.on(
       EVENTS.MESSAGE_SEND,
-      withAck(ackDeps, socket, { event: EVENTS.MESSAGE_SEND, schema: MessageSendPayload }, (p) =>
-        deps.messages.send({ userId: me, deviceId: auth.deviceId }, p),
+      withAck(
+        ackDeps,
+        socket,
+        { event: EVENTS.MESSAGE_SEND, schema: MessageSendPayload, observe: observeSendAck },
+        (p) => deps.messages.send({ userId: me, deviceId: auth.deviceId }, p),
       ),
     );
     socket.on(

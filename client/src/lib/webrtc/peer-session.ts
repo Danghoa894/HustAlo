@@ -179,6 +179,16 @@ export class PeerSession {
     return this.closed;
   }
 
+  /** Toàn bộ pc.getStats() dạng mảng (window.__hustaloCallStats cho E2E — development_guide.md §6.6). */
+  async statsSnapshot(): Promise<RTCStats[]> {
+    const report = await this.pc.getStats();
+    const out: RTCStats[] = [];
+    report.forEach((s: RTCStats) => {
+      out.push(s);
+    });
+    return out;
+  }
+
   close(): void {
     if (this.closed) return;
     this.closed = true;

@@ -28,6 +28,8 @@ export default defineConfig({
     },
     {
       name: 'firefox',
+      // E2E mạng cuộc gọi (relay qua coturn local 127.0.0.1) chỉ chạy trên Chromium.
+      testIgnore: /call-network\.spec\.ts/,
       use: {
         ...devices['Desktop Firefox'],
         launchOptions: {

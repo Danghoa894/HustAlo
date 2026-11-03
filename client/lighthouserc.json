@@ -1,0 +1,23 @@
+{
+  "ci": {
+    "collect": {
+      "staticDistDir": "./dist",
+      "url": ["http://localhost/"],
+      "numberOfRuns": 3,
+      "settings": {
+        "formFactor": "mobile",
+        "throttlingMethod": "simulate",
+        "onlyCategories": ["performance", "accessibility", "best-practices"]
+      }
+    },
+    "assert": {
+      "assertions": {
+        "largest-contentful-paint": ["error", { "maxNumericValue": 2500, "aggregationMethod": "median" }]
+      }
+    },
+    "upload": {
+      "target": "filesystem",
+      "outputDir": "./lighthouse-report"
+    }
+  }
+}

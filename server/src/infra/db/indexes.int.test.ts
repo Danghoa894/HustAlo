@@ -5,6 +5,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { baseSchemaOptions } from './schema-options';
 import { ALL_MODELS, ensureIndexes } from './indexes';
 import { connectMongo, disconnectMongo } from './mongo';
+import { RefreshSessionModel } from '../../modules/auth/refreshSession.model';
+import { CallHistoryModel } from '../../modules/calls/callHistory.model';
 
 const fixtureSchema = new Schema(
   {
@@ -71,5 +73,26 @@ describe('ensureIndexes', () => {
     await expect(
       FixtureModel.updateOne({ email: 'x' }, { $set: { khongKhaiBao: true } }, { strict: 'throw' }),
     ).rejects.toThrow();
+  });
+});
+
+describe('TTL index của model thật (database_schema.md §6.2)', () => {
+  beforeAll(async () => {
+    await connectMongo(process.env.MONGODB_URI ?? '');
+    await ensureIndexes(ALL_MODELS);
+  });
+  afterAll(async () => {
+    await disconnectMongo();
+  });
+
+  // oneTimePreKeys.consumedAt (604800 s) thuộc model M7 (modules/e2ee) — thêm vào bảng này khi model tồn tại.
+  it.each([
+    ['refreshSessions', RefreshSessionModel, 'expires_ttl', { expiresAt: 1 }, 0],
+    ['callHistory', CallHistoryModel, 'created_ttl', { createdAt: 1 }, 365 * 24 * 60 * 60],
+  ] as const)('TC-DB-026 %s: %s có expireAfterSeconds đúng spec', async (_coll, model, name, key, seconds) => {
+    const list = (await model.collection.listIndexes().toArray()) as IndexInfo[];
+    const ttl = list.find((i) => i.name === name);
+    expect(ttl?.key).toEqual(key);
+    expect(ttl?.expireAfterSeconds).toBe(seconds);
   });
 });

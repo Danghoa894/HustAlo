@@ -3,6 +3,7 @@ node_modules/
 !.env.example
 !.env.*.example
 infra/certs/
+infra/mongo/keyfile
 **/dist
 coverage
 client/playwright-report/
@@ -10,3 +11,7 @@ client/test-results/
 *.tsbuildinfo
 
 .claude/worktrees/
+
+# công cụ phân tích mã cục bộ
+graphify-out/
+.codegraph/
