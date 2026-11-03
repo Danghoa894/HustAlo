@@ -32,3 +32,25 @@ Ghi nhận hiện tượng, chưa sửa. Mỗi mục cần quyết định (sử
 
 - **Hiện tượng:** rule có `key: 'socket'` (`callSignal`, `socketGeneric`) tính theo `${userId}:${tabId}` (DB §5.2). Reconnect cùng tab không reset bộ đếm, nhưng client tự sinh `tabId` mới (UUID v4 hợp lệ) cho mỗi kết nối thì được bucket mới.
 - **Quyết định (2026-11-02):** ghi nhận; xem xét thêm giới hạn tổng theo `userId` sau, KHÔNG làm ở lượt này. Test `calls.int.test.ts` › "tab reconnect (cùng tabId) không reset bộ đếm callSignal; tab khác có bộ đếm riêng" ghi lại hành vi hiện tại.
+
+## KI-06 — NFR-05: LCP 3,6 s do Google Fonts chặn render (M6) — ĐÃ SỬA 2026-11-04
+
+- **Đo (2026-11-03):** Lighthouse CI 0.15.1 (mobile, simulate: RTT 150 ms, 1,6 Mbps, CPU ×4) trên image client có gzip: LCP 3,61–3,66 s (ngưỡng 2,5 s), perf 0,81–0,82, a11y 1. Bundle khởi tạo 167,9 KB gzip (đạt ≤ 300 KB).
+- **Nguyên nhân:** `@import` Google Fonts CSS2 (ui_ux_spec.md §1) chặn render ~865 ms (thêm origin mới `fonts.googleapis.com` → `fonts.gstatic.com`, 3 file woff2 ~144 KB). Chặn Google Fonts khi đo: LCP 2,30–2,32 s (đạt).
+- **Đã sửa (duyệt 2026-11-03):** Inter tự host (`client/public/fonts/`), đăng ký bằng `FontFace` sau `first-contentful-paint` (`client/src/lib/fonts/fonts.ts`); bỏ Google Fonts khỏi CSP (server helmet + nginx); bật gzip ở nginx. Chỉ tự host với `@font-face` trong CSS vẫn 3,0 s (font nằm trên đường găng FCP). Kết quả: LCP 2,16–2,25 s, performance 0,91–0,94, a11y 1.
+
+## KI-07 — E2E mạng cuộc gọi chỉ chạy Chromium (M5, chấp nhận)
+
+- **Hiện tượng:** Firefox không nối được cuộc gọi relay qua coturn local: địa chỉ relay là `127.0.0.1` (`TURN_EXTERNAL_IP`), Firefox mặc định loại candidate loopback; thêm `media.peerconnection.ice.loopback` + tắt IPv6 vẫn chưa nối được.
+- **Quyết định (2026-11-03):** không test Firefox cho `call-network.spec.ts` (`testIgnore` ở project firefox). Firefox vẫn chạy `call.spec.ts` (không relay).
+
+## KI-08 — Mốc đo NFR-01 phải dùng bản build production
+
+- **Hiện tượng:** cùng kịch bản k6 (`load/message-send.js`), dev server (`tsx watch`, `LOG_LEVEL=debug`, chung với Vite dev) cho p95 ACK 756 ms, max 12,4 s, 1 ACK lỗi; bản build `node dist/main.js` `LOG_LEVEL=info` cho p95 82 ms, 0 lỗi.
+- **Quy ước:** đo NFR-01/NFR-09 luôn trên bản build (`npm run build -w server`, `node --env-file=.env dist/main.js`), không trên `npm run dev`.
+
+## KI-09 — `TC-AC-033` (WebKit) chập chờn khi chạy toàn bộ E2E (M3)
+
+- **Hiện tượng (2026-11-03):** lượt chạy toàn bộ 3 project (88 test, 21 phút) fail 1 lần `Test timeout of 90000ms exceeded`; chạy lại riêng trên WebKit: 2/2 pass (~42 s mỗi lần).
+- **Nghi nguyên nhân:** test dài (offline → outbox → chặn → online lại) chiếm gần nửa biên 90 s; cuối lượt chạy dài máy dev chậm hơn.
+- **Hướng xử lý cần duyệt:** `test.setTimeout(150_000)` riêng cho test này (không đổi hằng số spec), hoặc rút ngắn các bước chờ cố định trong test.
