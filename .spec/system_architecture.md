@@ -258,6 +258,7 @@ hustalo/
 ├── docs/
 │   ├── STATUS.md                     # tiến độ milestone, kết quả Gate, URL môi trường đã deploy
 │   ├── SPEC_CONFORMANCE.md           # đối chiếu code ↔ spec (lệnh /audit)
+│   ├── SIGNAL_LIBRARY_REVIEW.md      # [NEW] M7: kết quả review mã nguồn thư viện D-12 (R-04)
 │   └── testcases/                    # bảng test case (Testcase_HustALo.xlsx)
 ├── infra/
 │   ├── docker-compose.yml            # CHỈ local: mongo (rs0), redis, coturn, mongo-express (profile tools)
@@ -552,7 +553,8 @@ hustalo/
         │   │   ├── candidate-queue.ts# hàng đợi ICE trước setRemoteDescription, dedupe, lọc theo revision
         │   │   └── peer-session.ts   # class PeerSession: tạo pc, offer/answer, ICE restart, stats
         │   ├── e2ee/
-        │   │   ├── signal-adapter.ts # bọc thư viện Signal (D-12)
+        │   │   ├── signal-adapter.ts # bọc thư viện Signal (D-12), import() động; safety number bằng WebCrypto
+        │   │   ├── codec.ts          # [NEW] base64 / binary string / UTF-8 ↔ ArrayBuffer
         │   │   ├── signal-store.ts   # IndexedDB: identity, prekeys, signed prekeys, sessions, known identities, bản rõ tin SECRET
         │   │   ├── device-keys.ts    # sinh & đăng ký khóa, bổ sung prekey khi e2ee:prekeys-low
         │   │   ├── envelope.ts       # encryptFanout / decryptForThisDevice
@@ -573,6 +575,7 @@ hustalo/
         │   ├── typing.store.ts
         │   ├── call.store.ts         # CallStatus (mirror server) + localPhase + media flags
         │   ├── outbox.store.ts       # mirror trạng thái outbox để render bubble PENDING/FAILED
+        │   ├── e2ee.store.ts         # [NEW] M7: device READY/LIMIT, placeholder tin SECRET, revision session/identity
         │   └── ui.store.ts           # theme, toasts, banners
         ├── features/
         │   ├── auth/
@@ -628,11 +631,16 @@ hustalo/
         │   │   ├── ProfileSection.tsx
         │   │   ├── PrivacySection.tsx
         │   │   ├── DevicesSection.tsx
+        │   │   ├── device-name.ts            # [NEW] M7: "Chrome trên Windows" từ userAgent
         │   │   ├── ThemeSection.tsx
         │   │   └── SafetyNumberDialog.tsx
         │   └── e2ee/
         │       ├── useSecretSession.ts
-        │       └── IdentityChangedBanner.tsx
+        │       ├── IdentityChangedBanner.tsx
+        │       ├── e2ee.api.ts               # [NEW] M7: REST /e2ee/*
+        │       ├── e2ee-runtime.ts           # [NEW] M7: SignalStore + SecretCrypto của phiên, đăng ký khóa, e2ee:prekeys-low
+        │       ├── secret-messages.ts        # [NEW] M7: điền bản rõ / placeholder cho tin SECRET trước khi vào cache
+        │       └── secret-send.ts            # [NEW] M7: outbox gửi SECRET, mã hóa lại khi CONFLICT (tối đa 2 lần)
         ├── components/
         │   ├── layout/
         │   │   ├── AppShell.tsx

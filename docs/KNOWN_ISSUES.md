@@ -54,3 +54,20 @@ Ghi nhận hiện tượng, chưa sửa. Mỗi mục cần quyết định (sử
 - **Hiện tượng (2026-11-03):** lượt chạy toàn bộ 3 project (88 test, 21 phút) fail 1 lần `Test timeout of 90000ms exceeded`; chạy lại riêng trên WebKit: 2/2 pass (~42 s mỗi lần).
 - **Nghi nguyên nhân:** test dài (offline → outbox → chặn → online lại) chiếm gần nửa biên 90 s; cuối lượt chạy dài máy dev chậm hơn.
 - **Hướng xử lý cần duyệt:** `test.setTimeout(150_000)` riêng cho test này (không đổi hằng số spec), hoặc rút ngắn các bước chờ cố định trong test.
+
+## KI-10 — Mở hội thoại SECRET tiêu thụ one-time prekey của peer (M7, chấp nhận)
+
+- **Hiện tượng:** lần đầu mở một hội thoại SECRET trong mỗi lần tải trang, client gọi `GET /e2ee/users/{peer}/bundles` để phát hiện identity của peer đã đổi (AC-113). Lời gọi này tiêu thụ 1 one-time prekey cho mỗi device ACTIVE của peer, kể cả khi đã có session.
+- **Ảnh hưởng:** prekey hết nhanh hơn nếu người dùng tải lại trang liên tục. Server tự phát `e2ee:prekeys-low` khi còn dưới 20, và device bên kia bổ sung 100 khóa. Hết hẳn thì X3DH vẫn chạy được, chỉ thiếu OTPK (EC-E2EE-002). Bị chặn bởi rate limit `e2eeBundle` 10/phút/user+target.
+- **Hướng khác (cần sửa spec):** thêm endpoint chỉ đọc identity key của các device peer, không tiêu thụ prekey.
+
+## KI-11 — Giới hạn 5 device có thể bị vượt khi đăng ký đồng thời (M7, chấp nhận)
+
+- **Hiện tượng:** `registerDevice` đếm số device ACTIVE trong transaction snapshot. Hai device mới đăng ký đúng cùng lúc khi user đang có 4 có thể cùng thấy 4 (write skew), nên cả hai đều được tạo thành 6 device.
+- **Ảnh hưởng:** chỉ xảy ra khi đúng một người dùng đăng nhập hai thiết bị mới trong cùng vài mili giây. Cấp `signalDeviceId` vẫn không bị trùng (unique index + retry).
+- **Hướng xử lý nếu cần:** khóa theo user (cập nhật một document đếm trong cùng transaction) trước khi đếm.
+
+## KI-12 — Bản rõ tin SECRET lưu không mã hóa trong IndexedDB (M7, theo thiết kế)
+
+- **Hiện tượng:** store `messages` của `hustalo-signal-{userId}` giữ bản rõ đã gửi hoặc đã giải mã (kiến trúc §9.3). Store này có cùng mức bảo vệ với khóa riêng Signal trong cùng DB.
+- **Ảnh hưởng:** ai đọc được profile trình duyệt sẽ đọc được lịch sử SECRET của device đó, giống các ứng dụng Signal trên web và desktop không đặt passphrase.

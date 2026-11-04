@@ -197,7 +197,11 @@ export class SecretCrypto {
       }
       return { kind: 'TEXT', text };
     } catch {
-      return { kind: 'DECRYPT_FAILED' }; // EC-E2EE-004
+      // Device đã xóa IndexedDB và sinh khóa mới (cùng deviceId): tin trước đó có recipient nhưng thuộc bộ khóa cũ
+      // → hành vi thiết kế, không phải lỗi (EC-E2EE-006). Ngược lại: giải mã thất bại thật (EC-E2EE-004).
+      const keysCreatedAt = (await this.store.getMeta())?.createdAt;
+      if (keysCreatedAt !== undefined && Date.parse(m.createdAt) < keysCreatedAt) return { kind: 'NOT_FOR_DEVICE' };
+      return { kind: 'DECRYPT_FAILED' };
     }
   }
 

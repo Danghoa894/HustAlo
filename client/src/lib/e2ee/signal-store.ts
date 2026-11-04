@@ -43,6 +43,8 @@ export interface LocalMeta {
   nextPreKeyId: number;
   signedPreKeyId: number;
   signedPreKeyCreatedAt: number;
+  /** Lúc sinh bộ khóa này (ms). Tin cũ hơn mà không giải mã được = gửi trước khi device tham gia (EC-E2EE-006). */
+  createdAt?: number;
 }
 
 export interface SignedPreKeyRow {

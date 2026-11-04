@@ -2,7 +2,7 @@
 // signal-adapter + signal-store với thư viện D-12 thật, hai device giả lập trong cùng process (fake-indexeddb):
 // X3DH, Double Ratchet, sửa 1 byte → giải mã lỗi (TC-AC-114 phần U), không OTPK (EC-E2EE-002), safety number (FR-E2EE-005).
 import type { PreKeyBundle } from '@hustalo/shared';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { b64ToBuffer, bufferToB64 } from './codec';
 import {
   addressOf,
@@ -13,9 +13,14 @@ import {
   generatePreKeys,
   generateSignedPreKey,
   hasSession,
+  isLibraryWarning,
+  libraryFingerprint,
   processBundle,
 } from './signal-adapter';
 import { SignalStore } from './signal-store';
+
+// Mỗi test chạy thư viện mật mã thật (1–3 s); khi cả bộ test chạy song song có thể vượt 5 s mặc định (KI-03).
+vi.setConfig({ testTimeout: 30_000 });
 
 let seq = 0;
 const userId = () => `6720a1b2c3d4e5f6012345${String(10 + (seq++ % 89))}`;
@@ -125,6 +130,8 @@ describe('safety number (FR-E2EE-005)', () => {
     const fromB = await fingerprint(b.uid, b.bundle.identityKey, a.uid, a.bundle.identityKey);
     expect(fromA).toMatch(/^\d{60}$/);
     expect(fromA).toBe(fromB);
+    // Trùng từng chữ số với FingerprintGenerator của thư viện (bản WebCrypto chỉ nhanh hơn, cùng thuật toán).
+    expect(await libraryFingerprint(a.uid, a.bundle.identityKey, b.uid, b.bundle.identityKey)).toBe(fromA);
     const b2 = await makeDevice(b.uid, 1);
     expect(await fingerprint(a.uid, a.bundle.identityKey, b.uid, b2.bundle.identityKey)).not.toBe(fromA);
   });
@@ -158,5 +165,14 @@ describe('SignalStore identity theo device (FR-E2EE-006)', () => {
     expect(await store.getPlaintext('m:1')).toBe('xin chào');
     await store.deletePlaintext('m:1');
     expect(await store.getPlaintext('m:1')).toBeUndefined();
+  });
+});
+
+describe('cảnh báo của thư viện không ra console (R-04)', () => {
+  it('"no chain found for key" (kèm session) và "Invalid public key" bị chặn; cảnh báo khác giữ nguyên', () => {
+    expect(isLibraryWarning(['no chain found for key', { session: {} }])).toBe(true);
+    expect(isLibraryWarning(['Invalid public key', { pubKey: new ArrayBuffer(1) }])).toBe(true);
+    expect(isLibraryWarning(['React warning'])).toBe(false);
+    expect(isLibraryWarning([{ not: 'string' }])).toBe(false);
   });
 });

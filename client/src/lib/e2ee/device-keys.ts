@@ -44,6 +44,7 @@ async function createLocalKeys(store: SignalStore, now: number): Promise<LocalMe
     nextPreKeyId: 1,
     signedPreKeyId: 1,
     signedPreKeyCreatedAt: now,
+    createdAt: now,
   };
   await store.setMeta(meta);
   return meta;

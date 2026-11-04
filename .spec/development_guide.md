@@ -1193,7 +1193,7 @@ FR: FR-E2EE-001..008, FR-CHAT-007 và FR-CHAT-008 (phần SECRET: thu hồi đư
 Checklist:
 - [ ] Server: `modules/e2ee/*` (`userDevice.model.ts`, `oneTimePreKey.model.ts`, consume nguyên tử, `e2ee:prekeys-low` với cooldown `e2ee:lowsent:{deviceId}`), kiểm envelope trong `message:send` kind `E2EE`, tạo conversation `SECRET` (D-11), thu hồi device → `session:revoked { DEVICE_REVOKED }`.
 - [ ] Client: `lib/e2ee/*` (`signal-adapter.ts` cô lập thư viện D-12, `signal-store.ts`, `device-keys.ts`, `envelope.ts`, `safety-number.ts`), `features/e2ee/*` (`useSecretSession.ts`, IdentityChangedBanner), `features/chat/E2eeBadge.tsx`, `features/settings/DevicesSection.tsx`, `SafetyNumberDialog.tsx`; thư viện Signal tải lười (NFR-05).
-- [ ] Review mã nguồn thư viện Signal đã khóa phiên bản (R-04), ghi kết quả vào PR.
+- [ ] Review mã nguồn thư viện Signal đã khóa phiên bản (R-04), ghi kết quả vào `docs/SIGNAL_LIBRARY_REVIEW.md` (và PR nếu có).
 - [ ] Bật hiển thị "Mã hóa đầu-cuối" — chỉ trong conversation SECRET đã thiết lập session (AC-122).
 
 Gate: `TC-AC-110`, `TC-AC-111`, `TC-AC-112`, `TC-AC-113`, `TC-AC-114`, `TC-AC-115`, `TC-AC-116`, `TC-AC-117`, `TC-AC-118`, `TC-AC-119`, `TC-AC-120`, `TC-AC-121`, `TC-AC-122`, `TC-E2EE-001`, `TC-E2EE-002`, `TC-E2EE-003`, `TC-E2EE-004`, `TC-E2EE-005`, `TC-E2EE-006`, `TC-E2EE-007`, `TC-E2EE-008`, `TC-MSG-016`, `TC-MSG-017`, `TC-DB-016`, `TC-DB-017`, và `npm run trace:check -- --strict` toàn bộ.

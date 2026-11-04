@@ -9,8 +9,32 @@ import type { SignalStore } from './signal-store';
 
 type SignalLib = typeof import('@privacyresearch/libsignal-protocol-typescript');
 
+/**
+ * Cảnh báo của thư viện kèm dữ liệu nhạy cảm: `session-cipher.js` in cả object session (root key, chain key) khi
+ * "no chain found for key"; `curve.js` in khóa công khai sai định dạng. Không để chúng ra console (docs/SIGNAL_LIBRARY_REVIEW.md).
+ */
+const LIBRARY_WARNINGS = ['no chain found for key', 'Invalid public key'];
+
+export function isLibraryWarning(args: readonly unknown[]): boolean {
+  const first = args[0];
+  return typeof first === 'string' && LIBRARY_WARNINGS.some((w) => first.startsWith(w));
+}
+
+function muteLibraryWarnings(): void {
+  /* eslint-disable no-console -- bọc console.warn để lọc cảnh báo chứa khóa của thư viện D-12, không tự log gì */
+  const warn = console.warn.bind(console);
+  console.warn = (...args: unknown[]) => {
+    if (!isLibraryWarning(args)) warn(...args);
+  };
+  /* eslint-enable no-console */
+}
+
 let lib: Promise<SignalLib> | null = null;
-export const loadSignal = (): Promise<SignalLib> => (lib ??= import('@privacyresearch/libsignal-protocol-typescript'));
+export const loadSignal = (): Promise<SignalLib> =>
+  (lib ??= import('@privacyresearch/libsignal-protocol-typescript').then((m) => {
+    muteLibraryWarnings();
+    return m;
+  }));
 
 /** Số vòng SHA-512 của safety number (NumericFingerprint của Signal). */
 const FINGERPRINT_ITERATIONS = 5200;
@@ -110,8 +134,52 @@ export function decryptFrom(store: SignalStore, address: string, type: 1 | 3, bo
   });
 }
 
-/** Safety number 60 chữ số của cặp (mình, device peer) — hai bên ra cùng chuỗi (FR-E2EE-005). */
+/** Một nửa safety number (30 chữ số) cho (identifier, identity key) — NumericFingerprint v0 của Signal. */
+async function displayStringFor(identifier: string, key: Uint8Array, iterations: number): Promise<string> {
+  const id = Uint8Array.from(identifier, (ch) => {
+    const code = ch.charCodeAt(0);
+    if (code > 0xff) throw new RangeError('identifier phải là chuỗi một byte');
+    return code;
+  });
+  // version (uint16 little-endian, = 0) ‖ key ‖ identifier; mỗi vòng: hash = SHA-512(hash ‖ key)
+  let data: Uint8Array = new Uint8Array([0, 0, ...key, ...id]);
+  for (let i = 0; i < iterations; i += 1) {
+    const input = new Uint8Array(data.length + key.length);
+    input.set(data);
+    input.set(key, data.length);
+    data = new Uint8Array(await crypto.subtle.digest('SHA-512', input));
+  }
+  let out = '';
+  for (let offset = 0; offset < 30; offset += 5) {
+    const b = data.subarray(offset, offset + 5);
+    const chunk =
+      ((b[0] ?? 0) * 2 ** 32 + (b[1] ?? 0) * 2 ** 24 + (b[2] ?? 0) * 2 ** 16 + (b[3] ?? 0) * 2 ** 8 + (b[4] ?? 0)) %
+      100000;
+    out += String(chunk).padStart(5, '0');
+  }
+  return out;
+}
+
+/**
+ * Safety number 60 chữ số của cặp (mình, device peer) — hai bên ra cùng chuỗi (FR-E2EE-005). Cùng thuật toán với
+ * FingerprintGenerator của thư viện D-12 (NumericFingerprint v0, SHA-512 lặp 5200 vòng; unit test so khớp từng chữ số)
+ * nhưng dùng WebCrypto gốc: bản msrcrypto (JS thuần) của thư viện mất hàng chục giây trên trình duyệt.
+ */
 export async function fingerprint(
+  localUserId: string,
+  localIdentityKey: string,
+  remoteUserId: string,
+  remoteIdentityKey: string,
+): Promise<string> {
+  const [local, remote] = await Promise.all([
+    displayStringFor(localUserId, new Uint8Array(b64ToBuffer(localIdentityKey)), FINGERPRINT_ITERATIONS),
+    displayStringFor(remoteUserId, new Uint8Array(b64ToBuffer(remoteIdentityKey)), FINGERPRINT_ITERATIONS),
+  ]);
+  return [local, remote].sort().join('');
+}
+
+/** Bản của thư viện (chậm) — chỉ để test đối chiếu. */
+export async function libraryFingerprint(
   localUserId: string,
   localIdentityKey: string,
   remoteUserId: string,

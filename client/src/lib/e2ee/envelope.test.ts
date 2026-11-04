@@ -14,6 +14,9 @@ import { ensureDeviceKeys, topUpPreKeys, type DeviceKeysApi } from './device-key
 import { IdentityBlockedError, SecretCrypto, plainKey, type E2eeEnvelopeOut } from './envelope';
 import { SignalStore } from './signal-store';
 
+// Mỗi test chạy thư viện mật mã thật (1–3 s); khi cả bộ test chạy song song có thể vượt 5 s mặc định (KI-03).
+vi.setConfig({ testTimeout: 30_000 });
+
 interface ServerDevice {
   userId: string;
   deviceId: string;
@@ -282,12 +285,13 @@ describe('encryptFanout / decryptForThisDevice (FR-E2EE-004)', () => {
 });
 
 describe('identity đổi (FR-E2EE-006)', () => {
-  it('TC-AC-113 TC-E2EE-003 bob Y đăng ký lại (identity mới): device đã xác minh → chặn gửi tới khi "Chấp nhận"; sau đó gửi được, verified bị xóa', async () => {
+  it('TC-AC-113 TC-E2EE-003 TC-E2EE-006 bob Y đăng ký lại (identity mới): device đã xác minh → chặn gửi tới khi "Chấp nhận"; sau đó gửi được, verified bị xóa', async () => {
     const server = fakeServer();
     const x = await device(server, ALICE);
     const y = await device(server, BOB);
     const first = await x.crypto.encryptFanout(BOB, crypto.randomUUID(), 'một');
-    await y.crypto.decryptForThisDevice(deliver(first, ALICE, y.deviceId));
+    const firstForY = deliver(first, ALICE, y.deviceId, { createdAt: new Date(Date.now() - 1000).toISOString() });
+    await y.crypto.decryptForThisDevice(firstForY);
     const [known] = await x.store.identitiesOf(BOB);
     if (!known) throw new Error('thiếu identity');
     await x.store.setVerified(known.address, true);
@@ -300,6 +304,9 @@ describe('identity đổi (FR-E2EE-006)', () => {
       me: { userId: BOB, deviceId: y.deviceId },
       fetchBundles: server.fetchBundles,
     });
+    // TC-E2EE-006: tin trước khi Y sinh khóa mới có recipient cho Y nhưng thuộc bộ khóa cũ → placeholder "trước khi tham gia".
+    await yStore.deletePlaintext(plainKey.message(firstForY.id));
+    expect(await y2.decryptForThisDevice(firstForY)).toEqual({ kind: 'NOT_FOR_DEVICE' });
 
     const later = Date.now() + 60_000;
     const xLater = new SecretCrypto({

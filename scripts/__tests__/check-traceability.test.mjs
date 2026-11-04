@@ -42,3 +42,9 @@ test('--strict exit 1 khi còn ID thiếu test', () => {
   const missing = /thiếu: /.test(r.stdout);
   assert.equal(r.status, missing ? 1 : 0);
 });
+
+test('nhận Test ID có chữ số trong tiền tố (TC-E2EE-…) ở đầu tên test', () => {
+  const r = run('--milestone', 'M7');
+  assert.equal(r.status, 0, r.stderr);
+  assert.doesNotMatch(r.stdout, /thiếu: TC-E2EE-00[1-8]/);
+});

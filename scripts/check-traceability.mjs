@@ -54,7 +54,7 @@ function walk(dir) {
 
 // Test ID phải đứng ở ĐẦU tên it(/test(/describe( (có thể nhiều ID liền nhau), chuỗi '…', "…" hoặc `…`.
 const TITLE_RE =
-  /\b(?:it|test|describe)(?:\.(?:each\([^)]*\)|only|skip|todo|concurrent))*\(\s*(['"`])((?:TC-[A-Z-]+-\d{3}\s*)+)/g;
+  /\b(?:it|test|describe)(?:\.(?:each\([^)]*\)|only|skip|todo|concurrent))*\(\s*(['"`])((?:TC-[A-Z0-9-]+-\d{3}\s*)+)/g; // tiền tố có thể chứa chữ số (TC-E2EE-…)
 const covered = new Map();
 for (const file of SCAN_DIRS.flatMap((d) => walk(join(root, d)))) {
   const text = readFileSync(file, 'utf8');
