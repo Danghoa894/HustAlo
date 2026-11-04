@@ -65,6 +65,7 @@ export function startE2eeRuntime({ meId, openStore = openSignalStore }: E2eeRunt
           store,
           me: { userId: meId, deviceId },
           fetchBundles: (userId) => e2eeApi.bundles(userId),
+          fetchIdentities: (userId) => e2eeApi.identities(userId),
           onIdentityChanged: () => {
             useE2eeStore.getState().bump();
           },

@@ -74,7 +74,13 @@ function fakeServer() {
           oneTimePreKey: d.preKeys.shift() ?? null,
         })),
     );
-  return { devices, requests, api, fetchBundles };
+  const fetchIdentities = (userId: string) =>
+    Promise.resolve(
+      devices
+        .filter((d) => d.userId === userId && d.active)
+        .map((d) => ({ deviceId: d.deviceId, signalDeviceId: d.signalDeviceId, identityKey: d.keys.identityKey })),
+    );
+  return { devices, requests, api, fetchBundles, fetchIdentities };
 }
 
 let seq = 0;
@@ -349,5 +355,51 @@ describe('identity đổi (FR-E2EE-006)', () => {
     const env = await xLater.encryptFanout(BOB, crypto.randomUUID(), 'vẫn gửi', true);
     expect(env.recipients).toHaveLength(1);
     expect(await xLater.changedIdentities(BOB)).toHaveLength(1);
+  });
+});
+
+describe('checkIdentities — endpoint chỉ đọc (KI-10)', () => {
+  it('TC-AC-113 phát hiện identity đổi không tiêu thụ prekey; cờ X3DH lại sống qua reload (instance SecretCrypto mới)', async () => {
+    const server = fakeServer();
+    const x = await device(server, ALICE);
+    const y = await device(server, BOB);
+    const first = await x.crypto.encryptFanout(BOB, crypto.randomUUID(), 'một');
+    await y.crypto.decryptForThisDevice(deliver(first, ALICE, y.deviceId));
+    const yd = server.devices.find((d) => d.deviceId === y.deviceId);
+    if (!yd) throw new Error('thiếu device');
+
+    // Bob xóa IndexedDB trên Y → identity mới, cùng deviceId.
+    const yStore = await SignalStore.open(`${BOB}-wiped-${String(seq++)}`);
+    await ensureDeviceKeys({ store: yStore, deviceId: y.deviceId, api: server.api(BOB) });
+    const y2 = new SecretCrypto({
+      store: yStore,
+      me: { userId: BOB, deviceId: y.deviceId },
+      fetchBundles: server.fetchBundles,
+    });
+
+    const onChanged = vi.fn();
+    const opts = {
+      store: x.store,
+      me: { userId: ALICE, deviceId: x.deviceId },
+      fetchBundles: server.fetchBundles,
+      fetchIdentities: server.fetchIdentities,
+    };
+    const preKeysBefore = yd.preKeys.length;
+    expect(await new SecretCrypto({ ...opts, onIdentityChanged: onChanged }).checkIdentities(BOB)).toBe(true);
+    expect(yd.preKeys.length).toBe(preKeysBefore); // không tiêu thụ one-time prekey
+    expect(onChanged).toHaveBeenCalledWith(BOB);
+    const [rec] = await x.store.identitiesOf(BOB);
+    expect(rec).toMatchObject({ changed: true, needsRebuild: true, identityKey: yd.keys.identityKey });
+
+    // "Tải lại trang": instance mới, không còn gì trong RAM — vẫn X3DH lại với identity mới.
+    const afterReload = new SecretCrypto(opts);
+    expect(await afterReload.checkIdentities(BOB)).toBe(false); // đã ghi nhận, không báo lại
+    const env = await afterReload.encryptFanout(BOB, crypto.randomUUID(), 'sau khi đổi');
+    expect(env.recipients[0]?.type).toBe(3);
+    expect(await y2.decryptForThisDevice(deliver(env, ALICE, y.deviceId))).toEqual({
+      kind: 'TEXT',
+      text: 'sau khi đổi',
+    });
+    expect((await x.store.getIdentity(rec?.address ?? ''))?.needsRebuild).toBe(false);
   });
 });

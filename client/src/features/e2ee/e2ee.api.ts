@@ -1,6 +1,8 @@
 // client/src/features/e2ee/e2ee.api.ts — REST /e2ee/* (api_spec tag E2EE). Query key Q['e2ee','devices']
 // (ui_ux_spec.md §3).
 import type {
+  DeviceIdentitiesResponse,
+  DeviceIdentity,
   DeviceKeysResponse,
   DeviceList,
   OneTimePreKey,
@@ -22,6 +24,9 @@ export const e2eeApi = {
     http<PreKeyCountResponse>(`${device(deviceId)}/prekeys`, { method: 'POST', body: { oneTimePreKeys } }),
   devices: () => http<DeviceList>('/e2ee/devices'),
   revoke: (deviceId: string) => http<undefined>(device(deviceId), { method: 'DELETE' }),
+  /** Identity key của các device ACTIVE — chỉ đọc, không tiêu thụ prekey (FR-E2EE-006, KI-10). */
+  identities: async (userId: string): Promise<DeviceIdentity[]> =>
+    (await http<DeviceIdentitiesResponse>(`/e2ee/users/${encodeURIComponent(userId)}/identities`)).items,
   /** Bundle cho mọi device ACTIVE; user không có device (422 E2EE_KEYS_UNAVAILABLE) → [] (FR-E2EE-002). */
   async bundles(userId: string): Promise<PreKeyBundle[]> {
     try {

@@ -26,6 +26,11 @@ export interface KnownIdentity {
   changed: boolean;
   /** Bản cũ đã verified trước khi đổi → chặn gửi tới khi chấp nhận. */
   wasVerified: boolean;
+  /**
+   * Session hiện có thuộc identity cũ → phải X3DH lại từ bundle mới trước khi gửi. Lưu bền (sống qua reload); xóa khi đã
+   * dựng session mới (gửi) hoặc nhận PreKey message từ identity mới. Bản ghi cũ không có trường này = false.
+   */
+  needsRebuild?: boolean;
 }
 
 /** Cặp khóa dạng lưu trữ (base64). */
@@ -167,6 +172,7 @@ export class SignalStore implements StorageType {
       verified: false,
       changed: prev !== undefined,
       wasVerified: prev ? prev.verified || prev.wasVerified : false,
+      needsRebuild: prev !== undefined,
     });
     return prev !== undefined;
   }
@@ -231,7 +237,14 @@ export class SignalStore implements StorageType {
       verified: false,
       changed: false,
       wasVerified: false,
+      needsRebuild: false,
     });
+  }
+
+  /** Đã có session với identity hiện tại của device. */
+  async clearRebuild(address: string): Promise<void> {
+    const rec = await this.db.get('identities', address);
+    if (rec?.needsRebuild) await this.db.put('identities', { ...rec, needsRebuild: false });
   }
 
   async setVerified(address: string, verified: boolean): Promise<void> {

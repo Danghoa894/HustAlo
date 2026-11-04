@@ -2,7 +2,8 @@
 // - SETTING_UP: chưa có session với device nào của peer → "Đang thiết lập mã hóa…" (AC-122);
 // - ENCRYPTED: có session với ≥ 1 device của peer → "Mã hóa đầu-cuối"; VERIFIED: mọi device peer đã xác minh;
 // - changed: identity device peer đổi (banner, FR-E2EE-006); blocked: đổi ở device đã xác minh → chặn gửi (AC-113).
-// Mở hội thoại lần đầu trong lần tải trang → tải lại danh bạ device của peer để phát hiện identity đổi.
+// Mở hội thoại lần đầu trong lần tải trang → GET /e2ee/users/{peer}/identities (chỉ đọc, không tiêu thụ prekey — KI-10)
+// để phát hiện identity đổi.
 import type { Conversation } from '@hustalo/shared';
 import { useCallback, useEffect, useState } from 'react';
 import type { SecretCrypto } from '../../lib/e2ee/envelope';
@@ -59,7 +60,7 @@ export function useSecretSession(conversation: Conversation | undefined, meId: s
     if (!crypto || !peerId || refreshedThisLoad.has(conversationId)) return;
     refreshedThisLoad.add(conversationId);
     crypto
-      .devicesOf(peerId, 'force')
+      .checkIdentities(peerId)
       .then(() => {
         useE2eeStore.getState().bump();
       })

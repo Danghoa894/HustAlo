@@ -35,6 +35,11 @@ export function e2eeController(e2ee: E2eeService) {
       res.status(200).json(await e2ee.uploadPreKeys(getAuth(res), deviceParam(res), oneTimePreKeys));
     }),
 
+    identities: handle(async (_req, res) => {
+      const { userId } = valid(res).params as { userId: string };
+      res.status(200).json(await e2ee.getIdentities(getAuth(res), userId));
+    }),
+
     bundles: handle(async (_req, res) => {
       const { userId } = valid(res).params as { userId: string };
       res.setHeader('Cache-Control', 'no-store'); // mỗi lần gọi tiêu thụ one-time prekey

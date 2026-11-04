@@ -4,7 +4,7 @@
 - **Nhánh:** `main`. M5/M6/M6.5 đã push (`6d8023a..95f1ec8`). M7 gồm 4 commit tiếp theo: `1cceb60`, `9f64807`, `6169685` và commit Đợt 4.
 - **Giấy phép:** GPL-3.0-only (theo thư viện Signal D-12; chủ dự án duyệt ngày 2026-11-04). Xem `LICENSE` và `docs/SIGNAL_LIBRARY_REVIEW.md`.
 - **Môi trường:** Windows 11, Docker Desktop (Mongo rs0, Redis, coturn local), Node 22.14.
-- Chi tiết vấn đề đã biết: `docs/KNOWN_ISSUES.md` (KI-01…KI-12).
+- Chi tiết vấn đề đã biết: `docs/KNOWN_ISSUES.md` (KI-01…KI-13).
 
 ## 1. Tổng quan milestone
 
@@ -18,25 +18,25 @@
 
 ## 2. Kết quả kiểm tra (2026-11-04, sau M7)
 
-| Lệnh / phép đo                                                        | Kết quả                                                                                                                                  |
-| --------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `npm run typecheck`                                                   | ✅                                                                                                                                       |
-| `npm run lint` (ESLint + Prettier + Redocly)                          | ✅                                                                                                                                       |
-| `npm run test:unit`                                                   | ✅ scripts 6 · shared 51 · server 120 (+4 `deploy.test.ts` chỉ chạy khi có `E2E_BASE_URL`) · client 323                                  |
-| `npm run test:integration`                                            | ✅ 199/199 (20 file; `e2ee.int.test.ts` 21)                                                                                              |
-| `npm run trace:check -- --strict`                                     | ✅ 251/251 Test ID; `--milestone M7` 25/25 (đã sửa regex để nhận `TC-E2EE-…`)                                                            |
-| `npm run spec:check`                                                  | ✅ FR 58 · AC 102 · EC 106 · event 35 · endpoint 28 · hằng số 72                                                                         |
-| `npm run test:coverage` (NFR-14)                                      | ✅ `server/src/modules/**` 98,4% dòng (unit + integration gộp), nhánh 93,7%; `e2ee.service.ts` 97,9%; `packages/shared` 91,2%            |
-| `npm audit --omit=dev --audit-level=high` (NFR-13)                    | ✅ 0 high/critical (thêm thư viện Signal không tạo advisory mới); còn 2 moderate của `react-router`                                      |
-| `npm run build`                                                       | ✅ bundle-secrets OK · JS khởi tạo 177,9 KB gzip (≤ 300 KB); thư viện Signal ở chunk tải lười 136,7 KB gzip                              |
-| k6 `load/message-send.js` (NFR-01, TC-ARCH-012)                       | ✅ 50 user · 5 msg/s · 5 phút: p95 ACK 82 ms (k6), server histogram 1450/1450 mẫu ≤ 300 ms, 0 ACK lỗi — đo trên bản build (KI-08)        |
-| k6 `load/sockets.js` (NFR-09)                                         | ✅ 1000/1000 socket, 200/200 cuộc gọi CONNECTED (setup p95 391 ms), RSS server 255 MB                                                    |
-| Lighthouse CI 0.15.1 (NFR-05)                                         | ✅ LCP 2,16–2,25 s (mobile simulate, image client có gzip), perf 0,91–0,94, a11y 1 — sau khi tự host Inter (KI-06)                       |
-| Smoke 2 instance `SOCKET_ADAPTER=redis-streams`                       | ✅ chat + cuộc gọi đủ vòng (invite → CONNECTED → ENDED) giữa user ở :4301 và :4302 (transport websocket, chưa qua proxy sticky)          |
-| Diễn tập backup/restore (kiến trúc §9.7)                              | ✅ local: `mongodump --oplog --gzip` → restore sang DB khác → `db:indexes` → giải mã 100/100 tin mẫu. Chưa diễn tập trên staging thật    |
-| Docker image                                                          | ✅ `server` 295 MB (argon2 musl chạy đúng, uid 1000, không có `.env`), `client` 94,8 MB (gzip, `/assets` immutable, SPA fallback)        |
-| `docker compose -f infra/docker-compose.prod.yml config` / `nginx -t` | ✅ (chứng chỉ tự ký để test cú pháp)                                                                                                     |
-| E2E toàn bộ trên 3 project (gồm M7)                                   | ⚠️ 103/109 trong lượt chạy liền (3 fail + 3 không chạy, đều là cuộc gọi `@media` Chromium khi máy tải nặng); chạy lại riêng xanh — mục 3 |
+| Lệnh / phép đo                                                        | Kết quả                                                                                                                               |
+| --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `npm run typecheck`                                                   | ✅                                                                                                                                    |
+| `npm run lint` (ESLint + Prettier + Redocly)                          | ✅                                                                                                                                    |
+| `npm run test:unit`                                                   | ✅ scripts 6 · shared 51 · server 120 (+4 `deploy.test.ts` chỉ chạy khi có `E2E_BASE_URL`) · client 324                               |
+| `npm run test:integration`                                            | ✅ 200/200 (20 file; `e2ee.int.test.ts` 22)                                                                                           |
+| `npm run trace:check -- --strict`                                     | ✅ 251/251 Test ID; `--milestone M7` 25/25 (đã sửa regex để nhận `TC-E2EE-…`)                                                         |
+| `npm run spec:check`                                                  | ✅ FR 58 · AC 102 · EC 106 · event 35 · endpoint 28 · hằng số 72                                                                      |
+| `npm run test:coverage` (NFR-14)                                      | ✅ `server/src/modules/**` 98,4% dòng (unit + integration gộp), nhánh 93,7%; `e2ee.service.ts` 97,9%; `packages/shared` 91,2%         |
+| `npm audit --omit=dev --audit-level=high` (NFR-13)                    | ✅ 0 high/critical (thêm thư viện Signal không tạo advisory mới); còn 2 moderate của `react-router`                                   |
+| `npm run build`                                                       | ✅ bundle-secrets OK · JS khởi tạo 177,9 KB gzip (≤ 300 KB); thư viện Signal ở chunk tải lười 136,7 KB gzip                           |
+| k6 `load/message-send.js` (NFR-01, TC-ARCH-012)                       | ✅ 50 user · 5 msg/s · 5 phút: p95 ACK 82 ms (k6), server histogram 1450/1450 mẫu ≤ 300 ms, 0 ACK lỗi — đo trên bản build (KI-08)     |
+| k6 `load/sockets.js` (NFR-09)                                         | ✅ 1000/1000 socket, 200/200 cuộc gọi CONNECTED (setup p95 391 ms), RSS server 255 MB                                                 |
+| Lighthouse CI 0.15.1 (NFR-05)                                         | ✅ LCP 2,16–2,25 s (mobile simulate, image client có gzip), perf 0,91–0,94, a11y 1 — sau khi tự host Inter (KI-06)                    |
+| Smoke 2 instance `SOCKET_ADAPTER=redis-streams`                       | ✅ chat + cuộc gọi đủ vòng (invite → CONNECTED → ENDED) giữa user ở :4301 và :4302 (transport websocket, chưa qua proxy sticky)       |
+| Diễn tập backup/restore (kiến trúc §9.7)                              | ✅ local: `mongodump --oplog --gzip` → restore sang DB khác → `db:indexes` → giải mã 100/100 tin mẫu. Chưa diễn tập trên staging thật |
+| Docker image                                                          | ✅ `server` 295 MB (argon2 musl chạy đúng, uid 1000, không có `.env`), `client` 94,8 MB (gzip, `/assets` immutable, SPA fallback)     |
+| `docker compose -f infra/docker-compose.prod.yml config` / `nginx -t` | ✅ (chứng chỉ tự ký để test cú pháp)                                                                                                  |
+| E2E toàn bộ trên 3 project (gồm M7)                                   | ⚠️ 107/109 (lượt máy rảnh); 2 fail chập chờn (TC-AC-055 KI-13, a11y Firefox), chạy lại riêng xanh — mục 3                             |
 
 ## 3. E2E (Playwright)
 
@@ -44,11 +44,11 @@
   - Chromium 7/7 (57 s), Firefox 7/7, WebKit 7/7.
   - Phủ AC-110, 111, 112, 113, 114, 117, 118, 120, 121, 122; TC-E2EE-001, 003, 004, 005, 006, 007, 008.
   - Mỗi device là một browser context riêng. Thư viện Signal chạy thật, server chỉ thấy bản mã. AC-114 sửa 1 ký tự base64 trong vùng MAC qua `routeWebSocket`.
-- **Lượt chạy liền cả 3 project (109 test, 28,3 phút): 103 pass, 3 fail, 3 không chạy.**
-  - Ba test fail đều thuộc cuộc gọi `@media` trên Chromium: TC-AC-071 tắt camera, TC-AC-071 p95, TC-AC-085 relay. Ba test "không chạy" là các test kế tiếp trong cùng describe serial.
-  - Lượt này chạy song song với test mật mã, `npm install` và HMR do sửa file, nên máy bị tải nặng.
-  - Chạy lại riêng ngay sau đó trên Chromium: `call.spec.ts` 10/10 (gồm p95) và `call-network.spec.ts` 4/4.
-  - Chưa có lượt chạy liền 3 project nào xanh hoàn toàn sau M7. Nên chạy lại khi máy rảnh.
+- **Lượt chạy liền thứ hai, máy rảnh (109 test, 31,2 phút, sau khi sửa KI-10): 107 pass, 2 fail.**
+  - `TC-AC-055` (Chromium): chạy lại riêng 3/3 pass, xem KI-13.
+  - Accessibility trang Cài đặt (Firefox): timeout 90 s; chạy lại riêng 2/2 pass.
+  - Mọi test cuộc gọi `@media` và `e2ee.spec.ts` đều pass trong lượt này.
+- Lượt chạy liền thứ nhất (máy bị tải nặng, 28,3 phút): 103/109, gồm 3 test cuộc gọi `@media` Chromium fail và 3 test không chạy. Chạy lại riêng: `call.spec.ts` 10/10, `call-network.spec.ts` 4/4.
 
 - Chromium: `call.spec.ts` 10/10 (gồm p95 ACCEPTED → CONNECTED ≤ 5 s qua 20 lần), `call-network.spec.ts` 4/4, `smoke.spec.ts` (TC-ARCH-017, local) pass.
 - Lượt chạy toàn bộ 3 project (`npm run test:e2e`, chromium + firefox + webkit, 88 test, 21,1 phút): **87 pass, 1 fail** — `TC-AC-033` trên WebKit hết timeout 90 s; chạy lại riêng 2/2 pass (KI-09, chập chờn). Firefox chạy cả `call.spec.ts` (gồm p95 và autoplay) và pass; `call-network.spec.ts` chỉ Chromium (KI-07); WebKit bỏ test `@media`.
@@ -85,6 +85,7 @@
 - Ma trận §5.2: e2ee → conversations/users đi qua port tiêm từ `main.ts`; e2ee → auth thêm `latestUserAgent`.
 - Kiến trúc §9.3: store bản rõ cục bộ `messages` trong IndexedDB.
 - Cây thư mục: thêm các file mới. DG M7: kết quả R-04 ghi vào `docs/SIGNAL_LIBRARY_REVIEW.md`.
+- KI-10: thêm endpoint `GET /e2ee/users/{userId}/identities` (api_spec, kiến trúc §4.6/§7(h), PRD FR-E2EE-006/P24, DG Traceability). KI-11 và KI-12 được chấp nhận.
 
 ## 5. Việc còn lại
 

@@ -1434,6 +1434,49 @@ paths:
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
 
+  /e2ee/users/{userId}/identities:
+    parameters:
+      - $ref: '#/components/parameters/UserIdPath'
+    get:
+      tags: [E2EE]
+      operationId: listIdentityKeys
+      summary: Identity key công khai của mọi device ACTIVE của user (không tiêu thụ prekey)
+      description: |
+        Chỉ đọc: `deviceId`, `signalDeviceId`, `identityKey` của các device ACTIVE. Client gọi khi mở hội thoại SECRET để
+        phát hiện identity của peer đã đổi (FR-E2EE-006) mà không tiêu thụ one-time prekey như `getPreKeyBundles`.
+        Quyền như P24: chính mình (trả các device khác device hiện tại) hoặc có chung hội thoại SECRET (không → 404);
+        bị chặn → 403 USER_BLOCKED. Không có device nào → 200 `items: []`.
+      x-rate-limit: rest
+      x-requirements: [FR-E2EE-006, AC-113, EC-E2EE-003]
+      responses:
+        '200':
+          description: Identity key theo device
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/XRequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceIdentitiesResponse'
+              example:
+                userId: 6720a1b2c3d4e5f601234563
+                items:
+                  - deviceId: 0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d
+                    signalDeviceId: 1
+                    identityKey: BRERERERERERERERERERERERERERERERERERERERERER
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
   /e2ee/users/{userId}/bundles:
     parameters:
       - $ref: '#/components/parameters/UserIdPath'
@@ -2885,6 +2928,30 @@ components:
           allOf:
             - $ref: '#/components/schemas/OneTimePreKey'
           nullable: true
+    DeviceIdentity:
+      type: object
+      required: [deviceId, signalDeviceId, identityKey]
+      additionalProperties: false
+      properties:
+        deviceId:
+          $ref: '#/components/schemas/UuidV4'
+        signalDeviceId:
+          type: integer
+          minimum: 1
+        identityKey:
+          $ref: '#/components/schemas/Base64PublicKey'
+    DeviceIdentitiesResponse:
+      type: object
+      required: [userId, items]
+      additionalProperties: false
+      properties:
+        userId:
+          $ref: '#/components/schemas/ObjectId'
+        items:
+          type: array
+          maxItems: 5
+          items:
+            $ref: '#/components/schemas/DeviceIdentity'
     PreKeyBundlesResponse:
       type: object
       required: [userId, bundles]

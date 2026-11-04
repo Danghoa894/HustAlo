@@ -299,6 +299,39 @@ describe('FR-E2EE-002 cấp prekey bundle', () => {
   });
 });
 
+describe('FR-E2EE-006 identity key chỉ đọc (KI-10)', () => {
+  it('TC-AC-113 GET identities: đủ device ACTIVE với identityKey như đã đăng ký; KHÔNG tiêu thụ one-time prekey; quyền như P24', async () => {
+    const [alice, bob] = [await person('alice'), await person('bob')];
+    const x = await device(alice);
+    const y = await device(bob, 5);
+    const z = await device(bob, 5);
+    const get = (s: Session, userId: string) => api().get(`/api/v1/e2ee/users/${userId}/identities`).set(bearer(s));
+
+    expect((await get(x.s, bob.id)).status).toBe(404); // chưa có SECRET chung
+    await createSecret(x.s, bob.id);
+    for (let i = 0; i < 12; i += 1) expect((await get(x.s, bob.id)).status).toBe(200); // rate limit rest, không phải e2eeBundle
+    const res = await get(x.s, bob.id);
+    const body = res.body as {
+      userId: string;
+      items: { deviceId: string; signalDeviceId: number; identityKey: string }[];
+    };
+    expect(body.userId).toBe(bob.id);
+    expect(body.items.map((d) => d.deviceId).sort()).toEqual([y.deviceId, z.deviceId].sort());
+    const yDoc = await UserDeviceModel.findOne({ deviceId: y.deviceId }).lean<{ identityKey: string }>();
+    expect(body.items.find((d) => d.deviceId === y.deviceId)?.identityKey).toBe(yDoc?.identityKey);
+    expect(await OneTimePreKeyModel.countDocuments({ consumedAt: { $ne: null } })).toBe(0);
+
+    const self = await get(y.s, bob.id); // chính mình → các device khác
+    expect((self.body as typeof body).items.map((d) => d.deviceId)).toEqual([z.deviceId]);
+    expect(((await get(x.s, alice.id)).body as typeof body).items).toEqual([]); // không có device khác → []
+
+    await api().post(`/api/v1/users/${bob.id}/block`).set(bearer(x.s));
+    const blocked = await get(x.s, bob.id);
+    expect(blocked.status).toBe(403);
+    expect(errorOf(blocked).code).toBe('USER_BLOCKED');
+  });
+});
+
 describe('FR-E2EE-003 bổ sung prekey', () => {
   it('TC-AC-115 còn 20 → lấy bundle còn 19 → e2ee:prekeys-low {remaining:19} đúng một lần; upload 100 → 119', async () => {
     const [alice, bob] = [await person('alice'), await person('bob')];

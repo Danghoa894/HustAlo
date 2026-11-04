@@ -55,19 +55,29 @@ Ghi nhận hiện tượng, chưa sửa. Mỗi mục cần quyết định (sử
 - **Nghi nguyên nhân:** test dài (offline → outbox → chặn → online lại) chiếm gần nửa biên 90 s; cuối lượt chạy dài máy dev chậm hơn.
 - **Hướng xử lý cần duyệt:** `test.setTimeout(150_000)` riêng cho test này (không đổi hằng số spec), hoặc rút ngắn các bước chờ cố định trong test.
 
-## KI-10 — Mở hội thoại SECRET tiêu thụ one-time prekey của peer (M7, chấp nhận)
+## KI-10 — Mở hội thoại SECRET tiêu thụ one-time prekey của peer (M7) — ĐÃ SỬA 2026-11-04
 
-- **Hiện tượng:** lần đầu mở một hội thoại SECRET trong mỗi lần tải trang, client gọi `GET /e2ee/users/{peer}/bundles` để phát hiện identity của peer đã đổi (AC-113). Lời gọi này tiêu thụ 1 one-time prekey cho mỗi device ACTIVE của peer, kể cả khi đã có session.
-- **Ảnh hưởng:** prekey hết nhanh hơn nếu người dùng tải lại trang liên tục. Server tự phát `e2ee:prekeys-low` khi còn dưới 20, và device bên kia bổ sung 100 khóa. Hết hẳn thì X3DH vẫn chạy được, chỉ thiếu OTPK (EC-E2EE-002). Bị chặn bởi rate limit `e2eeBundle` 10/phút/user+target.
-- **Hướng khác (cần sửa spec):** thêm endpoint chỉ đọc identity key của các device peer, không tiêu thụ prekey.
+- **Hiện tượng (trước khi sửa):** lần đầu mở mỗi hội thoại SECRET trong một lần tải trang, client gọi `GET /e2ee/users/{peer}/bundles` để phát hiện identity của peer đã đổi. Mỗi lần gọi tiêu thụ 1 one-time prekey cho mỗi device của peer.
+- **Sửa (spec đã duyệt):**
+  - Thêm endpoint chỉ đọc `GET /e2ee/users/{userId}/identities` (`listIdentityKeys`). Endpoint dùng quyền P24, rate limit `rest`, không tiêu thụ prekey.
+  - `useSecretSession` gọi `SecretCrypto.checkIdentities` thay cho tải bundle.
+  - Cờ "cần X3DH lại" (`needsRebuild`) chuyển từ RAM sang IndexedDB. Trước đây, nếu tải lại trang giữa lúc phát hiện identity đổi và lúc gửi, tin sẽ bị mã hóa bằng session cũ.
+- **Test:** integration `FR-E2EE-006 identity key chỉ đọc` (không có prekey nào có `consumedAt`); unit `checkIdentities` (không tiêu thụ prekey, cờ X3DH lại còn sau reload).
 
-## KI-11 — Giới hạn 5 device có thể bị vượt khi đăng ký đồng thời (M7, chấp nhận)
+## KI-11 — Giới hạn 5 device có thể bị vượt khi đăng ký đồng thời (M7, chấp nhận — đã duyệt 2026-11-04)
 
 - **Hiện tượng:** `registerDevice` đếm số device ACTIVE trong transaction snapshot. Hai device mới đăng ký đúng cùng lúc khi user đang có 4 có thể cùng thấy 4 (write skew), nên cả hai đều được tạo thành 6 device.
 - **Ảnh hưởng:** chỉ xảy ra khi đúng một người dùng đăng nhập hai thiết bị mới trong cùng vài mili giây. Cấp `signalDeviceId` vẫn không bị trùng (unique index + retry).
 - **Hướng xử lý nếu cần:** khóa theo user (cập nhật một document đếm trong cùng transaction) trước khi đếm.
 
-## KI-12 — Bản rõ tin SECRET lưu không mã hóa trong IndexedDB (M7, theo thiết kế)
+## KI-12 — Bản rõ tin SECRET lưu không mã hóa trong IndexedDB (M7, theo thiết kế — đã duyệt 2026-11-04)
 
 - **Hiện tượng:** store `messages` của `hustalo-signal-{userId}` giữ bản rõ đã gửi hoặc đã giải mã (kiến trúc §9.3). Store này có cùng mức bảo vệ với khóa riêng Signal trong cùng DB.
 - **Ảnh hưởng:** ai đọc được profile trình duyệt sẽ đọc được lịch sử SECRET của device đó, giống các ứng dụng Signal trên web và desktop không đặt passphrase.
+
+## KI-13 — `TC-AC-055` (Chromium) chập chờn khi chạy toàn bộ E2E (M2)
+
+- **Hiện tượng (2026-11-04, lượt 3 project liền sau M7):** bob bị xóa khỏi nhóm, đóng modal và về `/chats`, nhưng dòng "Nhóm QL" vẫn còn trong danh sách sau 10 s. Chạy lại riêng: 3/3 pass.
+- **Đã loại trừ:** luồng xóa thành viên chỉ phát `conversation:member-removed`, không phát `message:new`. Vì vậy phần giải mã bất đồng bộ của M7 trong chat-runtime không nằm trên đường đi này.
+- **Nghi nguyên nhân:** một lần tải lại danh sách hội thoại khởi chạy trước khi xóa (sau sự kiện đổi vai trò), nhưng trả về sau lần làm mới do `member-removed`.
+- **Hướng xử lý cần duyệt:** khi nhận `member-removed`, xóa hội thoại khỏi cache danh sách ngay (`setQueryData`) rồi mới invalidate.

@@ -465,7 +465,7 @@ hustalo/
 │       │   │   ├── calls.test.ts
 │       │   │   └── calls.int.test.ts
 │       │   ├── e2ee/
-│       │   │   ├── e2ee.routes.ts          # /e2ee/devices, /e2ee/devices/{deviceId}/keys|prekeys, /e2ee/users/{userId}/bundles
+│       │   │   ├── e2ee.routes.ts          # /e2ee/devices, /e2ee/devices/{deviceId}/keys|prekeys, /e2ee/users/{userId}/bundles|identities
 │       │   │   ├── e2ee.controller.ts
 │       │   │   ├── e2ee.service.ts         # registerDevice, uploadPrekeys, getBundles (consume atomic), revokeDevice, assertEnvelope
 │       │   │   ├── e2ee.repository.ts
@@ -1141,6 +1141,7 @@ Chi tiết schema ở `api_spec.yaml`. Endpoint đánh dấu `[NEW]` là bổ su
 | POST | `/e2ee/devices/{deviceId}/prekeys` | bearer (`did` = deviceId) | rest | Bổ sung one-time prekeys |
 | DELETE | `/e2ee/devices/{deviceId}` `[NEW]` | bearer (device thuộc mình) | rest | Thu hồi device |
 | GET | `/e2ee/users/{userId}/bundles` | bearer | e2eeBundle | Bundle cho mọi device ACTIVE của user (tiêu thụ one-time prekey nguyên tử) |
+| GET | `/e2ee/users/{userId}/identities` `[NEW]` | bearer | rest | Identity key của mọi device ACTIVE (chỉ đọc, không tiêu thụ prekey) — phát hiện identity đổi (FR-E2EE-006) |
 | GET | `/health` | — | — | `{ status: 'ok' \| 'degraded' \| 'draining', mongo: 'up' \| 'down', redis: 'up' \| 'down' }`; 503 khi mongo down hoặc đang draining (§10.3) |
 
 ---
@@ -1643,6 +1644,7 @@ Alice device X (đã đăng ký khóa)        REST /e2ee                    Mong
  |                             |  đếm còn lại < 20 và chưa gửi trong 1h → e2ee:prekeys-low → device:{Y|Z} ──────────> bổ sung
  |<----------------------------| 200 {bundles:[{deviceId, signalDeviceId, registrationId, identityKey, signedPreKey, oneTimePreKey|null}]}
  | GET /e2ee/users/{alice}/bundles (các device khác của Alice, trừ X) để chúng đọc được tin của chính mình
+ | (Mở hội thoại SECRET: GET /e2ee/users/{bob}/identities — chỉ đọc, không tiêu thụ prekey — để phát hiện identity đổi trước khi gửi)
  | Với mỗi bundle: so identityKey với known identity trong IndexedDB:
  |   khác → đánh dấu identity đổi, hiện IdentityChangedBanner, CHẶN gửi tới khi user xác nhận (EC-E2EE-003)
  |   SessionBuilder.processPreKey(bundle) (thư viện verify chữ ký signedPreKey; sai → bỏ device đó, báo lỗi)

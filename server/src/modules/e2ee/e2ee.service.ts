@@ -8,6 +8,7 @@ import {
   E2EE_PREKEYS_LOW_NOTIFY_COOLDOWN_S,
   EVENTS,
   type Device,
+  type DeviceIdentitiesResponse,
   type DeviceKeysResponse,
   type OneTimePreKey,
   type PreKeyBundle,
@@ -160,6 +161,19 @@ export function createE2eeService(deps: E2eeDeps) {
     };
   }
 
+  /**
+   * Quyền P24 (bundle / identity key của user khác): chính mình → device khác device hiện tại; người khác → có chung
+   * SECRET (không → NOT_FOUND) và không bị chặn (USER_BLOCKED). Trả device ACTIVE được phép thấy.
+   */
+  async function visibleDevices(me: DeviceAuth, targetId: string): Promise<DeviceRecord[]> {
+    const self = targetId === me.userId;
+    if (!self) {
+      if (!(await access.sharesActiveSecret(me.userId, targetId))) throw new AppError('NOT_FOUND', MSG.notFound);
+      if (await access.isBlockedEitherWay(me.userId, targetId)) throw new AppError('USER_BLOCKED', MSG.blocked);
+    }
+    return (await repo.activeDevices(targetId)).filter((d) => !self || d.deviceId !== me.deviceId);
+  }
+
   return {
     /** PUT /e2ee/devices/{deviceId}/keys (FR-E2EE-001, AC-110, EC-E2EE-006, TC-DB-017). */
     async registerDevice(
@@ -207,16 +221,24 @@ export function createE2eeService(deps: E2eeDeps) {
      * hiện tại) hoặc có chung SECRET (không → 404), không bị chặn (403). Không có device ACTIVE → 422.
      */
     async getBundles(me: DeviceAuth, targetId: string): Promise<PreKeyBundlesResponse> {
-      const self = targetId === me.userId;
-      if (!self) {
-        if (!(await access.sharesActiveSecret(me.userId, targetId))) throw new AppError('NOT_FOUND', MSG.notFound);
-        if (await access.isBlockedEitherWay(me.userId, targetId)) throw new AppError('USER_BLOCKED', MSG.blocked);
-      }
-      const devices = (await repo.activeDevices(targetId)).filter((d) => !self || d.deviceId !== me.deviceId);
+      const devices = await visibleDevices(me, targetId);
       if (devices.length === 0) throw new AppError('E2EE_KEYS_UNAVAILABLE', MSG.noKeys);
       const bundles: PreKeyBundle[] = [];
       for (const d of devices) bundles.push(await bundleOf(d, me.userId));
       return { userId: targetId, bundles };
+    },
+
+    /** GET /e2ee/users/{userId}/identities (FR-E2EE-006): chỉ đọc, KHÔNG tiêu thụ one-time prekey; không có device → []. */
+    async getIdentities(me: DeviceAuth, targetId: string): Promise<DeviceIdentitiesResponse> {
+      const devices = await visibleDevices(me, targetId);
+      return {
+        userId: targetId,
+        items: devices.map((d) => ({
+          deviceId: d.deviceId,
+          signalDeviceId: d.signalDeviceId,
+          identityKey: d.identityKey,
+        })),
+      };
     },
 
     /** GET /e2ee/devices (FR-E2EE-001, FR-E2EE-007). */

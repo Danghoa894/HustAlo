@@ -1,4 +1,5 @@
-// server/src/modules/e2ee/e2ee.routes.ts — /e2ee/devices…, /e2ee/users/{userId}/bundles (rate limit rest / e2eeBundle)
+// server/src/modules/e2ee/e2ee.routes.ts — /e2ee/devices…, /e2ee/users/{userId}/identities (rest),
+// /e2ee/users/{userId}/bundles (e2eeBundle)
 import { Router, type Request, type Response } from 'express';
 import { authenticate, getAuth, type RevocationChecker } from '../../http/middleware/authenticate';
 import { rateLimit, subjects } from '../../http/middleware/rate-limit';
@@ -36,6 +37,7 @@ export function e2eeRoutes(e2ee: E2eeService, checker: RevocationChecker, limite
     validate({ params: DeviceIdParamsSchema, body: UploadPreKeysRequestSchema }),
     c.uploadPreKeys,
   );
+  router.get('/e2ee/users/:userId/identities', rest, validate({ params: UserIdParamsSchema }), c.identities);
   router.get(
     '/e2ee/users/:userId/bundles',
     validate({ params: UserIdParamsSchema }),

@@ -6,13 +6,15 @@
 //   Identity đổi của device đã xác minh → IdentityBlockedError (chặn gửi tới khi "Chấp nhận", AC-113).
 // - Nhận: bản rõ cục bộ → dùng; không có recipient cho device này → NOT_FOR_DEVICE; device gửi không còn trong danh bạ
 //   → REVOKED_DEVICE; giải mã lỗi → DECRYPT_FAILED (E2EE_DECRYPT_FAILED, chỉ phía client). Giải mã được → lưu bản rõ.
-import { E2EE_ENVELOPE_VERSION, type Message, type PreKeyBundle } from '@hustalo/shared';
+import { E2EE_ENVELOPE_VERSION, type DeviceIdentity, type Message, type PreKeyBundle } from '@hustalo/shared';
 import { b64ToBuffer } from './codec';
 import { addressOf, decryptFrom, encryptFor, hasSession, processBundle } from './signal-adapter';
 import type { KnownIdentity, SignalStore } from './signal-store';
 
 /** Port REST: bundle cho mọi device ACTIVE của user; user không có device (422) → []. */
 export type FetchBundles = (userId: string) => Promise<PreKeyBundle[]>;
+/** Port REST chỉ đọc (GET /e2ee/users/{userId}/identities): không tiêu thụ one-time prekey (FR-E2EE-006, KI-10). */
+export type FetchIdentities = (userId: string) => Promise<DeviceIdentity[]>;
 
 export interface E2eeEnvelopeOut {
   v: typeof E2EE_ENVELOPE_VERSION;
@@ -33,8 +35,6 @@ export class IdentityBlockedError extends Error {
 interface DirectoryEntry {
   bundle: PreKeyBundle;
   address: string;
-  /** Identity khác session hiện có → phải X3DH lại từ bundle trước khi gửi. */
-  rebuild: boolean;
 }
 
 /** Khóa bản rõ cục bộ: tin đã có id; tin của mình chưa ACK theo clientMessageId (kiến trúc §9.3). */
@@ -50,6 +50,7 @@ export interface SecretCryptoOptions {
   store: SignalStore;
   me: { userId: string; deviceId: string };
   fetchBundles: FetchBundles;
+  fetchIdentities?: FetchIdentities;
   now?: () => number;
   /** Có identity vừa đổi của user (banner FR-E2EE-006). */
   onIdentityChanged?: (userId: string) => void;
@@ -85,25 +86,46 @@ export class SecretCrypto {
 
   private async load(userId: string): Promise<DirectoryEntry[]> {
     const bundles = (await this.opts.fetchBundles(userId)).filter((b) => b.deviceId !== this.opts.me.deviceId);
-    const prev = new Map((this.directory.get(userId)?.entries ?? []).map((e) => [e.address, e]));
     const entries: DirectoryEntry[] = [];
     let changed = false;
     for (const bundle of bundles) {
       const address = addressOf(bundle.userId, bundle.signalDeviceId);
-      const known = await this.store.getIdentity(address);
-      let rebuild = prev.get(address)?.rebuild ?? false;
-      if (known && known.identityKey !== bundle.identityKey) {
-        // Identity của device đổi (đăng ký lại sau khi xóa IndexedDB, EC-E2EE-003): ghi nhận, session cũ vô dụng.
-        await this.store.saveIdentity(address, b64ToBuffer(bundle.identityKey));
-        rebuild = true;
-        changed = true;
-      }
-      await this.store.linkDevice(address, bundle.deviceId, bundle.identityKey);
-      entries.push({ bundle, address, rebuild });
+      if (await this.notice(address, bundle.deviceId, bundle.identityKey)) changed = true;
+      entries.push({ bundle, address });
     }
     this.directory.set(userId, { entries, fetchedAt: this.now() });
     if (changed) this.opts.onIdentityChanged?.(userId);
     return entries;
+  }
+
+  /**
+   * Ghi nhận identity hiện tại của một device. Khác bản đã biết (đăng ký lại sau khi xóa IndexedDB, EC-E2EE-003) →
+   * đánh dấu changed + needsRebuild (session cũ vô dụng). Trả true nếu đổi.
+   */
+  private async notice(address: string, deviceId: string, identityKey: string): Promise<boolean> {
+    const known = await this.store.getIdentity(address);
+    const changed = known !== undefined && known.identityKey !== identityKey;
+    if (changed) await this.store.saveIdentity(address, b64ToBuffer(identityKey));
+    await this.store.linkDevice(address, deviceId, identityKey);
+    return changed;
+  }
+
+  /**
+   * Mở hội thoại SECRET: kiểm tra identity các device của user bằng endpoint chỉ đọc (không tiêu thụ one-time prekey,
+   * KI-10). Có đổi → bỏ danh bạ đang giữ (bundle cũ mang identity cũ) để lần gửi sau tải bundle mới.
+   */
+  async checkIdentities(userId: string): Promise<boolean> {
+    if (!this.opts.fetchIdentities) return false;
+    const items = (await this.opts.fetchIdentities(userId)).filter((d) => d.deviceId !== this.opts.me.deviceId);
+    let changed = false;
+    for (const d of items) {
+      if (await this.notice(addressOf(userId, d.signalDeviceId), d.deviceId, d.identityKey)) changed = true;
+    }
+    if (changed) {
+      this.directory.delete(userId);
+      this.opts.onIdentityChanged?.(userId);
+    }
+    return changed;
   }
 
   /** Device của peer có identity đổi mà bản cũ đã xác minh → chặn gửi. */
@@ -142,9 +164,10 @@ export class SecretCrypto {
     await this.store.putPlaintext(plainKey.pending(clientMessageId), plaintext);
     const recipients: E2eeEnvelopeOut['recipients'] = [];
     for (const entry of [...peer, ...own]) {
-      if (entry.rebuild || !(await hasSession(this.store, entry.address))) {
+      const rebuild = (await this.store.getIdentity(entry.address))?.needsRebuild === true;
+      if (rebuild || !(await hasSession(this.store, entry.address))) {
         await processBundle(this.store, entry.bundle); // thư viện verify chữ ký signed prekey
-        entry.rebuild = false;
+        await this.store.clearRebuild(entry.address);
       }
       const out = await encryptFor(this.store, entry.address, plaintext);
       recipients.push({ deviceId: entry.bundle.deviceId, ...out });
@@ -191,7 +214,8 @@ export class SecretCrypto {
       const text = await decryptFrom(this.store, address, recipient.type, recipient.body);
       await this.store.putPlaintext(plainKey.message(m.id), text);
       if (recipient.type === 3) {
-        this.markSessionReady(m.senderId, address);
+        // PreKey message vừa lập session với identity hiện tại của device gửi → không cần X3DH lại khi trả lời.
+        await this.store.clearRebuild(address);
         // PreKey message từ identity mới của device đã biết (peer đăng ký lại) → thư viện vừa ghi nhận đổi.
         if ((await this.store.getIdentity(address))?.changed) this.opts.onIdentityChanged?.(m.senderId);
       }
@@ -208,11 +232,5 @@ export class SecretCrypto {
   /** Tin bị thu hồi → xóa bản rõ cục bộ (kiến trúc §9.3). */
   async forget(messageId: string): Promise<void> {
     await this.store.deletePlaintext(plainKey.message(messageId));
-  }
-
-  /** PreKey message vừa lập session phía nhận: device đó không cần X3DH lại khi trả lời. */
-  private markSessionReady(userId: string, address: string): void {
-    const entry = this.directory.get(userId)?.entries.find((e) => e.address === address);
-    if (entry) entry.rebuild = false;
   }
 }

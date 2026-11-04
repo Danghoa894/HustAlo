@@ -86,5 +86,16 @@ export const PreKeyBundlesResponseSchema = z
   .strict();
 export type PreKeyBundlesResponse = z.infer<typeof PreKeyBundlesResponseSchema>;
 
+/** GET /e2ee/users/{userId}/identities — chỉ đọc, không tiêu thụ prekey (FR-E2EE-006). */
+export const DeviceIdentitySchema = z
+  .object({ deviceId: uuidV4, signalDeviceId: z.number().int().min(1), identityKey: Base64PublicKey })
+  .strict();
+export type DeviceIdentity = z.infer<typeof DeviceIdentitySchema>;
+
+export const DeviceIdentitiesResponseSchema = z
+  .object({ userId: objectId, items: z.array(DeviceIdentitySchema).max(E2EE_MAX_DEVICES_PER_USER) })
+  .strict();
+export type DeviceIdentitiesResponse = z.infer<typeof DeviceIdentitiesResponseSchema>;
+
 /** Path `/e2ee/devices/{deviceId}…`. */
 export const DeviceIdParamsSchema = z.object({ deviceId: uuidV4 }).strict();

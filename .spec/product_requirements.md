@@ -100,7 +100,7 @@ Ký hiệu: ✔ được phép; ✘ bị từ chối (kèm mã lỗi); — khôn
 | P21 | Xem lịch sử cuộc gọi của mình | ✘ | ✔ | ✔ | ✔ | UNAUTHENTICATED | FR-CALL-008 |
 | P22 | Theo dõi presence người khác | ✘ | ✔ chỉ người có chung hội thoại, không chặn | ✔ | ✔ | (lọc im lặng) | FR-PRES-003 |
 | P23 | Đăng ký khóa E2EE cho device | ✘ | ✔ chỉ device của token (`did`) | ✔ | ✔ | FORBIDDEN | FR-E2EE-001 |
-| P24 | Lấy prekey bundle của user khác | ✘ | ✔ chỉ khi có chung SECRET (đã tạo bằng `POST /conversations`, cả hai còn là thành viên), không chặn | ✔ | ✔ | NOT_FOUND / USER_BLOCKED | FR-E2EE-002 |
+| P24 | Lấy prekey bundle / identity key của user khác | ✘ | ✔ chỉ khi có chung SECRET (đã tạo bằng `POST /conversations`, cả hai còn là thành viên), không chặn | ✔ | ✔ | NOT_FOUND / USER_BLOCKED | FR-E2EE-002 |
 | P25 | Thu hồi device E2EE | ✘ | ✔ chỉ device của chính mình | ✔ | ✔ | NOT_FOUND (device không thuộc mình, FR-SEC-008) | FR-E2EE-007 |
 
 ---
@@ -454,7 +454,7 @@ Mọi FR dùng hằng số trong `packages/shared/src/constants.ts` (kiến trú
 - **AC:** AC-120. **EC:** —.
 
 #### FR-E2EE-006 — Cảnh báo đổi identity key
-- **Mô tả:** Identity key của một device peer khác với bản đã biết.
+- **Mô tả:** Identity key của một device peer khác với bản đã biết. Client kiểm tra khi mở hội thoại SECRET bằng `GET /e2ee/users/{userId}/identities` (chỉ đọc, không tiêu thụ one-time prekey; quyền P24), và mỗi lần tải bundle.
 - **Quy tắc:** hiển thị SYSTEM cục bộ (client-only, không lưu server) "Mã an toàn với {tên} đã thay đổi" và banner; nếu device đó đã `verified` → **chặn gửi** cho tới khi người dùng bấm "Chấp nhận"; nếu chưa verified → chỉ cảnh báo, vẫn gửi được. Chấp nhận cập nhật known identity và xóa `verified`.
 - **AC:** AC-113. **EC:** EC-E2EE-003.
 
