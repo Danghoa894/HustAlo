@@ -31,7 +31,7 @@ export function useLeaveGroup(conversation: Conversation): { requestLeave: () =>
     },
     onSuccess: () => {
       setStep('idle');
-      dropFromList(queryClient, conversation.id);
+      void dropFromList(queryClient, conversation.id);
       queryClient.removeQueries({ queryKey: conversationKeys.one(conversation.id) });
       navigate('/chats', { replace: true });
     },

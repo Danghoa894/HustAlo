@@ -75,9 +75,11 @@ Ghi nhận hiện tượng, chưa sửa. Mỗi mục cần quyết định (sử
 - **Hiện tượng:** store `messages` của `hustalo-signal-{userId}` giữ bản rõ đã gửi hoặc đã giải mã (kiến trúc §9.3). Store này có cùng mức bảo vệ với khóa riêng Signal trong cùng DB.
 - **Ảnh hưởng:** ai đọc được profile trình duyệt sẽ đọc được lịch sử SECRET của device đó, giống các ứng dụng Signal trên web và desktop không đặt passphrase.
 
-## KI-13 — `TC-AC-055` (Chromium) chập chờn khi chạy toàn bộ E2E (M2)
+## KI-13 — `TC-AC-055` (Chromium) chập chờn khi chạy toàn bộ E2E (M2) — ĐÃ SỬA 2026-11-04
 
 - **Hiện tượng (2026-11-04, lượt 3 project liền sau M7):** bob bị xóa khỏi nhóm, đóng modal và về `/chats`, nhưng dòng "Nhóm QL" vẫn còn trong danh sách sau 10 s. Chạy lại riêng: 3/3 pass.
 - **Đã loại trừ:** luồng xóa thành viên chỉ phát `conversation:member-removed`, không phát `message:new`. Vì vậy phần giải mã bất đồng bộ của M7 trong chat-runtime không nằm trên đường đi này.
 - **Nghi nguyên nhân:** một lần tải lại danh sách hội thoại khởi chạy trước khi xóa (sau sự kiện đổi vai trò), nhưng trả về sau lần làm mới do `member-removed`.
-- **Hướng xử lý cần duyệt:** khi nhận `member-removed`, xóa hội thoại khỏi cache danh sách ngay (`setQueryData`) rồi mới invalidate.
+- **Nguyên nhân (xác nhận bằng unit test):** `dropFromList` đã bỏ hội thoại bằng `setQueryData`, nhưng không hủy lần tải `Q['conversations']` đang bay. Lần tải này khởi chạy trước khi bị xóa (ví dụ sau `conversation:updated` ROLE), nên phản hồi về muộn vẫn còn hội thoại và ghi đè cache.
+- **Sửa (đã duyệt):** `dropFromList` giờ `cancelQueries` danh sách → `setQueryData` bỏ hội thoại → `invalidateQueries` tải lại từ server. Server xóa thành viên trước khi phát event, nên lần tải lại không còn hội thoại. Áp dụng cho cả bị xóa (`useConversationEvents`) và tự rời nhóm (`useLeaveGroup`).
+- **Test:** unit `cache.test.ts` (`TC-AC-055` — phản hồi cũ về muộn không ghi đè; không có bản sửa → nhận `['g1','d1']`).

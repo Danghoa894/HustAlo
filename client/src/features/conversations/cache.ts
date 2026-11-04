@@ -38,11 +38,17 @@ export function findSummary(queryClient: QueryClient, conversationId: string): C
   return undefined;
 }
 
-/** Bỏ hội thoại khỏi danh sách đã tải (rời nhóm / bị xóa khỏi nhóm). */
-export function dropFromList(queryClient: QueryClient, conversationId: string): void {
+/**
+ * Bỏ hội thoại khỏi danh sách đã tải (rời nhóm / bị xóa khỏi nhóm, AC-055). Hủy trước lần tải danh sách đang bay — nó
+ * khởi chạy trước khi bị xóa (ví dụ sau conversation:updated ROLE) nên còn hội thoại và sẽ ghi đè nếu về muộn (KI-13) —
+ * rồi tải lại từ server (đã xóa thành viên trước khi phát event).
+ */
+export async function dropFromList(queryClient: QueryClient, conversationId: string): Promise<void> {
+  await queryClient.cancelQueries({ queryKey: conversationKeys.list, exact: true }, { silent: true });
   queryClient.setQueryData<InfiniteData<ConversationPage>>(conversationKeys.list, (data) =>
     data
       ? { ...data, pages: data.pages.map((p) => ({ ...p, items: p.items.filter((c) => c.id !== conversationId) })) }
       : data,
   );
+  await queryClient.invalidateQueries({ queryKey: conversationKeys.list, exact: true });
 }

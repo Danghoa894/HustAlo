@@ -36,7 +36,7 @@
 | Diễn tập backup/restore (kiến trúc §9.7)                              | ✅ local: `mongodump --oplog --gzip` → restore sang DB khác → `db:indexes` → giải mã 100/100 tin mẫu. Chưa diễn tập trên staging thật |
 | Docker image                                                          | ✅ `server` 295 MB (argon2 musl chạy đúng, uid 1000, không có `.env`), `client` 94,8 MB (gzip, `/assets` immutable, SPA fallback)     |
 | `docker compose -f infra/docker-compose.prod.yml config` / `nginx -t` | ✅ (chứng chỉ tự ký để test cú pháp)                                                                                                  |
-| E2E toàn bộ trên 3 project (gồm M7)                                   | ⚠️ 107/109 (lượt máy rảnh); 2 fail chập chờn (TC-AC-055 KI-13, a11y Firefox), chạy lại riêng xanh — mục 3                             |
+| E2E toàn bộ trên 3 project (gồm M7)                                   | ⚠️ 107/109 (lượt máy rảnh); 2 fail chập chờn (TC-AC-055 → KI-13 đã sửa, a11y Firefox), chạy lại riêng xanh — mục 3                    |
 
 ## 3. E2E (Playwright)
 
@@ -45,7 +45,7 @@
   - Phủ AC-110, 111, 112, 113, 114, 117, 118, 120, 121, 122; TC-E2EE-001, 003, 004, 005, 006, 007, 008.
   - Mỗi device là một browser context riêng. Thư viện Signal chạy thật, server chỉ thấy bản mã. AC-114 sửa 1 ký tự base64 trong vùng MAC qua `routeWebSocket`.
 - **Lượt chạy liền thứ hai, máy rảnh (109 test, 31,2 phút, sau khi sửa KI-10): 107 pass, 2 fail.**
-  - `TC-AC-055` (Chromium): chạy lại riêng 3/3 pass, xem KI-13.
+  - `TC-AC-055` (Chromium): chạy lại riêng 3/3 pass. Nguyên nhân là race cache danh sách, đã sửa (KI-13). Sau khi sửa, `group.spec.ts` pass 30/30 trên Chromium (`--repeat-each=5`) và 24/24 trên Firefox + WebKit (`--repeat-each=2`).
   - Accessibility trang Cài đặt (Firefox): timeout 90 s; chạy lại riêng 2/2 pass.
   - Mọi test cuộc gọi `@media` và `e2ee.spec.ts` đều pass trong lượt này.
 - Lượt chạy liền thứ nhất (máy bị tải nặng, 28,3 phút): 103/109, gồm 3 test cuộc gọi `@media` Chromium fail và 3 test không chạy. Chạy lại riêng: `call.spec.ts` 10/10, `call-network.spec.ts` 4/4.
@@ -70,14 +70,15 @@
 
 ### M7 — lỗi phát hiện và đã sửa
 
-| Lỗi                                                                                                                   | Phát hiện bởi                        | Sửa                                                                                   |
-| --------------------------------------------------------------------------------------------------------------------- | ------------------------------------ | ------------------------------------------------------------------------------------- |
-| Sau `CONFLICT`, tải lại danh bạ device bị throttle 10 s → gửi lại vẫn thiếu device mới rồi FAILED                     | unit `envelope.test.ts` (AC-118/121) | `devicesOf(…, 'force')` cho CONFLICT; chỉ throttle khi gặp device lạ lúc nhận tin     |
-| Device xóa IndexedDB (cùng `deviceId`) hiện "Không thể giải mã" cho tin cũ thay vì "…trước khi thiết bị này tham gia" | thiết kế E2E AC-113 / EC-E2EE-006    | giải mã thất bại và tin cũ hơn lúc sinh khóa → NOT_FOR_DEVICE                         |
-| Safety number mất hàng chục giây (msrcrypto JS thuần) → E2E timeout                                                   | E2E AC-120                           | cùng thuật toán bằng `crypto.subtle.digest`; unit test trùng từng chữ số với thư viện |
-| Thư viện `console.warn` in cả object session (root/chain key) khi "no chain found"                                    | review R-04                          | lọc trong `signal-adapter.ts` (V-1 trong `docs/SIGNAL_LIBRARY_REVIEW.md`)             |
-| Khóa đọc từ IndexedDB khác realm → "Invalid private key"                                                              | unit test                            | store lưu khóa dạng base64, tạo `ArrayBuffer` mới khi đọc                             |
-| `trace:check` không nhận Test ID `TC-E2EE-…` (regex `[A-Z-]+`)                                                        | `trace:check --strict`               | regex `[A-Z0-9-]+` + test cho script                                                  |
+| Lỗi                                                                                                                   | Phát hiện bởi                        | Sửa                                                                                      |
+| --------------------------------------------------------------------------------------------------------------------- | ------------------------------------ | ---------------------------------------------------------------------------------------- |
+| Sau `CONFLICT`, tải lại danh bạ device bị throttle 10 s → gửi lại vẫn thiếu device mới rồi FAILED                     | unit `envelope.test.ts` (AC-118/121) | `devicesOf(…, 'force')` cho CONFLICT; chỉ throttle khi gặp device lạ lúc nhận tin        |
+| Device xóa IndexedDB (cùng `deviceId`) hiện "Không thể giải mã" cho tin cũ thay vì "…trước khi thiết bị này tham gia" | thiết kế E2E AC-113 / EC-E2EE-006    | giải mã thất bại và tin cũ hơn lúc sinh khóa → NOT_FOR_DEVICE                            |
+| Safety number mất hàng chục giây (msrcrypto JS thuần) → E2E timeout                                                   | E2E AC-120                           | cùng thuật toán bằng `crypto.subtle.digest`; unit test trùng từng chữ số với thư viện    |
+| Thư viện `console.warn` in cả object session (root/chain key) khi "no chain found"                                    | review R-04                          | lọc trong `signal-adapter.ts` (V-1 trong `docs/SIGNAL_LIBRARY_REVIEW.md`)                |
+| Khóa đọc từ IndexedDB khác realm → "Invalid private key"                                                              | unit test                            | store lưu khóa dạng base64, tạo `ArrayBuffer` mới khi đọc                                |
+| `trace:check` không nhận Test ID `TC-E2EE-…` (regex `[A-Z-]+`)                                                        | `trace:check --strict`               | regex `[A-Z0-9-]+` + test cho script                                                     |
+| Bị xóa khỏi nhóm nhưng nhóm vẫn hiện lại trong danh sách (KI-13): phản hồi tải danh sách cũ về muộn ghi đè cache      | E2E TC-AC-055 (chập chờn)            | `dropFromList`: `cancelQueries` → `setQueryData` → `invalidateQueries` + `cache.test.ts` |
 
 ### M7 — spec đã sửa (đã duyệt 2026-11-04)
 

@@ -113,7 +113,7 @@ describe('useConversationEvents', () => {
     return null;
   }
 
-  it('conversation:updated → Q["conversation", id] mới; member-removed của mình → bỏ khỏi danh sách', () => {
+  it('conversation:updated → Q["conversation", id] mới; member-removed của mình → bỏ khỏi danh sách', async () => {
     useAuthStore.setState({ user: userMe() });
     const client = new QueryClient();
     const summary = { id: CONV } as ConversationPage['items'][number];
@@ -139,7 +139,9 @@ describe('useConversationEvents', () => {
         reason: 'LEFT',
       });
     });
-    const list = client.getQueryData<{ pages: ConversationPage[] }>(['conversations']);
-    expect(list?.pages[0]?.items).toEqual([]);
+    await waitFor(() => {
+      const list = client.getQueryData<{ pages: ConversationPage[] }>(['conversations']);
+      expect(list?.pages[0]?.items).toEqual([]);
+    });
   });
 });

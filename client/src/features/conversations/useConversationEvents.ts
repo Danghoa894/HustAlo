@@ -21,7 +21,7 @@ export function useConversationEvents(): void {
     };
     const onRemoved = (p: { conversationId: string; userId: string }) => {
       if (p.userId === meId) {
-        dropFromList(queryClient, p.conversationId);
+        void dropFromList(queryClient, p.conversationId);
         return;
       }
       void queryClient.invalidateQueries({ queryKey: conversationKeys.one(p.conversationId) });
