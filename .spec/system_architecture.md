@@ -263,13 +263,15 @@ hustalo/
 ├── infra/
 │   ├── docker-compose.yml            # CHỈ local: mongo (rs0), redis, coturn, mongo-express (profile tools)
 │   ├── docker-compose.prod.yml       # [NEW] M6.5: nginx, server, mongo (rs0 + auth + keyFile), redis (requirepass)
+│   ├── deploy-prod.sh                # [NEW] M6.5: chạy trên VM — pull, keyfile Mongo, chọn nginx theo chứng chỉ, up --wait, index (development_guide.md §9.6)
 │   ├── .env.example                  # biến cho compose local (development_guide.md §4.1)
 │   ├── .env.prod.example             # [NEW] M6.5: biến docker-compose.prod.yml (development_guide.md §9.4)
 │   ├── mongo/
 │   │   ├── init-replica.js           # rs.initiate({_id:"rs0", members:[{_id:0, host:"mongo:27017"}]})
 │   │   └── init-prod.js              # [NEW] M6.5: rs.initiate + tạo user root/app (development_guide.md §9.3)
 │   ├── nginx/
-│   │   └── nginx.conf                # [NEW] M6.5: nginx biên — TLS (--cert-name hustalo), HSTS, CSP; /api, /socket.io (Upgrade); / → container client
+│   │   ├── nginx.conf                # [NEW] M6.5: nginx biên — TLS (--cert-name hustalo), HSTS, CSP; /api, /socket.io (Upgrade); / → container client
+│   │   └── nginx.bootstrap.conf      # [NEW] M6.5: chỉ cổng 80 (ACME HTTP-01) khi VM chưa có chứng chỉ (development_guide.md §9.6)
 │   ├── coturn/
 │   │   └── turnserver.conf           # cấu hình test, user tĩnh từ TURN_FALLBACK_*
 │   └── certs/                        # mkcert output (gitignored): localhost+lan.pem, localhost+lan-key.pem

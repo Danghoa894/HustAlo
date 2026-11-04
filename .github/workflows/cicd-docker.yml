@@ -1,8 +1,8 @@
 # .github/workflows/cicd-docker.yml — build/push image Docker Hub rồi deploy lên VM (development_guide.md §9.5–§9.7).
-# Trigger: workflow `ci` kết thúc success trên main, hoặc chạy tay. Secret chỉ đọc từ GitHub Secrets, không echo,
-# không bật `set -x` trong bước có secret.
-# Xác minh với tài liệu chính thức của GitHub Actions và docker/*-action: major hiện hành (setup-buildx-action@v3,
-# login-action@v3, build-push-action@v6) và cú pháp workflow_run.
+# Trigger: workflow `ci` chạy do push lên main kết thúc success, hoặc chạy tay. Secret chỉ đọc từ GitHub Secrets,
+# không echo, không bật `set -x` trong bước có secret.
+# Major action hiện hành chạy Node 24 (đã đối chiếu action.yml/release notes: checkout@v7, setup-node@v7,
+# setup-buildx-action@v4, login-action@v4, build-push-action@v7).
 name: cicd-docker
 
 on:
@@ -19,25 +19,54 @@ concurrency:
 permissions:
   contents: read
 
+defaults:
+  run:
+    # bash -eo pipefail: lỗi giữa pipe (vd. `ssh ... | tee`) làm bước fail
+    shell: bash
+
 env:
   # SHA của lần chạy ci (workflow_run) hoặc commit hiện tại (workflow_dispatch)
   SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
 
 jobs:
   build-push:
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    # Chỉ deploy code của chính repo do push lên main: PR từ fork có nhánh tên "main" cũng khớp `branches: [main]`
+    # của workflow_run — không được build/deploy code đó với secret production.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Kiểm tra secret Docker Hub
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          missing=()
+          for name in DOCKERHUB_USERNAME DOCKERHUB_TOKEN; do
+            [ -n "${!name}" ] || missing+=("$name")
+          done
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "::error::Thiếu GitHub Secret: ${missing[*]} — thêm ở Settings → Secrets and variables → Actions (development_guide.md §9.5)"
+            exit 1
+          fi
+          # Tên repository image Docker Hub phải viết thường
+          if [[ ! "$DOCKERHUB_USERNAME" =~ ^[a-z0-9]([a-z0-9._-]*[a-z0-9])?$ ]]; then
+            echo "::error::DOCKERHUB_USERNAME phải là username Docker Hub viết thường (không email, không khoảng trắng)"
+            exit 1
+          fi
+      - uses: actions/checkout@v7
         with:
           ref: ${{ env.SHA }}
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Build + push server
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: server/Dockerfile
@@ -48,7 +77,7 @@ jobs:
           cache-from: type=gha,scope=server
           cache-to: type=gha,mode=max,scope=server
       - name: Build + push client
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: client/Dockerfile
@@ -63,46 +92,98 @@ jobs:
     needs: build-push
     runs-on: ubuntu-latest
     environment: production
+    outputs:
+      tls: ${{ steps.deploy.outputs.tls }}
+    env:
+      DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+      DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+      DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Kiểm tra secret deploy
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          PROD_INFRA_ENV: ${{ secrets.PROD_INFRA_ENV }}
+          PROD_SERVER_ENV: ${{ secrets.PROD_SERVER_ENV }}
+        run: |
+          missing=()
+          for name in DEPLOY_HOST DEPLOY_USER DEPLOY_PATH DEPLOY_SSH_KEY PROD_INFRA_ENV PROD_SERVER_ENV; do
+            [ -n "${!name}" ] || missing+=("$name")
+          done
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "::error::Thiếu GitHub Secret: ${missing[*]} (development_guide.md §9.5)"
+            exit 1
+          fi
+          if [[ "$DEPLOY_PATH" != /* || "$DEPLOY_PATH" == *"'"* ]]; then
+            echo "::error::DEPLOY_PATH phải là đường dẫn tuyệt đối, không chứa dấu nháy đơn (ví dụ /opt/hustalo)"
+            exit 1
+          fi
+      - uses: actions/checkout@v7
         with:
           ref: ${{ env.SHA }}
       - name: Cấu hình SSH
         env:
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          # Tùy chọn (khuyến nghị): dòng known_hosts của VM (`ssh-keyscan -H <host>` chạy từ máy tin cậy) để không
+          # phải tin host key lấy qua mạng ở mỗi lần chạy.
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
         run: |
           install -m 700 -d ~/.ssh
-          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          # tr -d '\r': secret dán từ Windows (CRLF) làm OpenSSH báo "invalid format"
+          printf '%s\n' "$DEPLOY_SSH_KEY" | tr -d '\r' > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          if [ -n "$DEPLOY_KNOWN_HOSTS" ]; then
+            printf '%s\n' "$DEPLOY_KNOWN_HOSTS" | tr -d '\r' > ~/.ssh/known_hosts
+          else
+            echo "::warning::Chưa đặt secret DEPLOY_KNOWN_HOSTS — đang tin host key lấy bằng ssh-keyscan (TOFU)"
+            ssh-keyscan -H "$DEPLOY_HOST" > ~/.ssh/known_hosts 2>/dev/null
+          fi
+          chmod 600 ~/.ssh/known_hosts
+          cat > ~/.ssh/config <<EOF
+          Host vm
+            HostName $DEPLOY_HOST
+            User $DEPLOY_USER
+            IdentityFile ~/.ssh/deploy_key
+            IdentitiesOnly yes
+            BatchMode yes
+            StrictHostKeyChecking yes
+            ServerAliveInterval 30
+          EOF
+          chmod 600 ~/.ssh/config
+          ssh vm true
       - name: Đồng bộ file hạ tầng
-        env:
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
-          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
         run: |
-          ssh -i ~/.ssh/deploy_key "$DEPLOY_USER@$DEPLOY_HOST" "mkdir -p '$DEPLOY_PATH/infra/nginx' '$DEPLOY_PATH/infra/mongo' '$DEPLOY_PATH/server'"
-          scp -i ~/.ssh/deploy_key infra/docker-compose.prod.yml "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_PATH/infra/"
-          scp -i ~/.ssh/deploy_key infra/nginx/nginx.conf "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_PATH/infra/nginx/"
-          scp -i ~/.ssh/deploy_key infra/mongo/init-prod.js "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_PATH/infra/mongo/"
-      - name: Ghi env production (umask 077) và deploy
+          # shellcheck disable=SC2029 # $DEPLOY_PATH mở rộng phía runner là cố ý
+          # Một kết nối, giữ cấu trúc thư mục; không đụng tới infra/mongo/keyfile, infra/.env.prod trên VM.
+          tar -cf - \
+            infra/docker-compose.prod.yml \
+            infra/deploy-prod.sh \
+            infra/nginx/nginx.conf \
+            infra/nginx/nginx.bootstrap.conf \
+            infra/mongo/init-prod.js |
+            ssh vm "mkdir -p '$DEPLOY_PATH/server' && tar -xf - -C '$DEPLOY_PATH'"
+      - name: Ghi env production (umask 077)
         env:
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
-          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
           PROD_INFRA_ENV: ${{ secrets.PROD_INFRA_ENV }}
           PROD_SERVER_ENV: ${{ secrets.PROD_SERVER_ENV }}
         run: |
-          # Nội dung env đi qua stdin của ssh, không nằm trên dòng lệnh / log.
-          { printf '%s\n' "$PROD_INFRA_ENV"; printf 'IMAGE_TAG=%s\n' "$SHA"; } |
-            ssh -i ~/.ssh/deploy_key "$DEPLOY_USER@$DEPLOY_HOST" "umask 077 && cat > '$DEPLOY_PATH/infra/.env.prod'"
-          printf '%s\n' "$PROD_SERVER_ENV" |
-            ssh -i ~/.ssh/deploy_key "$DEPLOY_USER@$DEPLOY_HOST" "umask 077 && cat > '$DEPLOY_PATH/server/.env.prod'"
-          ssh -i ~/.ssh/deploy_key "$DEPLOY_USER@$DEPLOY_HOST" "cd '$DEPLOY_PATH' && \
-            docker compose --env-file infra/.env.prod -f infra/docker-compose.prod.yml pull && \
-            docker compose --env-file infra/.env.prod -f infra/docker-compose.prod.yml up -d --wait && \
-            docker compose --env-file infra/.env.prod -f infra/docker-compose.prod.yml exec -T server node dist/infra/db/indexes.js"
+          # shellcheck disable=SC2029 # $DEPLOY_PATH mở rộng phía runner là cố ý
+          # Nội dung env đi qua stdin của ssh, không nằm trên dòng lệnh / log. Bỏ CR (secret dán từ Windows).
+          # DOCKERHUB_USERNAME + IMAGE_TAG do workflow ghi để luôn khớp image vừa push (dòng trùng trong secret bị bỏ).
+          {
+            printf '%s\n' "$PROD_INFRA_ENV" | tr -d '\r' | sed -E '/^[[:space:]]*(DOCKERHUB_USERNAME|IMAGE_TAG)=/d'
+            printf 'DOCKERHUB_USERNAME=%s\nIMAGE_TAG=%s\n' "$DOCKERHUB_USERNAME" "$SHA"
+          } | ssh vm "umask 077 && cat > '$DEPLOY_PATH/infra/.env.prod'"
+          # shellcheck disable=SC2029
+          printf '%s\n' "$PROD_SERVER_ENV" | tr -d '\r' |
+            ssh vm "umask 077 && cat > '$DEPLOY_PATH/server/.env.prod'"
+      - name: Deploy (pull, keyfile, TLS, up --wait, index)
+        id: deploy
+        run: |
+          # shellcheck disable=SC2029 # $DEPLOY_PATH mở rộng phía runner là cố ý
+          ssh vm "bash '$DEPLOY_PATH/infra/deploy-prod.sh' '$DEPLOY_PATH'" | tee "$RUNNER_TEMP/deploy.log"
+          tls=$(sed -n 's/^HUSTALO_TLS=//p' "$RUNNER_TEMP/deploy.log" | tail -n 1)
+          echo "tls=${tls:-unknown}" >> "$GITHUB_OUTPUT"
 
   verify:
     needs: deploy
@@ -119,10 +200,28 @@ jobs:
       SMOKE_B_USERNAME: ${{ secrets.SMOKE_B_USERNAME }}
       SMOKE_B_DISPLAYNAME: ${{ secrets.SMOKE_B_DISPLAYNAME }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Kiểm tra TLS và secret verify
+        env:
+          TLS: ${{ needs.deploy.outputs.tls }}
+          PROD_DOMAIN: ${{ secrets.PROD_DOMAIN }}
+        run: |
+          if [ "$TLS" != ready ]; then
+            echo "::error::VM chưa có chứng chỉ Let's Encrypt (nginx đang chạy cấu hình bootstrap) — lấy chứng chỉ theo development_guide.md §9.6 rồi chạy lại workflow"
+            exit 1
+          fi
+          missing=()
+          for name in PROD_DOMAIN SMOKE_A_EMAIL SMOKE_A_PASSWORD SMOKE_A_USERNAME SMOKE_A_DISPLAYNAME \
+            SMOKE_B_EMAIL SMOKE_B_PASSWORD SMOKE_B_USERNAME SMOKE_B_DISPLAYNAME; do
+            [ -n "${!name}" ] || missing+=("$name")
+          done
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "::error::Thiếu GitHub Secret: ${missing[*]} (development_guide.md §9.5–§9.7)"
+            exit 1
+          fi
+      - uses: actions/checkout@v7
         with:
           ref: ${{ env.SHA }}
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
           cache: npm
