@@ -1568,6 +1568,7 @@ Workflow chạy `bash infra/deploy-prod.sh <DEPLOY_PATH>` trên VM. Script idemp
 1. Kiểm tra Docker Engine, Compose v2, quyền truy cập daemon của user SSH (thiếu → `::error::` kèm cách sửa) và các file `infra/.env.prod`, `server/.env.prod`.
 2. `docker compose --env-file infra/.env.prod -f infra/docker-compose.prod.yml pull`.
 3. Bảo đảm `infra/mongo/keyfile` (mục 9.3).
+   Keyfile vừa được tạo/sửa, hoặc container `mongo` đang `restarting`/`exited`/`created`/`dead`/`unhealthy` → `docker compose ... rm --stop --force mongo mongo-init` (chỉ xóa container, **giữ** volume `mongo-data`) để `up` tạo lại. Container tạo lúc keyfile còn là thư mục giữ mountpoint dạng thư mục và crash-loop mãi; compose không tự tạo lại vì cấu hình không đổi (run #8).
 4. Có `/etc/letsencrypt/live/hustalo/{fullchain,privkey}.pem` → `NGINX_CONF=nginx.conf` (80 + 443); chưa có → `NGINX_CONF=nginx.bootstrap.conf` (chỉ cổng 80: ACME HTTP-01, đường dẫn khác trả 503) + `::warning::`. Workflow ghi đè `infra/nginx/*.conf` mỗi lần deploy nên không "tạm comment block 443" bằng tay.
 5. `up -d --wait --wait-timeout 300 --remove-orphans`, rồi `exec -T server node dist/infra/db/indexes.js` (index idempotent).
 6. Lỗi ở bất kỳ bước nào → in `docker compose ps -a` + 60 dòng log cuối của mongo, mongo-init, redis, server, nginx (log không chứa secret — kiến trúc §11.3).
