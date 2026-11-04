@@ -24,16 +24,21 @@ export async function connectMongo(uri: string, opts: { serverSelectionTimeoutMS
   }
 }
 
-/** `replSetGetStatus` ném lỗi trên standalone (NoReplicationEnabled) → không dùng được transaction. */
+/**
+ * `hello` chỉ trả `setName` khi mongod là member replica set; standalone không có → không dùng được transaction.
+ * Dùng `hello` (không cần quyền) thay cho `replSetGetStatus` (cần `clusterMonitor`): user app production chỉ có
+ * `readWrite` trên DB hustalo (development_guide.md §9.3, database_schema.md §6.3).
+ */
 export async function assertReplicaSet(): Promise<void> {
   const db = mongoose.connection.db;
   if (!db) throw new ReplicaSetRequiredError();
+  let hello: { ok?: number; setName?: unknown };
   try {
-    const status = (await db.admin().command({ replSetGetStatus: 1 })) as { ok?: number };
-    if (status.ok !== 1) throw new ReplicaSetRequiredError();
+    hello = await db.admin().command({ hello: 1 });
   } catch {
     throw new ReplicaSetRequiredError();
   }
+  if (hello.ok !== 1 || typeof hello.setName !== 'string' || hello.setName === '') throw new ReplicaSetRequiredError();
 }
 
 export async function pingMongo(): Promise<boolean> {

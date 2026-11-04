@@ -1620,7 +1620,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
 
 - `syncIndexes()` xóa index lạ: **không** tạo index thủ công ngoài schema. Ở production chạy trong cửa sổ bảo trì; index lớn tạo nền (MongoDB 7 build index không khóa ghi lâu dài). `// Xác minh với tài liệu chính thức của Mongoose 8: hành vi syncIndexes và giá trị trả về (danh sách index bị xóa).`
 - Khi đổi định nghĩa một index đang tồn tại (khác option, cùng tên): đổi **tên** index để `syncIndexes` xóa bản cũ và tạo bản mới.
-- Server khi khởi động kiểm tra `rs.status()` (thông qua `db.admin().command({ replSetGetStatus: 1 })`); không phải replica set → thoát (AC-ARCH-003).
+- Server khi khởi động kiểm tra replica set bằng `db.admin().command({ hello: 1 })`: phản hồi phải có `setName`; không có (standalone) → thoát (AC-ARCH-003). Không dùng `replSetGetStatus`: lệnh này cần quyền `clusterMonitor`, trong khi user app production chỉ có `readWrite` trên DB `hustalo` (development_guide.md §9.3) → `Unauthorized` làm server từ chối khởi động dù Mongo là replica set.
 
 ### 6.4 Migration dữ liệu
 

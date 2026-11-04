@@ -1461,7 +1461,7 @@ Service:
 
 | Service | Image | Ghi chú |
 |---|---|---|
-| `nginx` | `nginx:alpine` | Publish 80, 443; mount `infra/nginx/nginx.conf:ro`, `/etc/letsencrypt:ro`, webroot ACME; volume tĩnh lấy từ image `hustalo-client` (hoặc proxy sang container client) |
+| `nginx` | `nginx:alpine` | Publish 80, 443; mount `infra/nginx/${NGINX_CONF:-nginx.conf}:ro` (`deploy-prod.sh` đặt `NGINX_CONF=nginx.bootstrap.conf` khi chưa có chứng chỉ, mục 9.6), `/etc/letsencrypt:ro`, webroot ACME; proxy sang container client |
 | `client` | `${DOCKERHUB_USERNAME}/hustalo-client:${IMAGE_TAG}` | Không publish cổng |
 | `server` | `${DOCKERHUB_USERNAME}/hustalo-server:${IMAGE_TAG}` | `env_file: ../server/.env.prod`; `depends_on` mongo-init `service_completed_successfully`, redis `service_healthy`; `restart: unless-stopped` |
 | `mongo` | `mongo:7.0` | `command: ["--replSet","rs0","--bind_ip_all","--keyFile","/etc/mongo/keyfile","--auth"]`; mount `./mongo/keyfile:/etc/mongo/keyfile:ro`; environment `MONGO_INITDB_ROOT_USERNAME=${MONGO_ROOT_USERNAME}`, `MONGO_INITDB_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}` (biến của image mongo, giá trị từ `infra/.env.prod`); volume dữ liệu có tên; không publish cổng |
@@ -1476,6 +1476,8 @@ openssl rand -base64 756 > infra/mongo/keyfile
 chmod 400 infra/mongo/keyfile
 sudo chown 999:999 infra/mongo/keyfile   # uid/gid user mongodb trong image mongo chính thức
 ```
+
+`infra/deploy-prod.sh` (mục 9.6) tự làm bước này ở mỗi lần deploy: thiếu keyfile → tạo mới (756 byte ngẫu nhiên, base64); keyfile có sẵn → giữ nội dung, chỉ đặt lại `chown 999:999` + `chmod 400`. Chạy trong container `mongo:7.0` với `--user 0` nên không cần `sudo` trên VM. Lý do: thiếu file thì bind mount của Docker tự tạo **thư mục** `infra/mongo/keyfile` → mongod log `permissions on /etc/mongo/keyfile are too open` / `Unable to acquire security key[s]` và thoát → `up --wait` báo `dependency failed to start: container hustalo-prod-mongo-1 is unhealthy` (T-23).
 
 `// Xác minh với tài liệu chính thức của image mongo trên Docker Hub: uid 999, hành vi MONGO_INITDB_ROOT_* khi có --replSet/--keyFile (script /docker-entrypoint-initdb.d chạy trên mongod tạm không có replSet, nên rs.initiate đặt trong service mongo-init thay vì initdb.d).`
 
@@ -1540,32 +1542,52 @@ DEPLOY_HOST=<IP hoặc domain của VM>
 DEPLOY_USER=<user SSH, ví dụ ubuntu>
 # Private key SSH (ed25519) chỉ dùng cho deploy; public key nằm trong ~/.ssh/authorized_keys của VM
 DEPLOY_SSH_KEY=<private key>
+# Tùy chọn, khuyến nghị: output `ssh-keyscan -H <host>` lấy từ máy tin cậy. Không đặt → workflow dùng ssh-keyscan
+# lúc chạy (tin host key lần đầu — TOFU) và in warning
+DEPLOY_KNOWN_HOSTS=<dòng known_hosts>
 # Thư mục trên VM chứa infra/ và server/.env.prod
 DEPLOY_PATH=/opt/hustalo
 PROD_DOMAIN=hustalo.example.com
-# Nội dung đầy đủ của infra/.env.prod và server/.env.prod (mục 9.4), trừ IMAGE_TAG do workflow ghi
+# Nội dung đầy đủ của infra/.env.prod và server/.env.prod (mục 9.4), trừ IMAGE_TAG và DOCKERHUB_USERNAME do workflow
+# ghi (dòng trùng trong secret bị bỏ; ký tự CR của bản dán từ Windows bị bỏ)
 PROD_INFRA_ENV=<nội dung>
 PROD_SERVER_ENV=<nội dung>
 ```
 
 Luồng workflow:
-1. Trigger: `workflow_run` của workflow `ci` kết thúc `success` trên `main` (và `workflow_dispatch` để deploy tay).
-2. Job `build-push`: `actions/checkout` (ref = SHA của lần chạy `ci`), `docker/setup-buildx-action`, `docker/login-action` (`username: ${{ secrets.DOCKERHUB_USERNAME }}`, `password: ${{ secrets.DOCKERHUB_TOKEN }}`), `docker/build-push-action` hai lần (`file: server/Dockerfile` và `client/Dockerfile`, `context: .`, `push: true`, tag `<sha>` + `latest`, cache `type=gha`).
-3. Job `deploy` (`needs: build-push`, `environment: production`): SSH vào VM (key từ `DEPLOY_SSH_KEY`), đồng bộ `infra/docker-compose.prod.yml`, `infra/nginx/`, `infra/mongo/init-prod.js`; ghi `infra/.env.prod` (từ `PROD_INFRA_ENV` + `IMAGE_TAG=<sha>`) và `server/.env.prod` (từ `PROD_SERVER_ENV`) với `umask 077`; chạy lệnh mục 9.6.
-4. Job `verify`: chạy bảng mục 9.7 (health, redirect, HSTS, smoke `@smoke` với `E2E_BASE_URL=https://${{ secrets.PROD_DOMAIN }}`). Fail → workflow đỏ, ghi SHA trước đó để rollback.
-- Không `echo` secret; không bật `set -x` trong bước có secret. `// Xác minh với tài liệu chính thức của GitHub Actions và docker/*-action: phiên bản major hiện hành của login-action, build-push-action, setup-buildx-action và cú pháp workflow_run.`
+1. Trigger: `workflow_run` của workflow `ci` kết thúc `success` trên `main` **do `push` trong chính repo** (`workflow_run.event == 'push'`, `head_repository` = repo này — PR từ fork có nhánh tên `main` không được deploy), và `workflow_dispatch` để deploy tay.
+2. Job `build-push`: kiểm tra `DOCKERHUB_USERNAME`/`DOCKERHUB_TOKEN` có giá trị (thiếu → `::error::` nêu tên secret, thay cho lỗi mơ hồ "Username and password required" của login-action), `actions/checkout` (ref = SHA của lần chạy `ci`), `docker/setup-buildx-action`, `docker/login-action` (`username: ${{ secrets.DOCKERHUB_USERNAME }}`, `password: ${{ secrets.DOCKERHUB_TOKEN }}`), `docker/build-push-action` hai lần (`file: server/Dockerfile` và `client/Dockerfile`, `context: .`, `push: true`, tag `<sha>` + `latest`, cache `type=gha`).
+3. Job `deploy` (`needs: build-push`, `environment: production`): kiểm tra secret deploy; SSH vào VM (key từ `DEPLOY_SSH_KEY`, `StrictHostKeyChecking yes` với `DEPLOY_KNOWN_HOSTS` hoặc ssh-keyscan); đồng bộ `infra/docker-compose.prod.yml`, `infra/deploy-prod.sh`, `infra/nginx/nginx.conf`, `infra/nginx/nginx.bootstrap.conf`, `infra/mongo/init-prod.js` (một luồng `tar` qua SSH); ghi `infra/.env.prod` (từ `PROD_INFRA_ENV` + `DOCKERHUB_USERNAME` + `IMAGE_TAG=<sha>`) và `server/.env.prod` (từ `PROD_SERVER_ENV`) với `umask 077`; chạy `bash infra/deploy-prod.sh <DEPLOY_PATH>` (mục 9.6). Script in `HUSTALO_TLS=ready|bootstrap` → output `tls` của job.
+4. Job `verify`: `tls != ready` → fail kèm hướng dẫn lấy chứng chỉ (mục 9.6); thiếu `PROD_DOMAIN`/`SMOKE_*` → fail nêu tên secret; rồi chạy bảng mục 9.7 (health, redirect, HSTS, smoke `@smoke` với `E2E_BASE_URL=https://${{ secrets.PROD_DOMAIN }}`). Fail → workflow đỏ, ghi SHA trước đó để rollback.
+- Mọi bước `run` dùng `shell: bash` (`-eo pipefail`). Không `echo` secret; không bật `set -x` trong bước có secret. `// Xác minh với tài liệu chính thức của GitHub Actions và docker/*-action: phiên bản major hiện hành của login-action, build-push-action, setup-buildx-action và cú pháp workflow_run.`
 
 ### 9.6 Lệnh deploy và rollback
 
+Workflow chạy `bash infra/deploy-prod.sh <DEPLOY_PATH>` trên VM. Script idempotent, làm tuần tự:
+
+1. Kiểm tra Docker Engine, Compose v2, quyền truy cập daemon của user SSH (thiếu → `::error::` kèm cách sửa) và các file `infra/.env.prod`, `server/.env.prod`.
+2. `docker compose --env-file infra/.env.prod -f infra/docker-compose.prod.yml pull`.
+3. Bảo đảm `infra/mongo/keyfile` (mục 9.3).
+4. Có `/etc/letsencrypt/live/hustalo/{fullchain,privkey}.pem` → `NGINX_CONF=nginx.conf` (80 + 443); chưa có → `NGINX_CONF=nginx.bootstrap.conf` (chỉ cổng 80: ACME HTTP-01, đường dẫn khác trả 503) + `::warning::`. Workflow ghi đè `infra/nginx/*.conf` mỗi lần deploy nên không "tạm comment block 443" bằng tay.
+5. `up -d --wait --wait-timeout 300 --remove-orphans`, rồi `exec -T server node dist/infra/db/indexes.js` (index idempotent).
+6. Lỗi ở bất kỳ bước nào → in `docker compose ps -a` + 60 dòng log cuối của mongo, mongo-init, redis, server, nginx (log không chứa secret — kiến trúc §11.3).
+
+Chạy tay tương đương trên VM:
+
 ```bash
 cd /opt/hustalo
-docker compose --env-file infra/.env.prod -f infra/docker-compose.prod.yml pull
-docker compose --env-file infra/.env.prod -f infra/docker-compose.prod.yml up -d --wait
-# Index (idempotent) sau mỗi lần deploy có thay đổi model
-docker compose --env-file infra/.env.prod -f infra/docker-compose.prod.yml exec server node dist/infra/db/indexes.js
+bash infra/deploy-prod.sh /opt/hustalo
 ```
 
-- Lần đầu: tạo `infra/mongo/keyfile` (mục 9.3) và lấy chứng chỉ Let's Encrypt **trước** khi bật block 443 (chạy nginx chỉ với block 80 → `certbot certonly --webroot` → bật 443 → `nginx -s reload`).
+- Lần đầu: chạy workflow một lần (nginx dùng `nginx.bootstrap.conf`; job `verify` fail có chủ đích kèm hướng dẫn), lấy chứng chỉ trên VM, rồi chạy lại workflow — script chọn `nginx.conf`:
+
+```bash
+# DOMAIN phân giải tới IP của VM, cổng 80 mở. Chủ dự án tự chấp nhận điều khoản Let's Encrypt (--agree-tos).
+docker run --rm -v /etc/letsencrypt:/etc/letsencrypt -v /var/www/certbot:/var/www/certbot certbot/certbot \
+  certonly --webroot -w /var/www/certbot --cert-name hustalo -d "$DOMAIN" --email "<email>" --agree-tos --no-eff-email
+```
+
+`// Xác minh với tài liệu chính thức của certbot (image certbot/certbot): tham số certonly --webroot và gia hạn (certbot renew + nginx -s reload).`
 - Rollback: sửa `IMAGE_TAG=<sha cũ>` trong `infra/.env.prod` rồi chạy lại `pull` + `up -d --wait`. Migration dữ liệu (`database_schema.md` §6.4) phải tương thích ngược một phiên bản để rollback an toàn.
 - Không chạy `db:seed` ở production (env.ts cấm `SEED_PASSWORD`). Tài khoản smoke tạo bằng `POST /auth/register` một lần, mật khẩu lưu trong GitHub Secrets nếu workflow cần.
 
@@ -1611,11 +1633,12 @@ docker compose --env-file infra/.env.prod -f infra/docker-compose.prod.yml exec 
 | T-20 | Mọi người dùng hiển thị "không xác định" (presence) | Redis down hoặc mất kết nối (EC-PRES-005 / EC-INFRA-002) | `docker compose ... ps redis`; `REDIS_URL` đúng mật khẩu. Trạng thái tự hồi phục sau ≤ 1 chu kỳ heartbeat |
 | T-21 | `npm run dev` báo "VITE_HTTPS=1 nhưng thiếu chứng chỉ trong infra/certs" | Bật `VITE_HTTPS=1` khi chưa sinh chứng chỉ | `mkcert -install && npm run certs`, hoặc bỏ `VITE_HTTPS` để chạy `http://localhost:5173` (DG-01) |
 | T-22 | Server production thoát: `[env] COOKIE_SECURE: chỉ được false khi NODE_ENV là development hoặc test` | `server/.env.prod` để `COOKIE_SECURE=false` (copy từ dev) | Đặt `COOKIE_SECURE=true` (EC-SEC-009, mục 9.4) |
-| T-23 | Container mongo production restart liên tục, log `permissions on /etc/mongo/keyfile are too open` hoặc `Unable to acquire security key` | keyFile quyền rộng hơn 400, sai chủ sở hữu, hoặc file có CRLF/khoảng trắng lạ | `chmod 400`, `chown 999:999` (mục 9.3); sinh lại bằng `openssl rand -base64 756` trên VM Linux, không tạo trên Windows rồi copy |
+| T-23 | Container mongo production restart liên tục, log `permissions on /etc/mongo/keyfile are too open` hoặc `Unable to acquire security key` | Thiếu file `infra/mongo/keyfile` (bind mount tạo thư mục rỗng cùng tên), keyFile quyền rộng hơn 400, sai chủ sở hữu, hoặc file có CRLF/khoảng trắng lạ | Deploy lại: `infra/deploy-prod.sh` tự xóa thư mục rỗng, tạo keyfile nếu thiếu, đặt `chown 999:999` + `chmod 400` (mục 9.3). Tay: sinh bằng `openssl rand -base64 756` trên VM Linux, không tạo trên Windows rồi copy |
 | T-24 | Server production: `MongoServerError: Authentication failed` / `command find requires authentication` | Sai user/mật khẩu app, thiếu `authSource=hustalo`, hoặc `mongo-init` chưa tạo user app | `docker compose ... logs mongo-init`; kiểm tra `MONGO_APP_*` trong `infra/.env.prod` khớp `MONGODB_URI`; chạy lại `docker compose ... up mongo-init` (idempotent) |
 | T-25 | `mongo-init` lỗi `NotYetInitialized` / `no replset config has been received` lặp, hoặc server `ReplicaSetNoPrimary` | `rs.initiate` chưa chạy hoặc host trong config không phải `mongo:27017` | `docker compose ... exec mongo mongosh -u root -p --authenticationDatabase admin --eval "rs.status()"`; host member phải là `mongo:27017`; xóa volume chỉ khi chưa có dữ liệu thật |
 | T-26 | Socket production chỉ long-polling; `wss://` trả 400/502 | nginx thiếu `Upgrade`/`Connection` cho `/socket.io/` hoặc `proxy_read_timeout` quá ngắn | Kiểm tra block `/socket.io/` theo mục 9.3; `nginx -t && nginx -s reload` |
 | T-27 | certbot báo lỗi challenge HTTP-01 | Domain chưa trỏ về IP VM, cổng 80 bị chặn, hoặc nginx redirect cả `/.well-known/acme-challenge/` | `dig +short <domain>`; mở cổng 80 ở security group; block 80 phải phục vụ webroot ACME trước khi redirect (mục 9.3) |
+| T-28 | Server production thoát `MongoDB phải chạy replica set (rs0) để dùng transaction` dù mongo `healthy` và `mongo-init` exit 0; log mongo có `not authorized on admin to execute command { replSetGetStatus` | Image server cũ kiểm tra replica set bằng `replSetGetStatus` (cần `clusterMonitor`), user app chỉ có `readWrite` | Deploy image có `assertReplicaSet` dùng `hello` + `setName` (database_schema.md §6.3); không cấp thêm role cho user app |
 
 ---
 
