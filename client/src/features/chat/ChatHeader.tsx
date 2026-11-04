@@ -1,7 +1,7 @@
 // client/src/features/chat/ChatHeader.tsx — header phòng chat (ui_ux_spec.md §3.3): ← (mobile), avatar, tên,
 // dòng phụ "{n} thành viên" (GROUP) hoặc "Đang hoạt động" / lastSeen (DIRECT/SECRET, M4; degraded → không hiện);
 // nút gọi thoại / video (M5: ẩn với GROUP — D-22; aria-disabled + tooltip khi thiếu HTTPS/WebRTC hoặc không nhắn được),
-// E2eeBadge (M7).
+// E2eeBadge (M7, chỉ SECRET).
 import type { Conversation } from '@hustalo/shared';
 import { ArrowLeft, Phone, Video } from 'lucide-react';
 import { Link } from 'react-router-dom';
@@ -16,6 +16,8 @@ import { serverNow } from '../../lib/time/server-clock';
 import { OnlineDot } from '../presence/OnlineDot';
 import { formatLastSeen } from '../presence/presence-text';
 import { usePresence, useWatchPresence } from '../presence/usePresence';
+import type { SecretStatus } from '../e2ee/useSecretSession';
+import { E2eeBadge } from './E2eeBadge';
 import { RoomMenu } from './RoomMenu';
 
 function PresenceLine({ userId }: { userId: string | undefined }) {
@@ -96,7 +98,16 @@ export function roomName(c: Conversation, meId: string): string {
   return c.members.find((m) => m.userId !== meId)?.user.displayName ?? '';
 }
 
-export function ChatHeader({ conversation }: { conversation: Conversation }) {
+export function ChatHeader({
+  conversation,
+  secretStatus,
+  onOpenSafetyNumber,
+}: {
+  conversation: Conversation;
+  /** Chỉ SECRET (M7). */
+  secretStatus?: SecretStatus;
+  onOpenSafetyNumber?: () => void;
+}) {
   const meId = useAuthStore((s) => s.user?.id ?? '');
   const name = roomName(conversation, meId);
   const peerId =
@@ -119,6 +130,9 @@ export function ChatHeader({ conversation }: { conversation: Conversation }) {
         <h2 dir="auto" className="truncate text-md font-semibold text-text" tabIndex={-1}>
           {name}
         </h2>
+        {conversation.type === 'SECRET' && secretStatus ? (
+          <E2eeBadge status={secretStatus} onOpen={onOpenSafetyNumber ?? (() => undefined)} />
+        ) : null}
         {conversation.type === 'GROUP' ? (
           <p className="text-sm text-text-secondary">{vi.chat.memberCount(conversation.memberCount)}</p>
         ) : (
@@ -126,7 +140,10 @@ export function ChatHeader({ conversation }: { conversation: Conversation }) {
         )}
       </div>
       <CallButtons conversation={conversation} meId={meId} />
-      <RoomMenu conversation={conversation} />
+      <RoomMenu
+        conversation={conversation}
+        {...(onOpenSafetyNumber ? { onVerifySafetyNumber: onOpenSafetyNumber } : {})}
+      />
     </header>
   );
 }

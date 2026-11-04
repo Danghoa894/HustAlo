@@ -3,6 +3,8 @@
 // - message:new/edit/delete → cache (bỏ event trùng theo eventId, EC-NET-006); tin của người khác → message:delivered.
 // - message:status MESSAGE → nâng receipt (không hạ cấp); id chưa có → giữ chờ (EC-MSG-008);
 //   GROUP_AGGREGATE → cursor thành viên trong Q['conversation', id].
+// - M7: tin SECRET đi qua resolveSecretMessages (bản rõ cục bộ / giải mã) trước khi vào cache; outbox gửi SECRET bằng
+//   sendSecret (mã hóa fan-out, tự mã hóa lại khi CONFLICT).
 // - connect/reconnect → xả outbox + sync debounce (tải `after` cho phòng đang mở, bỏ cache phòng khác, tải lại
 //   danh sách); máy thức dậy → sync; tab hiện lại / online → xả outbox (EC-NET-002/007/008/009).
 import { EVENTS } from '@hustalo/shared';
@@ -21,6 +23,8 @@ import { useOutboxStore } from '../../stores/outbox.store';
 import { useTypingStore } from '../../stores/typing.store';
 import { useUiStore } from '../../stores/ui.store';
 import { conversationKeys } from '../conversations/conversations.api';
+import { resolveSecretMessages } from '../e2ee/secret-messages';
+import { sendSecret } from '../e2ee/secret-send';
 import { PendingReceipts, applyStatus, withReceipt } from './message-state';
 import { fetchMissed, mergeIntoCache, messagesKey, type MessagesState } from './messages.api';
 
@@ -53,11 +57,17 @@ export function startChatRuntime({ queryClient, meId, storage }: ChatRuntimeOpti
     void queryClient.invalidateQueries({ queryKey: conversationKeys.list });
   };
 
-  const accept = (m: Message) => {
+  const merge = (m: Message) => {
     const held = pending.take(m.id);
     mergeIntoCache(queryClient, m.conversationId, [held ? withReceipt(m, held.status, held.at) : m]);
     listChanged();
   };
+  /** Tin vào cache theo đúng thứ tự đến (giải mã SECRET là bất đồng bộ). */
+  const accept = (m: Message): Promise<Message> =>
+    resolveSecretMessages([m]).then(([r = m]) => {
+      merge(r);
+      return r;
+    });
 
   const delivered = (m: Message) => {
     if (m.senderId === meId) return;
@@ -70,16 +80,18 @@ export function startChatRuntime({ queryClient, meId, storage }: ChatRuntimeOpti
     userId: meId,
     storage: storage ?? (hasIndexedDb() ? idbStorage() : memoryStorage()),
     send: (item) =>
-      emitWithAck(EVENTS.MESSAGE_SEND, {
-        kind: 'PLAINTEXT',
-        conversationId: item.conversationId,
-        clientMessageId: item.clientMessageId,
-        content: item.content,
-      }),
+      item.peerId
+        ? sendSecret({ ...item, peerId: item.peerId })
+        : emitWithAck(EVENTS.MESSAGE_SEND, {
+            kind: 'PLAINTEXT',
+            conversationId: item.conversationId,
+            clientMessageId: item.clientMessageId,
+            content: item.content,
+          }),
     isOnline: () => socket.connected,
     onSent: (_item, message) => {
       recordServerTime(message.createdAt);
-      accept(message);
+      void accept(message);
     },
     onFailed: (item, code) => {
       if (code === 'USER_BLOCKED' || code === 'NOT_A_MEMBER') {
@@ -108,20 +120,19 @@ export function startChatRuntime({ queryClient, meId, storage }: ChatRuntimeOpti
     if (!openId) return;
     const state = queryClient.getQueryData<MessagesState>(messagesKey(openId));
     if (!state) return;
-    const missed = await fetchMissed(openId, state.items.at(-1));
+    const missed = await resolveSecretMessages(await fetchMissed(openId, state.items.at(-1)));
     if (!isCurrent() || missed.length === 0) return;
     mergeIntoCache(queryClient, openId, missed);
     const lastFromOther = missed.filter((m) => m.senderId !== meId).at(-1);
     if (lastFromOther) delivered(lastFromOther);
   });
 
-  const onNew = (p: { eventId: string; occurredAt: string; message: Message }) => {
+  const onNew = async (p: { eventId: string; occurredAt: string; message: Message }) => {
     if (seenEvent(p.eventId)) return;
     recordServerTime(p.occurredAt);
-    accept(p.message);
     delivered(p.message);
-    const m = p.message;
-    useTypingStore.getState().setTyping(m.conversationId, m.senderId, false); // tin mới từ người đang gõ → ẩn
+    useTypingStore.getState().setTyping(p.message.conversationId, p.message.senderId, false); // tin mới từ người đang gõ → ẩn
+    const m = await accept(p.message);
     if (m.senderId === meId || m.type !== 'TEXT') return;
     const ui = useUiStore.getState();
     if (useChatStore.getState().openConversationId === m.conversationId) {
@@ -131,10 +142,11 @@ export function startChatRuntime({ queryClient, meId, storage }: ChatRuntimeOpti
     }
   };
 
-  const onChanged = (p: { eventId: string; occurredAt: string; message: Message }) => {
+  const onChanged = async (p: { eventId: string; occurredAt: string; message: Message }) => {
     if (seenEvent(p.eventId)) return;
     recordServerTime(p.occurredAt);
-    mergeIntoCache(queryClient, p.message.conversationId, [p.message]);
+    const [m = p.message] = await resolveSecretMessages([p.message]);
+    mergeIntoCache(queryClient, m.conversationId, [m]);
     listChanged();
   };
 

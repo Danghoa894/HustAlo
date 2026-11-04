@@ -11,20 +11,25 @@ import { useUiStore } from '../../stores/ui.store';
 import { getOutbox } from './chat-runtime';
 import { mergeIntoCache } from './messages.api';
 
-export function useSendMessage(conversationId: string) {
+/** `secretPeerId`: hội thoại SECRET → tin được mã hóa đầu-cuối lúc gửi (FR-E2EE-004). */
+export function useSendMessage(conversationId: string, secretPeerId?: string) {
   const pushToast = useUiStore((s) => s.pushToast);
   return useCallback(
     async (raw: string): Promise<boolean> => {
       const outbox = getOutbox();
       if (!outbox) return false;
-      const res = await outbox.enqueue(conversationId, normalizeMessageText(raw));
+      const res = await outbox.enqueue(
+        conversationId,
+        normalizeMessageText(raw),
+        secretPeerId ? { peerId: secretPeerId } : {},
+      );
       if (res === 'FULL') {
         pushToast('warning', vi.chat.outboxFull);
         return false;
       }
       return true;
     },
-    [conversationId, pushToast],
+    [conversationId, secretPeerId, pushToast],
   );
 }
 

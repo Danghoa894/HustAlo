@@ -7,13 +7,20 @@ import { ApiError } from '../../lib/api/http';
 import { useUiStore } from '../../stores/ui.store';
 import { conversationKeys, conversationsApi } from './conversations.api';
 
-export function useStartDirect(onDone?: () => void) {
+/**
+ * DIRECT hoặc SECRET (M7, FR-E2EE-004). `onError` trả true = đã tự hiển thị lỗi (NewChatDialog hiện
+ * "Người nhận chưa bật trò chuyện bí mật" ngay trong hộp thoại, ui_ux_spec.md §4.5); ngược lại toast theo mã.
+ */
+export function useStartPair(
+  type: 'DIRECT' | 'SECRET',
+  onDone?: () => void,
+  onError?: (code: string | null) => boolean,
+) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const pushToast = useUiStore((s) => s.pushToast);
   return useMutation({
-    mutationFn: (userId: string) =>
-      conversationsApi.create({ type: 'DIRECT', memberIds: [userId] }, crypto.randomUUID()),
+    mutationFn: (userId: string) => conversationsApi.create({ type, memberIds: [userId] }, crypto.randomUUID()),
     onSuccess: async ({ conversation }) => {
       queryClient.setQueryData(conversationKeys.one(conversation.id), conversation);
       await queryClient.invalidateQueries({ queryKey: conversationKeys.list });
@@ -21,7 +28,11 @@ export function useStartDirect(onDone?: () => void) {
       navigate(`/chats/${conversation.id}`);
     },
     onError: (err) => {
-      pushToast('error', errorMessage(err instanceof ApiError ? err.code : null));
+      const code = err instanceof ApiError ? err.code : null;
+      if (onError?.(code)) return;
+      pushToast('error', errorMessage(code));
     },
   });
 }
+
+export const useStartDirect = (onDone?: () => void) => useStartPair('DIRECT', onDone);

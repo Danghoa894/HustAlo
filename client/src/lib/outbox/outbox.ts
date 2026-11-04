@@ -20,6 +20,8 @@ export const PERMANENT_ERRORS: ReadonlySet<ErrorCode> = new Set([
   'USER_BLOCKED',
   'FORBIDDEN',
   'E2EE_KEYS_UNAVAILABLE',
+  // message:send chỉ trả CONFLICT cho SECRET, sau khi secret-send đã tự mã hóa lại 2 lần (EC-E2EE-008).
+  'CONFLICT',
 ]);
 
 /** Độ trễ trước lần thử thứ `attempt` (bắt đầu từ 1). */
@@ -60,9 +62,10 @@ export class Outbox {
     this.changed();
   }
 
-  async enqueue(conversationId: string, content: string): Promise<'QUEUED' | 'FULL'> {
+  async enqueue(conversationId: string, content: string, opts: { peerId?: string } = {}): Promise<'QUEUED' | 'FULL'> {
     if (this.list.length >= CLIENT_OUTBOX_MAX) return 'FULL';
     const item: OutboxItem = {
+      ...(opts.peerId ? { peerId: opts.peerId } : {}),
       clientMessageId: crypto.randomUUID(),
       userId: this.opts.userId,
       conversationId,

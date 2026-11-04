@@ -42,6 +42,8 @@ export interface ComposerProps {
   onStartEdit: (m: Message) => void;
   onSaveEdit: (m: Message, text: string) => Promise<boolean>;
   onCancelEdit: () => void;
+  /** SECRET identity đổi và đã xác minh → khóa ô nhập với placeholder này (ui_ux_spec.md §3.3, AC-113). */
+  disabledReason?: string | null;
 }
 
 export function Composer({
@@ -52,6 +54,7 @@ export function Composer({
   onStartEdit,
   onSaveEdit,
   onCancelEdit,
+  disabledReason = null,
 }: ComposerProps) {
   const [text, setText] = useState(() => readDraft(conversationId));
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -78,7 +81,7 @@ export function Composer({
 
   const length = countCodePoints(normalizeMessageText(text));
   const remaining = MESSAGE_MAX_LENGTH - length;
-  const canSend = length > 0 && remaining >= 0;
+  const canSend = length > 0 && remaining >= 0 && disabledReason === null;
 
   const cancelEdit = () => {
     setText(readDraft(conversationId));
@@ -127,14 +130,15 @@ export function Composer({
           value={text}
           dir="auto"
           aria-label={vi.chat.composerLabel}
-          placeholder={vi.chat.composerPlaceholder}
+          placeholder={disabledReason ?? vi.chat.composerPlaceholder}
+          disabled={disabledReason !== null}
           onChange={(e) => {
             setText(e.target.value);
             if (!editing) typing.onInput(e.target.value);
           }}
           onBlur={typing.stop}
           onKeyDown={onKeyDown}
-          className="min-h-[44px] flex-1 resize-none rounded-md border border-border bg-surface px-3 py-2 text-base text-text outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          className="min-h-[44px] flex-1 resize-none rounded-md border border-border bg-surface px-3 py-2 text-base text-text outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-60"
         />
         <IconButton
           label={vi.chat.send}

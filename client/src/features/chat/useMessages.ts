@@ -2,6 +2,7 @@
 // `before` (cursor, không skip — FR-CHAT-003). staleTime vô hạn: realtime + sync sau reconnect giữ cache mới.
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useState } from 'react';
+import { resolveSecretMessages } from '../e2ee/secret-messages';
 import { mergeMessages } from './message-state';
 import { messagesApi, messagesKey, type MessagesState } from './messages.api';
 
@@ -13,7 +14,7 @@ export function useMessages(conversationId: string) {
     queryKey: messagesKey(conversationId),
     queryFn: async (): Promise<MessagesState> => {
       const page = await messagesApi.page(conversationId);
-      return { items: mergeMessages([], page.items), nextBefore: page.nextBefore };
+      return { items: mergeMessages([], await resolveSecretMessages(page.items)), nextBefore: page.nextBefore };
     },
     staleTime: Infinity,
   });
@@ -25,8 +26,9 @@ export function useMessages(conversationId: string) {
     setOlderError(false);
     try {
       const page = await messagesApi.page(conversationId, { before: state.nextBefore });
+      const items = await resolveSecretMessages(page.items);
       queryClient.setQueryData<MessagesState>(messagesKey(conversationId), (prev) =>
-        prev ? { items: mergeMessages(prev.items, page.items), nextBefore: page.nextBefore } : prev,
+        prev ? { items: mergeMessages(prev.items, items), nextBefore: page.nextBefore } : prev,
       );
     } catch {
       setOlderError(true);

@@ -4,11 +4,14 @@
 // - Bị xóa khỏi nhóm khi đang mở → modal "Bạn đã bị xóa khỏi nhóm {tên}" [Đóng] → /chats (EC-GROUP-007).
 // - M3: MessageList + Composer (BlockedComposerNotice khi canMessage = false); phòng đang mở ghi vào chat.store để
 //   sync sau reconnect; useReadReceipts gửi message:read khi tab hiển thị.
+// - M7 SECRET: E2eeBadge + SafetyNumberDialog, IdentityChangedBanner (+ dòng hệ thống cục bộ), composer khóa khi identity
+//   đã xác minh bị đổi, banner khi device này chưa dùng được Secret Chat (đủ 5 thiết bị); tin gửi qua outbox được mã hóa.
 import { EVENTS, type Conversation, type Message } from '@hustalo/shared';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { Avatar } from '../../components/ui/Avatar';
-import { useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Banner } from '../../components/ui/Banner';
 import { Button } from '../../components/ui/Button';
 import { Modal } from '../../components/ui/Modal';
 import { Spinner } from '../../components/ui/Spinner';
@@ -22,6 +25,10 @@ import { useChatStore } from '../../stores/chat.store';
 import { useOutboxStore } from '../../stores/outbox.store';
 import { useTypingStore } from '../../stores/typing.store';
 import { useSocketStore } from '../../stores/socket.store';
+import { useE2eeStore } from '../../stores/e2ee.store';
+import { IdentityChangedBanner } from '../e2ee/IdentityChangedBanner';
+import { useSecretSession, type SecretSession } from '../e2ee/useSecretSession';
+import { SafetyNumberDialog } from '../settings/SafetyNumberDialog';
 import { findSummary } from '../conversations/cache';
 import { conversationKeys, conversationsApi } from '../conversations/conversations.api';
 import { useToggleBlock } from '../users/users.api';
@@ -45,6 +52,9 @@ function Room({ id }: { id: string }) {
   const [removedFrom, setRemovedFrom] = useState<string | null>(null);
   const q = useQuery({ queryKey: conversationKeys.one(id), queryFn: () => conversationsApi.get(id) });
   const title = q.data ? roomName(q.data, meId) : '';
+  const secret = useSecretSession(q.data, meId);
+  const deviceLimit = useE2eeStore((s) => s.device === 'LIMIT');
+  const [safetyOpen, setSafetyOpen] = useState(false);
 
   useEffect(() => {
     if (!connected) return;
@@ -104,19 +114,58 @@ function Room({ id }: { id: string }) {
     const err = q.error;
     return <RoomNotFound notMember={err instanceof ApiError && err.code === 'NOT_A_MEMBER'} />;
   }
+  const openSafety = () => {
+    setSafetyOpen(true);
+  };
   return (
     <section aria-label={title} className="flex h-full flex-col">
-      <ChatHeader conversation={q.data} />
-      <RoomBody conversation={q.data} meId={meId} title={title} />
+      <ChatHeader
+        conversation={q.data}
+        {...(secret ? { secretStatus: secret.status, onOpenSafetyNumber: openSafety } : {})}
+      />
+      {secret && deviceLimit ? (
+        <Banner tone="warning">
+          <span className="min-w-0 flex-1">{vi.e2ee.deviceLimit}</span>
+          <Link to="/settings/devices" className="underline">
+            {vi.e2ee.manageDevices}
+          </Link>
+        </Banner>
+      ) : null}
+      {secret && secret.changed.length > 0 ? (
+        <IdentityChangedBanner peerName={title} onView={openSafety} onAccept={secret.accept} />
+      ) : null}
+      <RoomBody conversation={q.data} meId={meId} title={title} secret={secret} />
+      {secret ? (
+        <SafetyNumberDialog
+          open={safetyOpen}
+          meId={meId}
+          peerName={title}
+          devices={secret.peerDevices}
+          onVerify={(address) => secret.setVerified(address, true)}
+          onClose={() => {
+            setSafetyOpen(false);
+          }}
+        />
+      ) : null}
     </section>
   );
 }
 
-function RoomBody({ conversation, meId, title }: { conversation: Conversation; meId: string; title: string }) {
+function RoomBody({
+  conversation,
+  meId,
+  title,
+  secret,
+}: {
+  conversation: Conversation;
+  meId: string;
+  title: string;
+  secret: SecretSession | null;
+}) {
   const id = conversation.id;
   const queryClient = useQueryClient();
   const { query, loadOlder, loadingOlder, olderError } = useMessages(id);
-  const send = useSendMessage(id);
+  const send = useSendMessage(id, secret?.peerId);
   const { edit, recall } = useMessageMutations(id);
   const toggleBlock = useToggleBlock();
   const [editing, setEditing] = useState<Message | null>(null);
@@ -187,6 +236,12 @@ function RoomBody({ conversation, meId, title }: { conversation: Conversation; m
   return (
     <>
       {body}
+      {secret && secret.changed.length > 0 ? (
+        // Dòng hệ thống cục bộ (client-only, không lưu server — FR-E2EE-006).
+        <p role="status" className="px-4 py-1 text-center text-xs text-text-secondary">
+          {vi.e2ee.identityChanged(title)}
+        </p>
+      ) : null}
       <TypingIndicator conversation={conversation} meId={meId} />
       {conversation.type !== 'GROUP' && !conversation.canMessage ? (
         <BlockedComposerNotice
@@ -208,6 +263,7 @@ function RoomBody({ conversation, meId, title }: { conversation: Conversation; m
           onCancelEdit={() => {
             setEditing(null);
           }}
+          disabledReason={secret?.blocked ? vi.e2ee.confirmNewSafetyNumber : null}
         />
       )}
     </>

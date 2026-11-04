@@ -5,6 +5,7 @@ import { ArrowLeft } from 'lucide-react';
 import { Link, Navigate, useParams } from 'react-router-dom';
 import { vi } from '../../i18n/vi';
 import { BlockedSection } from './BlockedSection';
+import { DevicesSection } from './DevicesSection';
 import { PrivacySection } from './PrivacySection';
 import { ProfileSection } from './ProfileSection';
 import { SecuritySection } from './SecuritySection';
@@ -36,6 +37,7 @@ export function SettingsPage() {
         ) : null}
         {active === 'profile' ? <ProfileSection /> : null}
         {active === 'privacy' ? <PrivacySection /> : null}
+        {active === 'devices' ? <DevicesSection /> : null}
         {active === 'blocked' ? <BlockedSection /> : null}
         {active === 'security' ? <SecuritySection /> : null}
       </div>

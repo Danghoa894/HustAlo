@@ -31,21 +31,22 @@ export function MessageActions({ message, meId, onEdit, onRecall }: MessageActio
     });
   }
   if (own) {
-    items.push(
-      {
+    // Tin SECRET (có ciphertext) không sửa được — chỉ thu hồi (FR-CHAT-007, D-16, EC-MSG-017).
+    if (message.ciphertext === null) {
+      items.push({
         label: vi.chat.edit,
         onSelect: () => {
           onEdit(message);
         },
+      });
+    }
+    items.push({
+      label: vi.chat.recall,
+      danger: true,
+      onSelect: () => {
+        setConfirm(true);
       },
-      {
-        label: vi.chat.recall,
-        danger: true,
-        onSelect: () => {
-          setConfirm(true);
-        },
-      },
-    );
+    });
   }
   if (items.length === 0) return null;
   return (

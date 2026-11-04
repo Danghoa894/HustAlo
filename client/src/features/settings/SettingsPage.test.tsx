@@ -37,8 +37,8 @@ describe('SettingsPage (ui_ux_spec.md §3.8)', () => {
     expect(screen.getByRole('heading', { name: t.settings.security.changePassword })).toBeInTheDocument();
   });
 
-  it('section chưa hỗ trợ ở M1 → chuyển về /settings/profile', async () => {
-    renderPage(<SettingsPage />, { path: '/settings/:section', at: '/settings/devices' });
+  it('section chưa hỗ trợ (Giao diện) → chuyển về /settings/profile', async () => {
+    renderPage(<SettingsPage />, { path: '/settings/:section', at: '/settings/appearance' });
     expect(await screen.findByRole('heading', { name: t.settings.sections.profile, level: 2 })).toBeInTheDocument();
   });
 

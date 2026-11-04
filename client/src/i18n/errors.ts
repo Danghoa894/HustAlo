@@ -21,7 +21,7 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   CALL_BUSY: 'Người nhận đang bận.',
   CALL_TIMEOUT: 'Cuộc gọi đã hết thời gian chờ.',
   CALL_ALREADY_ANSWERED: 'Cuộc gọi đã được trả lời trên thiết bị khác.',
-  E2EE_KEYS_UNAVAILABLE: 'Chưa thể thiết lập cuộc trò chuyện bí mật. Vui lòng thử lại sau.',
+  E2EE_KEYS_UNAVAILABLE: 'Người nhận chưa bật trò chuyện bí mật',
   E2EE_DECRYPT_FAILED: 'Không thể hiển thị nội dung tin nhắn này.',
   SERVICE_UNAVAILABLE: 'Dịch vụ tạm thời gián đoạn. Vui lòng thử lại sau.',
   INTERNAL_ERROR: UNKNOWN_ERROR_MESSAGE,

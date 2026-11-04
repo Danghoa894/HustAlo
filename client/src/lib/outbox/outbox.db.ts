@@ -12,6 +12,8 @@ export interface OutboxItem {
   error: ErrorCode | null;
   createdLocalAt: number;
   attempts: number;
+  /** SECRET (M7): người nhận — tin được mã hóa lúc gửi (FR-E2EE-004); không có = PLAINTEXT. */
+  peerId?: string;
 }
 
 export interface OutboxStorage {

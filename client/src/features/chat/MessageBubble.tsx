@@ -8,6 +8,7 @@ import type { ReactNode } from 'react';
 import { Avatar } from '../../components/ui/Avatar';
 import { vi } from '../../i18n/vi';
 import type { OutboxItem } from '../../lib/outbox/outbox.db';
+import { useE2eeStore } from '../../stores/e2ee.store';
 import { formatClock } from '../../lib/time/format';
 import { MessageActions } from './MessageActions';
 import { MessageMeta } from './MessageMeta';
@@ -17,9 +18,16 @@ import type { OwnStatus } from './message-state';
 const bubbleBase = 'max-w-[min(75%,560px)] rounded-bubble px-3 py-2 text-base';
 const bubbleTone = (mine: boolean) => (mine ? 'bg-bubble-out text-bubble-on-out' : 'bg-bubble-in text-text');
 
+const SECRET_PLACEHOLDER = {
+  NOT_FOR_DEVICE: vi.e2ee.notForDevice,
+  REVOKED_DEVICE: vi.e2ee.fromRevokedDevice,
+  DECRYPT_FAILED: vi.e2ee.decryptFailed,
+} as const;
+
 function Body({ m, mine }: { m: Message; mine: boolean }) {
   // Trên bubble của mình (nền primary) chữ phụ phải giữ màu chữ bubble để đủ tương phản AA.
   const muted = mine ? '' : 'text-text-secondary';
+  const secret = useE2eeStore((s) => s.placeholders[m.id]);
   if (m.deletedAt !== null) {
     return (
       <span className={`inline-flex items-center gap-1 italic ${muted}`}>
@@ -28,7 +36,11 @@ function Body({ m, mine }: { m: Message; mine: boolean }) {
       </span>
     );
   }
-  if (m.content === null) return <span className={`italic ${muted}`}>{vi.chat.unreadable}</span>;
+  if (m.content === null) {
+    // SECRET không có bản rõ cho device này (ui_ux_spec.md §3.3, EC-E2EE-004..007).
+    const text = m.ciphertext !== null ? SECRET_PLACEHOLDER[secret ?? 'NOT_FOR_DEVICE'] : vi.chat.unreadable;
+    return <span className={`italic ${muted}`}>{text}</span>;
+  }
   return (
     <span dir="auto" className="bubble-text whitespace-pre-wrap break-words">
       {m.content}
