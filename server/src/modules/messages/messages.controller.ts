@@ -19,9 +19,9 @@ export function messagesController(messages: MessagesService, receipts: Receipts
   return {
     history: handle(async (_req, res) => {
       const { conversationId } = valid(res).params as ConvParams;
-      res
-        .status(200)
-        .json(await messages.history(getAuth(res).userId, conversationId, valid(res).query as MessageHistoryQuery));
+      const { userId, deviceId } = getAuth(res);
+      const query = valid(res).query as MessageHistoryQuery;
+      res.status(200).json(await messages.history(userId, conversationId, query, deviceId));
     }),
 
     read: handle(async (_req, res) => {

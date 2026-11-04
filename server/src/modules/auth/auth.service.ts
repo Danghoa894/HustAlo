@@ -235,6 +235,15 @@ export function createAuthService(deps: AuthServiceDeps) {
 
     isSessionRevoked: (sid: string) => repo.isRevoked(sid),
 
+    /** Port cho e2ee (FR-E2EE-007, ma trận §5.2): thu hồi mọi family của device, reason DEVICE_REVOKED. */
+    async revokeDeviceSessions(userId: string, deviceId: string): Promise<void> {
+      const families = await repo.activeFamilyIds({ userId: new Types.ObjectId(userId), deviceId });
+      await revokeFamilies(families, SessionRevokeReason.DEVICE_REVOKED);
+    },
+
+    /** Port cho e2ee: tên thiết bị dựng từ userAgent của phiên gần nhất (GET /e2ee/devices). */
+    latestUserAgent: (userId: string, deviceId: string) => repo.latestUserAgent(new Types.ObjectId(userId), deviceId),
+
     /**
      * FR-AUTH-006 (job user:lock): LOCKED + thu hồi mọi family + publish ops:user-locked để server đang giữ socket
      * phát session:revoked ACCOUNT_LOCKED và ngắt socket (DG-03). Trả false nếu không có user.

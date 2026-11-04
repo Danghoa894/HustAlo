@@ -100,7 +100,7 @@ Ký hiệu: ✔ được phép; ✘ bị từ chối (kèm mã lỗi); — khôn
 | P21 | Xem lịch sử cuộc gọi của mình | ✘ | ✔ | ✔ | ✔ | UNAUTHENTICATED | FR-CALL-008 |
 | P22 | Theo dõi presence người khác | ✘ | ✔ chỉ người có chung hội thoại, không chặn | ✔ | ✔ | (lọc im lặng) | FR-PRES-003 |
 | P23 | Đăng ký khóa E2EE cho device | ✘ | ✔ chỉ device của token (`did`) | ✔ | ✔ | FORBIDDEN | FR-E2EE-001 |
-| P24 | Lấy prekey bundle của user khác | ✘ | ✔ chỉ khi có chung SECRET hoặc đang tạo SECRET, không chặn | ✔ | ✔ | NOT_FOUND / USER_BLOCKED | FR-E2EE-002 |
+| P24 | Lấy prekey bundle của user khác | ✘ | ✔ chỉ khi có chung SECRET (đã tạo bằng `POST /conversations`, cả hai còn là thành viên), không chặn | ✔ | ✔ | NOT_FOUND / USER_BLOCKED | FR-E2EE-002 |
 | P25 | Thu hồi device E2EE | ✘ | ✔ chỉ device của chính mình | ✔ | ✔ | NOT_FOUND (device không thuộc mình, FR-SEC-008) | FR-E2EE-007 |
 
 ---

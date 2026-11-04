@@ -70,6 +70,15 @@ export function createAuthRepository(redis: RedisHandle) {
         revokedAt: null,
       }).exec()) as Types.ObjectId[],
 
+    /** userAgent của thế hệ mới nhất theo (userId, deviceId) — Device.userAgent (DB §2.9); không có phiên → ''. */
+    latestUserAgent: async (userId: Types.ObjectId, deviceId: string) =>
+      (
+        await RefreshSessionModel.findOne({ userId, deviceId }, { userAgent: 1 })
+          .sort({ createdAt: -1 })
+          .lean<{ userAgent?: string }>()
+          .exec()
+      )?.userAgent ?? '',
+
     isFamilyRevokedInDb: async (familyId: string) =>
       (await RefreshSessionModel.exists({ familyId, revokedAt: { $ne: null } })) !== null,
 

@@ -1444,7 +1444,7 @@ paths:
       description: |
         Mỗi bundle tiêu thụ đúng một one-time prekey bằng `findOneAndUpdate` (consumedAt), không bao giờ cấp trùng; hết prekey →
         `oneTimePreKey: null`. Còn < 20 → phát `e2ee:prekeys-low` cho device đó (cooldown 1 h). Được gọi cho chính mình
-        (trả các device khác device hiện tại). Không có chung hội thoại SECRET và không đang tạo SECRET hợp lệ → 404;
+        (trả các device khác device hiện tại). Không có chung hội thoại SECRET (cả hai còn là thành viên; client tạo SECRET bằng `POST /conversations` trước) → 404;
         bị chặn → 403 USER_BLOCKED; user không có device ACTIVE → 422 E2EE_KEYS_UNAVAILABLE.
       x-rate-limit: e2eeBundle
       x-requirements: [FR-E2EE-002, FR-E2EE-004, AC-111, AC-116, AC-121, EC-E2EE-001, EC-E2EE-002, EC-E2EE-008]

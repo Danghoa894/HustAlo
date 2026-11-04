@@ -121,7 +121,7 @@ describe('POST /conversations DIRECT (FR-CHAT-001)', () => {
     expect(conv).toMatchObject({ blockedByMe: true, canMessage: false });
   });
 
-  it('SECRET trước M7 → 422 E2EE_KEYS_UNAVAILABLE', async () => {
+  it('TC-E2EE-001 SECRET với người chưa đăng ký thiết bị → 422 E2EE_KEYS_UNAVAILABLE', async () => {
     const alice = await userWithSession('alice');
     const bob = await createUser({ username: 'bob' });
     const res = await createConv(alice.s, { type: 'SECRET', memberIds: [bob.id] });

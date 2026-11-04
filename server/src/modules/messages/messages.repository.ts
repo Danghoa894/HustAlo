@@ -26,11 +26,18 @@ export interface MessageRecord {
   clientMessageId: string | null;
   type: 'TEXT' | 'SYSTEM';
   contentEnc: EncryptedField | null;
-  ciphertext: unknown;
+  ciphertext: EnvelopeRecord | null;
   system: SystemRecord | null;
   editedAt: Date | null;
   deletedAt: Date | null;
   createdAt: Date;
+}
+
+/** Envelope SECRET lưu nguyên (DB §2.6, kiến trúc §9.3). */
+export interface EnvelopeRecord {
+  v: 1;
+  senderDeviceId: string;
+  recipients: { deviceId: string; type: 1 | 3; body: string }[];
 }
 
 export interface ReceiptRecord {
@@ -71,8 +78,7 @@ export const messagesRepository = {
       senderDeviceId: string;
       clientMessageId: string;
       createdAt: Date;
-      contentEnc: EncryptedField;
-    },
+    } & ({ contentEnc: EncryptedField } | { ciphertext: EnvelopeRecord }),
     session: ClientSession,
   ): Promise<void> {
     await MessageModel.create([{ ...doc, type: 'TEXT' }], { session });

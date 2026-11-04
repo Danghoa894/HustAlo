@@ -6,6 +6,8 @@ import { callsRoutes } from '../modules/calls/calls.routes';
 import type { CallsService } from '../modules/calls/calls.service';
 import type { IceServersService } from '../modules/calls/iceServers.service';
 import type { AuthService } from '../modules/auth/auth.service';
+import { e2eeRoutes } from '../modules/e2ee/e2ee.routes';
+import type { E2eeService } from '../modules/e2ee/e2ee.service';
 import { conversationsRoutes } from '../modules/conversations/conversations.routes';
 import type { ConversationsService } from '../modules/conversations/conversations.service';
 import { healthRoutes } from '../modules/health/health.routes';
@@ -27,6 +29,7 @@ export interface RouterDeps {
     receipts: ReceiptsService;
     calls: CallsService;
     iceServers: IceServersService;
+    e2ee: E2eeService;
     rateLimiters: RateLimiters;
   };
 }
@@ -35,12 +38,13 @@ export function apiRouter(deps: RouterDeps): Router {
   const router = Router();
   router.use(healthRoutes(deps.health));
   if (deps.modules) {
-    const { auth, users, conversations, messages, receipts, calls, iceServers, rateLimiters } = deps.modules;
+    const { auth, users, conversations, messages, receipts, calls, iceServers, e2ee, rateLimiters } = deps.modules;
     router.use(authRoutes(auth, rateLimiters));
     router.use(usersRoutes(users, auth, rateLimiters));
     router.use(messagesRoutes(messages, receipts, auth, rateLimiters));
     router.use(conversationsRoutes(conversations, auth, rateLimiters));
     router.use(callsRoutes(calls, iceServers, auth, rateLimiters));
+    router.use(e2eeRoutes(e2ee, auth, rateLimiters));
   }
   return router;
 }

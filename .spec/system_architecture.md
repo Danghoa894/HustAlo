@@ -553,7 +553,7 @@ hustalo/
         │   │   └── peer-session.ts   # class PeerSession: tạo pc, offer/answer, ICE restart, stats
         │   ├── e2ee/
         │   │   ├── signal-adapter.ts # bọc thư viện Signal (D-12)
-        │   │   ├── signal-store.ts   # IndexedDB: identity, prekeys, signed prekeys, sessions, known identities
+        │   │   ├── signal-store.ts   # IndexedDB: identity, prekeys, signed prekeys, sessions, known identities, bản rõ tin SECRET
         │   │   ├── device-keys.ts    # sinh & đăng ký khóa, bổ sung prekey khi e2ee:prekeys-low
         │   │   ├── envelope.ts       # encryptFanout / decryptForThisDevice
         │   │   └── safety-number.ts
@@ -1164,9 +1164,9 @@ Chỉ gọi qua **service** của module khác, không bao giờ gọi repositor
 | **messages** | ✘ | ✔ (isBlockedEitherWay) | ✔ (assertMember, listMemberIds, getType, activeMemberIds, touchLastMessage, advanceCursors, memberCursors, groupReadStats) | — | ✘ | ✘ | ✔ (assertEnvelopeRecipients, isDeviceActive) |
 | **presence** | ✘ | ✔ (getPrivacy, setLastSeen, isBlockedEitherWay) | ✔ (shareConversation, assertMember, getType, activeMemberIds) | ✘ | — | ✘ | ✘ |
 | **calls** | ✘ | ✔ (isBlockedEitherWay, getPublicMany) | ✔ (assertMember — trả kèm `type` của hội thoại; getOtherMember) | ✔ (createSystemMessage CALL_MISSED/CALL_ENDED) | ✘ (không dùng: tab online của callee lấy từ socket room, xem dưới) | — | ✘ |
-| **e2ee** | ✔ (revokeFamilyByDevice khi thu hồi device) | ✘ | ✘ | ✘ | ✘ | ✘ | — |
+| **e2ee** | ✔ (revokeFamilyByDevice, latestUserAgent khi thu hồi/liệt kê device) | ✔ qua port (isBlockedEitherWay — quyền P24) | ✔ qua port (sharesActiveSecret — quyền P24) | ✘ | ✘ | ✘ | — |
 
-Quy tắc chống vòng lặp: `messages` không gọi `calls`; `calls` gọi `messages` chỉ qua `createSystemMessage` (không gọi ngược lại). `auth → calls` và `e2ee → auth` là phụ thuộc một chiều. Import vòng được ESLint `import/no-cycle` chặn.
+"Qua port": module e2ee chỉ khai báo interface, `main.ts` tiêm hàm của service kia — không import module khác (conversations → e2ee và e2ee → conversations không tạo vòng import). Quy tắc chống vòng lặp: `messages` không gọi `calls`; `calls` gọi `messages` chỉ qua `createSystemMessage` (không gọi ngược lại). `auth → calls` và `e2ee → auth` là phụ thuộc một chiều. Import vòng được ESLint `import/no-cycle` chặn.
 
 Các lớp khác:
 - `calls` xác định callee online và danh sách tab của callee bằng **socket room `user:{calleeId}`** qua adapter (`fetchSockets`, đúng cả khi nhiều instance), không qua presence: không có socket nào → callee offline, cuộc gọi giữ `INITIATED` và nằm trong `call:pending:{calleeId}` (D-08); có socket → `call:incoming` phát tới từng socket (room `socket.id`), ACK đầu tiên → RINGING (T03). Thu hồi phiên tìm tab bằng room `session:{sid}`.
@@ -1892,6 +1892,7 @@ export function decryptField(field: EncryptedField, aad: string): string {
 | Dữ liệu | Nơi lưu | Server thấy |
 |---|---|---|
 | Identity key pair, signed prekey private, one-time prekey private, session state, known identities | IndexedDB trên device (`signal-store.ts`, DB `hustalo-signal-{userId}`) | Không |
+| Bản rõ tin SECRET đã gửi/đã giải mã | IndexedDB cùng DB, store `messages` (khóa `messageId`; tin chưa ACK tạm theo `clientMessageId`) | Không |
 | Identity public key, signed prekey public + chữ ký, `registrationId`, `signalDeviceId` | `userDevices` | Có (công khai) |
 | One-time prekey public | `oneTimePreKeys` (đánh dấu `consumedAt` khi cấp phát, TTL xóa sau 7 ngày) | Có (công khai) |
 | Ciphertext envelope | `messages.ciphertext` | Có (không giải mã được) |
@@ -1900,6 +1901,7 @@ export function decryptField(field: EncryptedField, aad: string): string {
 Quy tắc:
 - Server **từ chối** payload SECRET có `content` (`VALIDATION_ERROR`) và payload DIRECT/GROUP có `ciphertext`.
 - Tin SECRET không có `contentEnc` (không mã hóa AES lớp 2; ciphertext đã an toàn).
+- **Bản rõ cục bộ:** Double Ratchet chỉ giải mã mỗi ciphertext một lần và envelope không có recipient cho chính device gửi, nên client lưu bản rõ vào store `messages` ngay khi giải mã thành công hoặc khi gửi được ACK (tin gửi: lưu theo `clientMessageId` trước khi gửi, đổi sang `messageId` khi ACK). Hiển thị lịch sử: có bản rõ cục bộ → dùng; không có và có recipient cho device → giải mã; không có cả hai → placeholder (mục 7(h)). Tin bị thu hồi (`deletedAt`) → xóa bản rõ cục bộ.
 - UI chỉ hiển thị "Mã hóa đầu-cuối" trong conversation SECRET **đã có session** với ít nhất một device của peer; trước đó hiển thị "Đang thiết lập mã hóa…". (Ràng buộc CLAUDE.md: chỉ bật sau M7.)
 - Typing và receipt trong SECRET vẫn đi plaintext metadata qua server (giới hạn đã biết).
 - Signed prekey xoay mỗi `E2EE_SIGNED_PREKEY_ROTATION_MS` (7 ngày) qua `PUT /e2ee/devices/{deviceId}/keys` (chỉ trường `signedPreKey`); client giữ signed prekey cũ thêm 7 ngày để giải mã PreKey message đến muộn.

@@ -60,10 +60,13 @@ export interface ConversationsDeps {
   users: Pick<UsersService, 'getPublicMany' | 'isBlockedEitherWay' | 'blockedByMeAmong' | 'blockersOf'>;
   messages: Pick<MessagesCore, 'createSystemMessage' | 'previewsFor' | 'countUnread' | 'textPreview'>;
   redis: RedisHandle;
+  /** Port e2ee (ma trận §5.2): peer có device ACTIVE khi tạo SECRET (FR-E2EE-004, EC-E2EE-001). */
+  e2ee?: { hasActiveDevice(userId: string): Promise<boolean> };
 }
 
 export function createConversationsService(deps: ConversationsDeps) {
   const { emitter, users, messages, redis } = deps;
+  const e2ee = deps.e2ee ?? { hasActiveDevice: () => Promise.resolve(false) };
 
   /** AUTHZ-2: chưa từng là thành viên hoặc không tồn tại → NOT_FOUND (giống hệt nhau); đã rời → NOT_A_MEMBER. */
   async function assertMember(conversationId: string, userId: string) {
@@ -213,17 +216,20 @@ export function createConversationsService(deps: ConversationsDeps) {
 
     getOrCreatePair,
 
-    /** FR-CHAT-001 (DIRECT) và SECRET (M2: luôn 422 E2EE_KEYS_UNAVAILABLE vì chưa có khóa nào — M7). */
+    /**
+     * FR-CHAT-001 (DIRECT) và FR-E2EE-004 (SECRET, D-11: một SECRET cho mỗi cặp). SECRET mới cần peer có device ACTIVE
+     * (422 E2EE_KEYS_UNAVAILABLE, không tạo hội thoại — AC-112); SECRET đã có → trả lại (idempotent).
+     */
     async createPair(type: 'DIRECT' | 'SECRET', me: string, otherId: string) {
       if (otherId === me) throw new AppError('VALIDATION_ERROR', 'Không thể tạo cuộc trò chuyện với chính mình');
       const other = (await users.getPublicMany([otherId])).get(otherId);
       if (!other?.active) throw new AppError('NOT_FOUND', 'Không tìm thấy người dùng');
-      if (type === 'SECRET') {
-        throw new AppError('E2EE_KEYS_UNAVAILABLE', 'Người nhận chưa bật trò chuyện bí mật');
-      }
       const existing = await repo.findByDirectKey(type, directKeyOf(me, otherId));
       if (!existing && (await users.isBlockedEitherWay(me, otherId))) {
         throw new AppError('USER_BLOCKED', 'Không thể tạo cuộc trò chuyện với người này');
+      }
+      if (type === 'SECRET' && !existing && !(await e2ee.hasActiveDevice(otherId))) {
+        throw new AppError('E2EE_KEYS_UNAVAILABLE', 'Người nhận chưa bật trò chuyện bí mật');
       }
       const { id, created } = existing
         ? { id: String(existing._id), created: false }
@@ -293,6 +299,15 @@ export function createConversationsService(deps: ConversationsDeps) {
       const { conv, member } = await assertMember(conversationId, me);
       const unreadCount = await messages.countUnread(conv._id, me, readCursorOf(member));
       return { conversation: await toDTO(conv, me), unreadCount };
+    },
+
+    /** Port cho e2ee (quyền P24): có chung SECRET chưa xóa và cả hai còn là thành viên. */
+    async sharesActiveSecret(me: string, other: string): Promise<boolean> {
+      if (!Types.ObjectId.isValid(other) || other === me) return false;
+      const conv = await repo.findByDirectKey('SECRET', directKeyOf(me, other));
+      if (!conv || conv.deletedAt) return false;
+      const ids = new Set((await repo.activeMembers(conv._id)).map((m) => String(m.userId)));
+      return ids.has(me) && ids.has(other);
     },
 
     /** Port cho presence (FR-PRES-003): trong `others`, ai có chung ≥ 1 hội thoại hiện tại với `me`. */

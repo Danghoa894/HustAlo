@@ -41,6 +41,11 @@ export const testDb = {
     (await ConversationModel.findById(conversationId).lean<{ lastMessage: { messageId: unknown } | null }>().exec())
       ?.lastMessage?.messageId ?? null,
   countMessages: (conversationId: string) => MessageModel.countDocuments({ conversationId }).exec(),
+  countSecretConversations: () => ConversationModel.countDocuments({ type: 'SECRET' }).exec(),
+  countAllMessages: () => MessageModel.countDocuments({}).exec(),
+  /** Tin TEXT thô: contentEnc / ciphertext đúng như lưu (kiểm tra SECRET không có AES lớp 2). */
+  findMessageRaw: (id: string) =>
+    MessageModel.findById(id).lean<{ contentEnc: unknown; ciphertext: { recipients: unknown[] } | null }>().exec(),
   findRefreshSession: (userId: string, select = '') =>
     RefreshSessionModel.findOne({ userId }).select(select).lean<RefreshSession>().exec(),
 };

@@ -25,6 +25,13 @@ export interface Emitter {
   disconnect(rooms: string | string[]): void;
   /** Cho mọi socket trong `rooms` rời `room` (người bị xóa khỏi nhóm rời conv:{id}, FR-GROUP-003). */
   leaveRoom(rooms: string | string[], room: string): void;
+  /** Phát tới `rooms` trừ socket thuộc `except` (tin SECRET: user room trừ các device có bản mã riêng, kiến trúc §7(h)). */
+  toRoomsExcept<E extends ServerEventName>(
+    rooms: string | string[],
+    except: string[],
+    event: E,
+    payload: ServerEventPayload<E>,
+  ): void;
   /** Phát tới user room trừ một tab (call:answered-elsewhere, kiến trúc §7(e)). */
   toUserExceptTab<E extends ServerEventName>(
     userId: string,
@@ -69,6 +76,10 @@ export function createEmitter(io: Server): Emitter {
     },
     leaveRoom: (rooms, room) => {
       io.in(rooms).socketsLeave(room);
+    },
+    toRoomsExcept: (rooms, except, event, payload) => {
+      if (except.length === 0) io.to(rooms).emit(event, withMeta(payload));
+      else io.to(rooms).except(except).emit(event, withMeta(payload));
     },
     toUserExceptTab: (userId, tabId, event, payload) => {
       io.to(userRoom(userId)).except(tabRoom(tabId)).emit(event, withMeta(payload));

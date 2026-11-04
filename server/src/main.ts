@@ -20,6 +20,7 @@ import { createCallStateRepository } from './modules/calls/callState.repository'
 import { callsRepository } from './modules/calls/calls.repository';
 import { createCallsService, type CallTiming, type CallsService } from './modules/calls/calls.service';
 import { createIceServersService, type IceConfig } from './modules/calls/iceServers.service';
+import { createE2eeService, type E2eeService } from './modules/e2ee/e2ee.service';
 import { createConversationsService, type ConversationsService } from './modules/conversations/conversations.service';
 import { createMessagesService, messagesCore, type MessagesService } from './modules/messages/messages.service';
 import { createPresenceRepository } from './modules/presence/presence.repository';
@@ -48,6 +49,7 @@ export interface Runtime {
   messages: MessagesService;
   presence: PresenceService;
   calls: CallsService;
+  e2ee: E2eeService;
   redis: RedisHandle;
   setDraining(v: boolean): void;
   close(): Promise<void>;
@@ -121,11 +123,30 @@ export async function createRuntime(opts: RuntimeOptions): Promise<Runtime> {
     calls: { endCallsForSession: async (sid, cause) => calls?.endCallsForSession(sid, cause) },
   });
   const rateLimiters = createRateLimiters(redis.client);
-  const conversations = createConversationsService({ emitter, users: usersService, messages: messagesCore, redis });
+  // e2ee ↔ conversations chỉ qua port (ma trận §5.2): conversations nhận hasActiveDevice, e2ee nhận sharesActiveSecret.
+  let conversationsRef: ConversationsService | null = null;
+  const e2ee = createE2eeService({
+    auth,
+    access: {
+      sharesActiveSecret: async (me, other) => (await conversationsRef?.sharesActiveSecret(me, other)) ?? false,
+      isBlockedEitherWay: (a, b) => usersService.isBlockedEitherWay(a, b),
+    },
+    emitter,
+    redis,
+  });
+  const conversations = createConversationsService({
+    emitter,
+    users: usersService,
+    messages: messagesCore,
+    redis,
+    e2ee: { hasActiveDevice: (userId) => e2ee.hasActiveDevice(userId) },
+  });
+  conversationsRef = conversations;
   const messages = createMessagesService({
     conversations,
     users: usersService,
     emitter,
+    e2ee: { assertEnvelopeRecipients: (sender, peerId, env) => e2ee.assertEnvelopeRecipients(sender, peerId, env) },
     ...(opts.messageHooks ? { hooks: opts.messageHooks } : {}),
   });
   const receipts = createReceiptsService({ conversations, emitter });
@@ -191,6 +212,7 @@ export async function createRuntime(opts: RuntimeOptions): Promise<Runtime> {
       receipts,
       calls: callsSvc,
       iceServers,
+      e2ee,
       rateLimiters,
     },
   });
@@ -227,6 +249,7 @@ export async function createRuntime(opts: RuntimeOptions): Promise<Runtime> {
     messages,
     presence,
     calls: callsSvc,
+    e2ee,
     redis,
     setDraining: (v) => {
       draining = v;

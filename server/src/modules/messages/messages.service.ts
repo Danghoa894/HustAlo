@@ -17,10 +17,11 @@ import type { z } from 'zod';
 import { AppError } from '../../http/errors/app-error';
 import { withTxn } from '../../infra/db/transaction';
 import type { Emitter } from '../../realtime/emitter';
-import { userRoom } from '../../realtime/rooms';
+import { deviceRoom, userRoom } from '../../realtime/rooms';
 import { decryptContent, encryptContent } from './message.crypto';
 import {
   messagesRepository as repo,
+  type EnvelopeRecord,
   type MessageRecord,
   type ReceiptRecord,
   type TupleCursorValue,
@@ -133,10 +134,21 @@ export interface UsersPort {
   getPublicMany(ids: string[]): Promise<Map<string, { user: UserPublic; active: boolean }>>;
 }
 
+/** Port e2ee (ma trận §5.2): kiểm envelope SECRET, trả device theo chủ để fan-out (kiến trúc §7(h)). */
+export interface E2eePort {
+  assertEnvelopeRecipients(
+    sender: { userId: string; deviceId: string },
+    peerId: string,
+    envelope: EnvelopeRecord,
+  ): Promise<{ ownDeviceIds: string[]; peerDeviceIds: string[] }>;
+}
+
 export interface MessagesDeps {
   conversations: ConversationsPort;
   users: UsersPort;
   emitter: Emitter;
+  /** Không có (test cũ) → mọi tin E2EE bị từ chối E2EE_KEYS_UNAVAILABLE. */
+  e2ee?: E2eePort;
   /** Chỉ test: chạy giữa bước 1 (insert) và 2 (re-check thành viên) của transaction gửi (TC-DB-007). */
   hooks?: { afterInsert?: () => Promise<void> };
 }
@@ -148,6 +160,7 @@ const MSG = {
   kindMismatch: 'Loại tin không khớp loại cuộc trò chuyện',
   editWindow: 'Chỉ có thể sửa hoặc thu hồi tin trong 15 phút',
   badCursor: 'Cursor không hợp lệ',
+  noKeys: 'Người nhận chưa bật trò chuyện bí mật',
 } as const;
 
 const isDuplicateKey = (err: unknown) =>
@@ -168,8 +181,21 @@ const cursorOf = (m: MessageRecord) => encodeCursor({ createdAt: m.createdAt.toI
 export function createMessagesService(deps: MessagesDeps) {
   const { conversations, users, emitter } = deps;
 
-  /** DTO theo góc nhìn `viewerId`: tên người gửi / target hiện tại, `receipt` chỉ cho tin của chính mình (DIRECT/SECRET). */
-  async function toDTOs(docs: MessageRecord[], viewerId: string): Promise<Message[]> {
+  /** Envelope theo device (E2eeEnvelopeView): chỉ còn recipient của `viewerDeviceId` (0 hoặc 1 phần tử, FR-CHAT-003). */
+  const envelopeView = (env: EnvelopeRecord, viewerDeviceId: string | undefined): Message['ciphertext'] => ({
+    v: env.v,
+    senderDeviceId: env.senderDeviceId,
+    recipients: env.recipients
+      .filter((r) => r.deviceId === viewerDeviceId)
+      .slice(0, 1)
+      .map((r) => ({ deviceId: r.deviceId, type: r.type, body: r.body })),
+  });
+
+  /**
+   * DTO theo góc nhìn `viewerId` (+ `viewerDeviceId` cho SECRET): tên người gửi / target hiện tại, `receipt` chỉ cho tin
+   * của chính mình (DIRECT/SECRET).
+   */
+  async function toDTOs(docs: MessageRecord[], viewerId: string, viewerDeviceId?: string): Promise<Message[]> {
     const nameIds = docs.flatMap((d) => [String(d.senderId), ...(d.system?.targetUserIds.map(String) ?? [])]);
     const mine = docs.filter((d) => String(d.senderId) === viewerId && d.type === 'TEXT').map((d) => d._id);
     const [profiles, receipts] = await Promise.all([users.getPublicMany(nameIds), repo.receiptsFor(mine)]);
@@ -189,7 +215,7 @@ export function createMessagesService(deps: MessagesDeps) {
         clientMessageId: d.clientMessageId,
         type: d.type,
         content: d.contentEnc && !d.deletedAt ? decryptContent(d.conversationId, d._id, d.contentEnc) : null,
-        ciphertext: null, // SECRET (envelope theo device) ở M7
+        ciphertext: d.ciphertext && !d.deletedAt ? envelopeView(d.ciphertext, viewerDeviceId) : null,
         system: d.system
           ? {
               kind: d.system.kind,
@@ -213,8 +239,8 @@ export function createMessagesService(deps: MessagesDeps) {
     });
   }
 
-  const toDTO = async (doc: MessageRecord, viewerId: string) => {
-    const [dto] = await toDTOs([doc], viewerId);
+  const toDTO = async (doc: MessageRecord, viewerId: string, viewerDeviceId?: string) => {
+    const [dto] = await toDTOs([doc], viewerId, viewerDeviceId);
     if (!dto) throw new Error('toDTO rỗng');
     return dto;
   };
@@ -233,6 +259,28 @@ export function createMessagesService(deps: MessagesDeps) {
     ]);
     if (forSender) emitter.toUser(senderId, event, { message: forSender });
     if (forOthers) emitter.toRooms(others.map(userRoom), event, { message: forOthers });
+  }
+
+  /**
+   * message:new SECRET (kiến trúc §7(h)): mỗi device có bản mã nhận DTO chỉ chứa recipient của nó qua `device:{id}`;
+   * mọi socket khác của hai người (device gửi, device chưa đăng ký khóa) nhận DTO `recipients: []` qua user room.
+   */
+  async function fanOutSecret(
+    doc: MessageRecord,
+    senderId: string,
+    peerId: string | undefined,
+    devices: { ownDeviceIds: string[]; peerDeviceIds: string[] },
+  ) {
+    const send = async (userId: string, deviceIds: string[]) => {
+      emitter.toRoomsExcept(userRoom(userId), deviceIds.map(deviceRoom), EVENTS.MESSAGE_NEW, {
+        message: await toDTO(doc, userId),
+      });
+      for (const id of deviceIds) {
+        emitter.toDevice(id, EVENTS.MESSAGE_NEW, { message: await toDTO(doc, userId, id) });
+      }
+    };
+    await send(senderId, devices.ownDeviceIds);
+    if (peerId) await send(peerId, devices.peerDeviceIds);
   }
 
   /** Lấy tin + kiểm quyền: tin không tồn tại hoặc người gọi chưa từng là thành viên → NOT_FOUND (FR-SEC-008). */
@@ -274,7 +322,6 @@ export function createMessagesService(deps: MessagesDeps) {
       if (p.kind === 'PLAINTEXT' ? conv.type === 'SECRET' : conv.type !== 'SECRET') {
         throw new AppError('VALIDATION_ERROR', MSG.kindMismatch); // EC-MSG-016
       }
-      if (p.kind === 'E2EE') throw new AppError('E2EE_KEYS_UNAVAILABLE', 'Trò chuyện bí mật chưa hỗ trợ'); // M7
 
       const _id = new Types.ObjectId();
       const createdAt = new Date();
@@ -286,7 +333,15 @@ export function createMessagesService(deps: MessagesDeps) {
           throw new AppError('USER_BLOCKED', MSG.blocked); // AUTHZ-3, EC-MSG-011
         }
       }
-      const contentEnc = encryptContent(conv._id, _id, p.content);
+      // SECRET: device gửi ACTIVE, recipients khớp tập device ACTIVE (FORBIDDEN / CONFLICT / E2EE_KEYS_UNAVAILABLE).
+      let devices: { ownDeviceIds: string[]; peerDeviceIds: string[] } | undefined;
+      if (p.kind === 'E2EE') {
+        if (!deps.e2ee || !recipient) throw new AppError('E2EE_KEYS_UNAVAILABLE', MSG.noKeys);
+        devices = await deps.e2ee.assertEnvelopeRecipients(auth, recipient, p.ciphertext);
+      }
+      // SECRET không mã hóa AES lớp 2: envelope lưu nguyên (kiến trúc §9.3).
+      const body =
+        p.kind === 'E2EE' ? { ciphertext: p.ciphertext } : { contentEnc: encryptContent(conv._id, _id, p.content) };
 
       let memberIds: string[];
       try {
@@ -299,7 +354,7 @@ export function createMessagesService(deps: MessagesDeps) {
               senderDeviceId: auth.deviceId,
               clientMessageId: p.clientMessageId,
               createdAt,
-              contentEnc,
+              ...body,
             },
             session,
           );
@@ -330,17 +385,24 @@ export function createMessagesService(deps: MessagesDeps) {
         if (!isDuplicateKey(err)) throw err;
         const old = await repo.findByClientId(conv._id, me, p.clientMessageId);
         if (!old) throw err;
-        return { message: await toDTO(old, me), duplicate: true };
+        return { message: await toDTO(old, me, auth.deviceId), duplicate: true };
       }
 
       const doc = await repo.findById(_id);
       if (!doc) throw new AppError('INTERNAL_ERROR', 'Không đọc lại được tin vừa gửi');
-      await fanOut(EVENTS.MESSAGE_NEW, doc, memberIds);
-      return { message: await toDTO(doc, me), duplicate: false };
+      if (devices)
+        await fanOutSecret(
+          doc,
+          me,
+          memberIds.find((id) => id !== me),
+          devices,
+        );
+      else await fanOut(EVENTS.MESSAGE_NEW, doc, memberIds);
+      return { message: await toDTO(doc, me, auth.deviceId), duplicate: false };
     },
 
-    /** FR-CHAT-003 (DB §4.2). */
-    async history(me: string, conversationId: string, q: MessageHistoryQuery): Promise<MessagePage> {
+    /** FR-CHAT-003 (DB §4.2). SECRET: envelope chỉ giữ recipient của `deviceId` (FR-E2EE-008). */
+    async history(me: string, conversationId: string, q: MessageHistoryQuery, deviceId?: string): Promise<MessagePage> {
       await conversations.assertMember(conversationId, me);
       const before = decodeTuple(q.before);
       const after = decodeTuple(q.after);
@@ -352,7 +414,7 @@ export function createMessagesService(deps: MessagesDeps) {
       const first = page.items[0];
       const last = page.items.at(-1);
       return {
-        items: await toDTOs(page.items, me),
+        items: await toDTOs(page.items, me, deviceId),
         nextBefore: page.hasMoreBefore && first ? cursorOf(first) : null,
         nextAfter: page.hasMoreAfter && last ? cursorOf(last) : null,
       };
