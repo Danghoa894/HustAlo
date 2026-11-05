@@ -1,0 +1,71 @@
+# .github/workflows/release-shared.yml — development_guide.md §2.7 (D-24).
+# Push tag shared-vX.Y.Z (trỏ tới commit đã có trên main) → tarball @hustalo/shared đính vào GitHub Release.
+# Repo HustAlo-client cài bằng URL:
+#   https://github.com/<owner>/HustAlo/releases/download/shared-vX.Y.Z/hustalo-shared-X.Y.Z.tgz
+# Phiên bản đã phát hành là bất biến: Release đã tồn tại → workflow fail, không ghi đè.
+name: release-shared
+on:
+  push:
+    tags: ['shared-v*']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-shared-${{ github.ref_name }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Tag phải trỏ tới commit trên main
+        run: |
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::Tag $GITHUB_REF_NAME trỏ tới $GITHUB_SHA không nằm trên main — chỉ phát hành từ main (development_guide.md §2.7)"
+            exit 1
+          fi
+      - name: Release chưa tồn tại
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "::error::Release $GITHUB_REF_NAME đã tồn tại — phiên bản phát hành là bất biến, hãy tăng version"
+            exit 1
+          fi
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: Đóng gói (typecheck + unit test + tsup + npm pack)
+        id: pack
+        run: |
+          node scripts/pack-shared.mjs --tag "$GITHUB_REF_NAME" | tee pack.out
+          grep -E '^(file|integrity)=' pack.out >> "$GITHUB_OUTPUT"
+      - name: Tạo GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FILE: ${{ steps.pack.outputs.file }}
+          INTEGRITY: ${{ steps.pack.outputs.integrity }}
+        run: |
+          url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME/$FILE"
+          {
+            echo "Tarball \`@hustalo/shared\` cho repo HustAlo-client (development_guide.md §2.7)."
+            echo
+            echo '```json'
+            echo "\"@hustalo/shared\": \"$url\""
+            echo '```'
+            echo
+            echo "Integrity: \`$INTEGRITY\`"
+          } > notes.md
+          gh release create "$GITHUB_REF_NAME" "packages/shared/$FILE" \
+            --title "@hustalo/shared ${GITHUB_REF_NAME#shared-v}" --notes-file notes.md --verify-tag
