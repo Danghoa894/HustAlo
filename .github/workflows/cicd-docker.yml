@@ -190,7 +190,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       E2E_BASE_URL: https://${{ secrets.PROD_DOMAIN }}
-      # 2 tài khoản smoke tạo một lần bằng POST /auth/register (§9.6); mật khẩu chỉ nằm trong GitHub Secrets.
+      # 2 tài khoản smoke cố định; smoke.spec.ts tự đăng ký nếu chưa có (201/409, §9.6). Mật khẩu chỉ nằm trong GitHub Secrets.
       SMOKE_A_EMAIL: ${{ secrets.SMOKE_A_EMAIL }}
       SMOKE_A_PASSWORD: ${{ secrets.SMOKE_A_PASSWORD }}
       SMOKE_A_USERNAME: ${{ secrets.SMOKE_A_USERNAME }}
