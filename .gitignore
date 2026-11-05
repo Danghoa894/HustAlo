@@ -11,6 +11,9 @@ client/test-results/
 client/lighthouse-report/
 client/.lighthouseci/
 *.tsbuildinfo
+# shared:pack (development_guide.md §2.7)
+packages/shared/.pack/
+packages/shared/*.tgz
 
 .claude/worktrees/
 
