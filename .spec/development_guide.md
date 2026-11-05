@@ -154,7 +154,7 @@ Quy tắc phụ thuộc: `client` và `server` được import `@hustalo/shared`
     "test:unit": "npm run test:scripts && npm run test:unit --workspaces --if-present",
     "test:scripts": "node --test \"scripts/__tests__/*.test.mjs\"",
     "test:integration": "npm run test:integration -w server",
-    "test:e2e": "npm run test:e2e -w client",
+    "test:e2e": "npm run test:e2e -w client --",
     "lint": "eslint . --max-warnings 0 && prettier --check . && redocly lint .spec/api_spec.yaml --config .redocly.yaml",
     "format": "prettier --write .",
     "typecheck": "npm run typecheck --workspaces --if-present",
@@ -178,6 +178,7 @@ Ghi chú:
 - 14 script bắt buộc: `dev, dev:client, dev:server, build, test, test:unit, test:integration, test:e2e, lint, typecheck, db:indexes, db:seed, infra:up, infra:down`. Các script còn lại là `[NEW]`.
 - `npm test` = unit + integration (không gồm E2E) và là lệnh trong CLAUDE.md bước 4. Integration cần Redis đang chạy (`npm run infra:up`); MongoDB của integration là `MongoMemoryReplSet` (không cần container Mongo).
 - `npm run test:e2e` cần `infra:up`, `db:indexes`, `db:seed` và trình duyệt Playwright; bắt buộc ở gate milestone có test tầng E và trong CI.
+- `test:e2e` kết thúc bằng `--` để tham số sau `npm run test:e2e -- …` tới thẳng Playwright (vd. `--project=chromium --grep @smoke`, mục 9.7). Thiếu `--`, npm lồng (`-w client`) hiểu `--project`/`--grep` là cờ của npm và Playwright chỉ nhận `@smoke` như bộ lọc file → "No tests found".
 
 Dev dependency ở gốc (cài một lần, phiên bản được khóa bởi `package-lock.json`, không ghi tay trong spec):
 
@@ -1590,7 +1591,7 @@ docker run --rm -v /etc/letsencrypt:/etc/letsencrypt -v /var/www/certbot:/var/ww
 
 `// Xác minh với tài liệu chính thức của certbot (image certbot/certbot): tham số certonly --webroot và gia hạn (certbot renew + nginx -s reload).`
 - Rollback: sửa `IMAGE_TAG=<sha cũ>` trong `infra/.env.prod` rồi chạy lại `pull` + `up -d --wait`. Migration dữ liệu (`database_schema.md` §6.4) phải tương thích ngược một phiên bản để rollback an toàn.
-- Không chạy `db:seed` ở production (env.ts cấm `SEED_PASSWORD`). Tài khoản smoke tạo bằng `POST /auth/register` một lần, mật khẩu lưu trong GitHub Secrets nếu workflow cần.
+- Không chạy `db:seed` ở production (env.ts cấm `SEED_PASSWORD`). Tài khoản smoke (`SMOKE_A_*`, `SMOKE_B_*` trong GitHub Secrets) **tự tạo** ở mỗi lần smoke: `POST /auth/register` với chính thông tin đó — `201` vừa tạo, `409` đã có, `429` vượt rate limit register (retry trong cùng phút); với `409`/`429` xác nhận bằng `POST /auth/login` = 200, nếu không thì fail kèm thông báo (email/username thuộc tài khoản khác hoặc mật khẩu secret đã đổi). Không cần đăng ký tay; chỉ 2 tài khoản cố định trên production.
 
 ### 9.7 Kiểm tra sau deploy
 
