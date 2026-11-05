@@ -2,6 +2,10 @@
 
 ## Nguồn sự thật
 - Mọi yêu cầu nằm trong `.spec/`. Đọc file spec liên quan TRƯỚC khi code.
+- Client nằm ở repo riêng `HustAlo-client`, clone cạnh repo này (`../HustAlo-client`, đổi bằng `HUSTALO_CLIENT_DIR`);
+  đường dẫn `client/…` trong spec = gốc repo đó (D-24). Spec chỉ ở repo này.
+- Đổi `packages/shared` mà client dùng: tăng `version`, gắn tag `shared-vX.Y.Z`, rồi cập nhật client
+  (development_guide.md §2.7). Không phát hành lại phiên bản đã có.
 - Không tự đổi tech stack, tên event, enum, mã lỗi, hằng số. Nếu spec sai/thiếu:
   DỪNG LẠI, đề xuất sửa spec, chờ tôi duyệt, rồi mới code.
 - Enum, hằng số, Zod schema, kiểu event dùng chung đặt trong `packages/shared`.

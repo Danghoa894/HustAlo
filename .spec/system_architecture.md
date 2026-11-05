@@ -100,7 +100,7 @@ Các con số dưới đây là mục tiêu đo được; `product_requirements.
 | Mật khẩu | Argon2id (thư viện `argon2`) | Hash/verify | — |
 | Mã hóa lưu trữ | AES-256-GCM (`node:crypto`) có `keyId` | Mã hóa `content` tin DIRECT/GROUP | Tin SECRET (đã là ciphertext E2EE) |
 | E2EE | Signal Protocol (X3DH + Double Ratchet) — xem quyết định D-12 | Mã hóa đầu-cuối Secret Chat 1-1 phía client | Server không giải mã |
-| Monorepo | npm workspaces: `client/`, `server/`, `packages/shared/` | — | — |
+| Repo | Hai repo (D-24): `HustAlo` — npm workspaces `server/`, `packages/shared/` + infra, spec, deploy; `HustAlo-client` — client (gốc repo = `client/` của cây §4.1) | — | — |
 | Local infra | Docker Compose: MongoDB (rs0), Redis (có mật khẩu), coturn (test TURN local), mongo-express (tùy chọn bật bằng profile) | — | — |
 | Test | Vitest (unit), Supertest + mongodb-memory-server replica set (integration), Playwright có fake media device (E2E) | — | — |
 | Log | pino + pino-http | Log JSON có cấu trúc, redact | — |
@@ -135,6 +135,8 @@ Các con số dưới đây là mục tiêu đo được; `product_requirements.
 | D-21 | Chặn người dùng (`userBlocks`) có hiệu lực **hai chiều** cho DIRECT/SECRET và cuộc gọi: nếu A chặn B **hoặc** B chặn A thì không ai gửi tin/gọi được trong hội thoại 1-1 → `USER_BLOCKED`. Trong GROUP, chặn không ngăn gửi tin nhóm; nhưng không thể thêm vào nhóm người đã chặn mình. | Giống Zalo; tránh rò rỉ "ai chặn ai" qua mã lỗi (cùng một mã). |
 | D-22 | Gọi trong conversation `GROUP` bị từ chối bằng `VALIDATION_ERROR` với message `"Cuộc gọi nhóm chưa được hỗ trợ"`. UI ẩn nút gọi trong nhóm. | Sửa thiếu sót #8. |
 | D-23 | OWNER rời nhóm khi chưa chuyển quyền → `CONFLICT` (409). ADMIN xóa/hạ quyền OWNER → `FORBIDDEN`. | Sửa mâu thuẫn #4/#8. |
+| D-24 | **Tách client thành repo riêng `Danghoa894/HustAlo-client`** (duyệt 2026-11-05). Repo `HustAlo` giữ `packages/shared`, `server`, `infra`, `scripts`, `load`, `.spec`, `docs` và việc deploy; `.spec/` chỉ có ở `HustAlo` (nguồn sự thật duy nhất). Client nhận `@hustalo/shared` qua **tarball có phiên bản semver trên GitHub Release** của `HustAlo` (tag `shared-vX.Y.Z`, development_guide.md §2.7), không chép mã shared. Hai repo clone cạnh nhau; client tìm monorepo qua `HUSTALO_SERVER_DIR`, monorepo tìm client qua `HUSTALO_CLIENT_DIR`. | Chủ dự án chỉ phụ trách client và làm trong repo riêng; repo `HustAlo` public nên tải tarball không cần token (GitHub Packages bắt buộc PAT kể cả khi đọc; npm không cài được thư mục con của repo git). |
+| D-25 | **`HustAlo` là repo phát hành duy nhất.** `HustAlo-client` chỉ build + push image `hustalo-client:<sha>`; `HustAlo` ghim phiên bản client trong `infra/client.version` (đổi qua PR), deploy server (`IMAGE_TAG`) và client (`CLIENT_IMAGE_TAG`) cùng một lần, job `verify` chạy smoke từ `HustAlo-client` ở đúng SHA đã ghim. Ngược lại `HustAlo-client` ghim backend dùng cho E2E trong `server.version`. | Secret SSH của VM chỉ ở một repo; production luôn là một cặp server–client đã kiểm tương thích; rollback từng phần bằng hai tag độc lập. |
 
 ### 2.2 Rủi ro đã biết
 
@@ -145,6 +147,7 @@ Các con số dưới đây là mục tiêu đo được; `product_requirements.
 | R-03 | Server vẫn đọc được nội dung tin thường (AES tầng ứng dụng không phải E2EE) | Ghi rõ trong UI/PRD; chỉ hiển thị "Mã hóa đầu-cuối" cho SECRET đã có session. |
 | R-04 | Thư viện Signal phía trình duyệt là bản port cộng đồng | Khóa phiên bản trong `package-lock.json`; review mã nguồn trước M7; cô lập sau interface `client/src/lib/e2ee/signal-adapter.ts` để thay thế được. |
 | R-05 | Mỗi 15 phút socket reconnect do xoay access token | `connectionStateRecovery` + presence grace 10 s + call không đổi trạng thái chỉ vì socket rớt (mục 8.4). |
+| R-06 | Client và server lệch phiên bản hợp đồng `@hustalo/shared` sau khi tách repo (D-24) | Semver cho shared (major khi đổi không tương thích); CI `HustAlo` chạy E2E của client đã ghim (`infra/client.version`) với server hiện tại, CI `HustAlo-client` chạy E2E với backend `server.version`; deploy luôn theo cặp đã ghim (D-25). |
 
 ---
 
@@ -221,15 +224,15 @@ Các con số dưới đây là mục tiêu đo được; `product_requirements.
 
 ---
 
-## 4. Cấu trúc monorepo
+## 4. Cấu trúc mã nguồn (repo `HustAlo` + repo `HustAlo-client`)
 
 ### 4.1 Cây thư mục đầy đủ
 
 Quy ước: mỗi module backend trong `server/src/modules/<module>/` có bộ file `<module>.routes.ts, <module>.controller.ts, <module>.service.ts, <module>.repository.ts, <module>.schema.ts, <entity>.model.ts, <module>.test.ts`. Ngoại lệ được liệt kê rõ (module không có REST hoặc không có collection). `*.schema.ts` trong server chỉ **re-export và ghép** schema từ `@hustalo/shared` (không định nghĩa lại hợp đồng).
 
 ```text
-hustalo/
-├── package.json                      # npm workspaces + scripts gốc (development_guide.md mục 2)
+hustalo/                              # repo HustAlo (monorepo: shared, server, infra, spec, deploy — D-24)
+├── package.json                      # npm workspaces packages/shared + server; scripts gốc (development_guide.md mục 2)
 ├── package-lock.json
 ├── tsconfig.base.json                # strict, noUncheckedIndexedAccess, exactOptionalPropertyTypes
 ├── eslint.config.js                  # flat config: typescript-eslint, react-hooks, import, no-restricted-syntax
@@ -243,7 +246,8 @@ hustalo/
 ├── .dockerignore                     # [NEW] M6.5: node_modules, **/dist, .env*, infra/certs, .git, coverage
 ├── .github/
 │   └── workflows/
-│       ├── ci.yml                    # verify (typecheck, lint, test) + e2e (development_guide.md §8.7)
+│       ├── ci.yml                    # verify (typecheck, lint, test) + e2e với HustAlo-client@infra/client.version (development_guide.md §8.7)
+│       ├── release-shared.yml        # [NEW] tag shared-vX.Y.Z → tarball @hustalo/shared trên GitHub Release (development_guide.md §2.7)
 │       └── cicd-docker.yml           # [NEW] M6.5: build + push image Docker Hub, deploy qua SSH (development_guide.md §9.5)
 ├── .redocly.yaml                     # [NEW] cấu hình redocly lint cho .spec/api_spec.yaml
 ├── .redocly.lint-ignore.yaml         # [NEW] ngoại lệ có chủ đích (GET /health không có 4xx)
@@ -263,6 +267,7 @@ hustalo/
 ├── infra/
 │   ├── docker-compose.yml            # CHỈ local: mongo (rs0), redis, coturn, mongo-express (profile tools)
 │   ├── docker-compose.prod.yml       # [NEW] M6.5: nginx, server, mongo (rs0 + auth + keyFile), redis (requirepass)
+│   ├── client.version                # [NEW] SHA commit HustAlo-client được deploy (image hustalo-client:<sha>, D-25)
 │   ├── deploy-prod.sh                # [NEW] M6.5: chạy trên VM — pull, keyfile Mongo, chọn nginx theo chứng chỉ, up --wait, index (development_guide.md §9.6)
 │   ├── .env.example                  # biến cho compose local (development_guide.md §4.1)
 │   ├── .env.prod.example             # [NEW] M6.5: biến docker-compose.prod.yml (development_guide.md §9.4)
@@ -277,13 +282,12 @@ hustalo/
 │   └── certs/                        # mkcert output (gitignored): localhost+lan.pem, localhost+lan-key.pem
 ├── scripts/
 │   ├── gen-secrets.mjs               # in ra JWT_ACCESS_SECRET, REFRESH_TOKEN_PEPPER, DATA_ENCRYPTION_KEYS
-│   ├── check-bundle-secrets.mjs      # quét client/dist tìm chuỗi XIRSYS_/SECRET/PEPPER (EC-SEC-006)
-│   ├── check-bundle-size.mjs         # [NEW] M6: JS khởi tạo (script + modulepreload trong index.html) ≤ 300 KB gzip (NFR-05), chạy trong npm run build
 │   ├── coverage-merge.mjs            # [NEW] M6: gộp coverage unit + integration server, ngưỡng 80% dòng modules/** (NFR-14)
 │   ├── check-traceability.mjs        # npm run trace:check (development_guide.md §8.8)
 │   ├── make-certs.mjs                # npm run certs: mkcert localhost + LAN-IP → infra/certs
 │   ├── ci-env.mjs                    # sinh file .env cho CI từ .env.example (development_guide.md §8.7)
-│   ├── gen-sounds.mjs                # [NEW] M5: sinh client/public/sounds/{ringtone,ringback}.wav (PCM, Node thuần)
+│   ├── client-run.mjs                # [NEW] chạy một script npm của repo HustAlo-client (HUSTALO_CLIENT_DIR) — dev:client, build, test:e2e
+│   ├── pack-shared.mjs               # [NEW] build packages/shared ra dist/ + npm pack (development_guide.md §2.7)
 │   ├── __tests__/
 │   │   └── check-traceability.test.mjs  # node:test — tham số --milestone (M0..M7, M6.5)
 │   └── spec-check.mjs                # [NEW] đối chiếu chéo .spec/ (npm run spec:check)
@@ -293,7 +297,7 @@ hustalo/
 │   └── sockets.js                    # NFR-09: 1.000 socket + 200 cuộc gọi signaling, RSS server ≤ 1 GB
 ├── packages/
 │   └── shared/
-│       ├── package.json              # name "@hustalo/shared", exports trỏ tới src/index.ts (TS source)
+│       ├── package.json              # name "@hustalo/shared", version semver; exports trỏ tới src/index.ts (TS source, trong monorepo)
 │       ├── tsconfig.json
 │       ├── vitest.config.ts
 │       └── src/
@@ -321,343 +325,364 @@ hustalo/
 │               ├── text.test.ts
 │               ├── cursor.test.ts
 │               └── schemas.test.ts
-├── server/
-│   ├── package.json                  # name "@hustalo/server"; dev: tsx watch; build: tsup (bundle @hustalo/shared)
-│   ├── tsconfig.json
-│   ├── tsup.config.ts
-│   ├── vitest.config.ts              # unit: src/**/*.test.ts trừ *.int.test.ts
-│   ├── vitest.integration.config.ts  # integration: src/**/*.int.test.ts, globalSetup mongo-memory replset
-│   ├── Dockerfile                    # [NEW] M6.5: multi-stage (deps → build tsup → runtime), USER node, HEALTHCHECK /api/v1/health
-│   ├── .env.example
-│   ├── .env.prod.example             # [NEW] M6.5: env production (development_guide.md §9.4)
-│   └── src/
-│       ├── main.ts                   # bootstrap: env → logger → mongo → redis → app → gateway → jobs → listen; SIGTERM
-│       ├── app.ts                    # createApp(deps): express + middleware + router + error handler
-│       ├── config/
-│       │   └── env.ts                # Zod parse process.env, fail-fast; export const env
-│       ├── __tests__/                # test kiến trúc toàn server (không thuộc module nào)
-│       │   ├── arch.test.ts                # hợp đồng chỉ định nghĩa ở @hustalo/shared (AC-ARCH-002)
-│       │   ├── eslint-arch.test.ts         # import/no-cycle + ràng buộc import theo thư mục (AC-ARCH-001)
-│       │   ├── bundle-secrets.test.ts      # check-bundle-secrets.mjs (EC-SEC-006, AC-105)
-│       │   ├── no-console.test.ts          # [NEW] M6: no-console mức error cho mã client (EC-SEC-007)
-│       │   └── deploy.test.ts              # [NEW] M6.5: TC-ARCH-016 — bảng §9.7 trên E2E_BASE_URL (bỏ qua khi không đặt)
-│       ├── redis-down.int.test.ts    # [NEW] M6: Redis down — health degraded, auth 503, limiter bộ nhớ, presence degraded, call:invite 503
-│       ├── log-scan.int.test.ts      # [NEW] M6: quét log toàn luồng (AC-104, AC-ARCH-010)
-│       ├── infra/
-│       │   ├── db/
-│       │   │   ├── mongo.ts                # connect (replicaSet bắt buộc), health ping
-│       │   │   ├── transaction.ts          # withTxn(fn): session.withTransaction, retry MONGO_TXN_MAX_RETRIES
-│       │   │   ├── indexes.ts              # entry `npm run db:indexes`: Model.syncIndexes() cho mọi model
-│       │   │   └── seed.ts                 # entry `npm run db:seed`: alice, bob, carol
-│       │   ├── redis/
-│       │   │   ├── redis.ts                # ioredis client chính; cờ healthy theo event ready/error/end
-│       │   │   ├── keys.ts                 # hàm tạo key (Phụ lục A) — cấm nối chuỗi key ở nơi khác
-│       │   │   └── scripts/
-│       │   │       ├── call-invite.lua         # kiểm tra bận/glare + tạo call:active + user:incall (atomic)
-│       │   │       ├── call-transition.lua     # CAS trạng thái: expectedFrom[] → to, tăng version
-│       │   │       ├── call-deadlines-claim.lua# ZRANGEBYSCORE ≤ now LIMIT n + ZREM (claim nguyên tử)
-│       │   │       ├── presence-touch.lua      # ZADD lease + ZREMRANGEBYSCORE hết hạn + trả trạng thái chuyển
-│       │   │       └── presence-drop.lua       # ZREM connection, nếu 0 lease sống → ZADD offline-pending
-│       │   ├── crypto/
-│       │   │   ├── key-ring.ts             # parse DATA_ENCRYPTION_KEYS / DATA_ENCRYPTION_ACTIVE_KEY_ID
-│       │   │   ├── aes-gcm.ts              # encryptField / decryptField (mục 9.2)
-│       │   │   ├── password.ts             # argon2id hash/verify + dummy hash chống timing
-│       │   │   └── random.ts               # randomToken(32), hmacSha256(pepper, value), timingSafeEqual
-│       │   ├── jwt/
-│       │   │   └── jwt.ts                  # signAccessToken / verifyAccessToken (jose, HS256)
-│       │   ├── runtime/
-│       │   │   └── is-main.ts              # isMainModule(import.meta.url) — entry script chạy đúng trên Windows (DG-02)
-│       │   ├── logger/
-│       │   │   └── logger.ts               # pino + redact (mục 11.3)
-│       │   ├── metrics/
-│       │   │   └── metrics.ts              # prom-client registry + metric mục 11.1 + server /metrics
-│       │   ├── rate-limit/
-│       │   │   └── rate-limiter.ts         # factory theo RATE_LIMITS; insurance limiter bộ nhớ (D-10)
-│       │   └── turn/
-│       │       └── xirsys.client.ts        # gọi Xirsys REST, timeout XIRSYS_TIMEOUT_MS
-│       ├── http/
-│       │   ├── router.ts                   # mount /api/v1/* từ modules/*/routes
-│       │   ├── errors/
-│       │   │   └── app-error.ts            # class AppError(code, message, details?)
-│       │   └── middleware/
-│       │       ├── request-id.ts           # X-Request-Id (nhận UUID hợp lệ từ client hoặc sinh mới)
-│       │       ├── security.ts             # helmet, cors whitelist, body limit REST_BODY_LIMIT_BYTES
-│       │       ├── authenticate.ts         # Bearer JWT → req.auth {userId, sid, deviceId}; check revoked
-│       │       ├── csrf.ts                 # double-submit cho /auth/refresh, /auth/logout
-│       │       ├── rate-limit.ts           # middleware theo rule
-│       │       ├── validate.ts             # validate({body, query, params}) bằng Zod
-│       │       └── error-handler.ts        # AppError/ZodError/Mongo error → ErrorResponse
-│       ├── realtime/
-│       │   ├── gateway.ts                  # new Server(httpServer, opts mục 6.4), adapter, middleware, register handlers
-│       │   ├── rooms.ts                    # userRoom, deviceRoom, tabRoom, sessionRoom, convRoom, presenceRoom, presenceNoLastSeenRoom
-│       │   ├── emitter.ts                  # emitToUser/Device/Session/Conv: tự gắn eventId (uuid) + occurredAt
-│       │   ├── with-ack.ts                 # wrap(handler, {schema, rateRule}): parse envelope, rate limit, map lỗi → ACK
-│       │   ├── middleware/
-│       │   │   ├── socket-auth.ts          # verify auth.token, auth.deviceId, auth.tabId; join rooms; hẹn giờ session:expired
-│       │   │   └── socket-rate-limit.ts    # limiter theo socket/user cho từng event
-│       │   └── handlers/
-│       │       ├── session.handler.ts      # connection/disconnect lifecycle, đẩy call:incoming đang chờ khi online
-│       │       ├── conversation.handler.ts # conversation:join, conversation:leave
-│       │       ├── message.handler.ts      # message:send, message:delivered, message:read, message:edit, message:delete
-│       │       ├── typing.handler.ts       # typing:start, typing:stop
-│       │       ├── presence.handler.ts     # presence:subscribe
-│       │       └── call.handler.ts         # call:invite, accept, reject, cancel, offer, answer, ice-candidate, ice-restart, end, state
-│       ├── modules/
-│       │   ├── auth/
-│       │   │   ├── auth.routes.ts          # /auth/register, login, refresh, logout, me, change-password
-│       │   │   ├── auth.controller.ts
-│       │   │   ├── auth.service.ts         # register, login, rotateRefresh, logout, changePassword, revokeFamily, lockUser
-│       │   │   ├── auth.repository.ts      # refreshSessions CRUD
-│       │   │   ├── auth.schema.ts
-│       │   │   ├── refreshSession.model.ts
-│       │   │   ├── auth.test.ts            # unit: rotation/reuse logic
-│       │   │   └── auth.int.test.ts        # integration Supertest
-│       │   ├── users/
-│       │   │   ├── users.routes.ts         # /users/search, /users/me, /users/blocked, /users/{userId}/block
-│       │   │   ├── users.controller.ts
-│       │   │   ├── users.service.ts        # search, updateMe, block/unblock, isBlockedEitherWay
-│       │   │   ├── users.repository.ts
-│       │   │   ├── users.schema.ts
-│       │   │   ├── user.model.ts
-│       │   │   ├── userBlock.model.ts
-│       │   │   ├── users.test.ts
-│       │   │   └── users.int.test.ts
-│       │   ├── conversations/
-│       │   │   ├── conversations.routes.ts # /conversations, /{id}, /{id}/members, /{id}/members/{userId}
-│       │   │   ├── conversations.controller.ts
-│       │   │   ├── conversations.service.ts# createDirect/Secret (idempotent), createGroup, update, add/remove/role, assertMember
-│       │   │   ├── conversations.repository.ts
-│       │   │   ├── conversations.schema.ts
-│       │   │   ├── conversation.model.ts
-│       │   │   ├── conversationMember.model.ts
-│       │   │   ├── conversations.test.ts
-│       │   │   └── conversations.int.test.ts
-│       │   ├── messages/
-│       │   │   ├── messages.routes.ts      # GET /conversations/{id}/messages, POST /conversations/{id}/read
-│       │   │   ├── messages.controller.ts
-│       │   │   ├── messages.service.ts     # send (txn), history, edit, delete, toDTO (decrypt), createSystemMessage
-│       │   │   ├── receipts.service.ts     # markDelivered, markRead (cursor, một chiều), unreadCount
-│       │   │   ├── messages.repository.ts
-│       │   │   ├── messages.schema.ts
-│       │   │   ├── message.model.ts
-│       │   │   ├── messageReceipt.model.ts
-│       │   │   ├── message.crypto.ts       # encryptContent/decryptContent với AAD conversationId:messageId
-│       │   │   ├── messages.test.ts
-│       │   │   └── messages.int.test.ts
-│       │   ├── presence/                   # NGOẠI LỆ: không routes/controller/model (chỉ Redis + socket)
-│       │   │   ├── presence.service.ts     # connect/disconnect/heartbeat, snapshot, privacy filter
-│       │   │   ├── presence.repository.ts  # Redis presence:* (Lua)
-│       │   │   ├── presence.sweeper.ts     # xử lý presence:offline-pending → OFFLINE + lastSeenAt
-│       │   │   ├── typing.service.ts       # typing:{conversationId}:{userId}
-│       │   │   ├── presence.schema.ts
-│       │   │   ├── presence.test.ts
-│       │   │   └── presence.int.test.ts
-│       │   ├── calls/
-│       │   │   ├── calls.routes.ts         # GET /calls, GET /calls/ice-servers
-│       │   │   ├── calls.controller.ts
-│       │   │   ├── calls.service.ts        # invite/accept/reject/cancel/end/report/relay (gọi state machine)
-│       │   │   ├── call.state-machine.ts   # bảng chuyển trạng thái mục 8.2 (hàm thuần, không I/O)
-│       │   │   ├── callState.repository.ts # Redis call:active, user:incall, call:deadlines (Lua)
-│       │   │   ├── calls.repository.ts     # Mongo callHistory
-│       │   │   ├── call.sweeper.ts         # xử lý deadline mỗi CALL_DEADLINE_SWEEP_INTERVAL_MS
-│       │   │   ├── iceServers.service.ts   # Xirsys + cache + fallback (mục 9.5)
-│       │   │   ├── calls.schema.ts
-│       │   │   ├── callHistory.model.ts
-│       │   │   ├── call.state-machine.test.ts
-│       │   │   ├── calls.test.ts
-│       │   │   └── calls.int.test.ts
-│       │   ├── e2ee/
-│       │   │   ├── e2ee.routes.ts          # /e2ee/devices, /e2ee/devices/{deviceId}/keys|prekeys, /e2ee/users/{userId}/bundles|identities
-│       │   │   ├── e2ee.controller.ts
-│       │   │   ├── e2ee.service.ts         # registerDevice, uploadPrekeys, getBundles (consume atomic), revokeDevice, assertEnvelope
-│       │   │   ├── e2ee.repository.ts
-│       │   │   ├── e2ee.schema.ts
-│       │   │   ├── userDevice.model.ts
-│       │   │   ├── oneTimePreKey.model.ts
-│       │   │   ├── e2ee.test.ts
-│       │   │   └── e2ee.int.test.ts
-│       │   └── health/                     # NGOẠI LỆ: không repository/model
-│       │       ├── health.routes.ts        # GET /health
-│       │       ├── health.controller.ts
-│       │       ├── health.service.ts       # ping mongo + redis, trạng thái degraded
-│       │       ├── health.schema.ts
-│       │       └── health.test.ts
-│       ├── jobs/
-│       │   ├── user-lock.ts                # npm run user:lock / user:unlock -w server (FR-AUTH-006, DG-03)
-│       │   ├── user-lock.int.test.ts
-│       │   ├── reencrypt-messages.ts       # job xoay khóa (mục 9.2.4): npm run job:reencrypt -w server
-│       │   └── reconcile-calls.ts          # chạy lúc boot: callHistory non-terminal mồ côi → FAILED/SERVER_RESTART
-│       └── test/
-│           ├── global-setup.ts             # MongoMemoryReplSet (1 node), REDIS_URL_TEST
-│           ├── test-env.ts                 # biến môi trường cố định cho test
-│           ├── factories.ts                # createUser, createConversation, loginAs
-│           ├── socket-client.ts            # connectAs(user, deviceId) → typed client + emitWithAck
-│           └── fake-clock.ts
-└── client/
-    ├── package.json                  # name "@hustalo/client"
+└── server/
+    ├── package.json                  # name "@hustalo/server"; dev: tsx watch; build: tsup (bundle @hustalo/shared)
     ├── tsconfig.json
-    ├── vite.config.ts                # http mặc định; https mkcert khi VITE_HTTPS=1; proxy /api + /socket.io → :4000 (ws: true)
-    ├── vitest.config.ts              # jsdom, setupFiles src/test/setup.ts
-    ├── Dockerfile                    # [NEW] M6.5: multi-stage (vite build + check-bundle-secrets → nginx-unprivileged :8080 phục vụ dist)
-    ├── nginx.conf                    # [NEW] M6.5: nginx trong image client — SPA fallback, /assets immutable, index.html no-cache
-    ├── lighthouserc.json             # [NEW] M6: Lighthouse CI trên client/dist — LCP ≤ 2,5 s (NFR-05)
-    ├── tailwind.config.ts            # theme.extend từ ui_ux_spec.md
-    ├── postcss.config.js
-    ├── playwright.config.ts          # projects chromium/firefox/webkit; launch args fake media; firefox bỏ call-network.spec.ts
-    ├── index.html
+    ├── tsup.config.ts
+    ├── vitest.config.ts              # unit: src/**/*.test.ts trừ *.int.test.ts
+    ├── vitest.integration.config.ts  # integration: src/**/*.int.test.ts, globalSetup mongo-memory replset
+    ├── Dockerfile                    # [NEW] M6.5: multi-stage (deps → build tsup → runtime), USER node, HEALTHCHECK /api/v1/health
     ├── .env.example
-    ├── public/
-    │   ├── sounds/ringtone.wav       # nhạc chuông cuộc gọi đến (sinh bằng scripts/gen-sounds.mjs)
-    │   ├── sounds/ringback.wav       # âm chờ cuộc gọi đi (sinh bằng scripts/gen-sounds.mjs)
-    │   ├── theme-init.js             # đặt class theme trước khi React mount (tránh nháy màu)
-    │   ├── fonts/                    # [NEW] M6: inter-{latin,latin-ext,vietnamese}.woff2 (Inter variable 400–700) + OFL.txt
-    │   └── favicon.svg
-    ├── e2e/
-    │   ├── fixtures.ts               # login nhanh qua API, twoUsers, mockGetUserMediaError, recordCallStates/recordSent, callStats, dockerCompose, setIcePolicyRelay
-    │   ├── vite.network.config.ts    # [NEW] M5: Vite :5174 proxy tới server riêng :4100 cho call-network.spec.ts
-    │   ├── auth.spec.ts
-    │   ├── chat.spec.ts
-    │   ├── group.spec.ts
-    │   ├── presence.spec.ts
-    │   ├── call.spec.ts
-    │   ├── call-network.spec.ts      # relay-only (server riêng :4100), pause coturn + setOffline, restart server — chỉ Chromium
-    │   ├── smoke.spec.ts             # [NEW] M6.5: @smoke TC-ARCH-017 (chạy được với E2E_BASE_URL)
-    │   └── e2ee.spec.ts
+    ├── .env.prod.example             # [NEW] M6.5: env production (development_guide.md §9.4)
     └── src/
-        ├── main.tsx
-        ├── App.tsx                   # providers: QueryClientProvider, Router, ThemeProvider, CallOverlay
-        ├── styles/
-        │   └── index.css             # Tailwind + CSS variables design tokens
-        ├── routes/
-        │   ├── router.tsx            # /login, /register, /chats, /chats/:conversationId, /call/:callId, /settings
-        │   └── guards/
-        │       ├── RequireAuth.tsx
-        │       └── RedirectIfAuthed.tsx
-        ├── lib/
-        │   ├── fonts/
-        │   │   └── fonts.ts          # [NEW] M6: đăng ký FontFace Inter tự host sau first-contentful-paint (ui_ux_spec.md §1.1, NFR-05)
-        │   ├── api/
-        │   │   ├── http.ts           # fetch wrapper: Bearer, X-CSRF-Token, refresh 1 lần khi TOKEN_EXPIRED
-        │   │   ├── refresh.ts        # Web Locks + retry khi 409 (D-19)
-        │   │   └── queryClient.ts
-        │   ├── socket/
-        │   │   ├── socket.ts         # io(VITE_SOCKET_URL, opts mục 6.4), auth {token, deviceId}
-        │   │   ├── emit.ts           # emitWithAck(event, payload) → envelope {requestId, payload}, timeout SOCKET_ACK_TIMEOUT_MS
-        │   │   ├── event-dedupe.ts   # LRU eventId (CLIENT_EVENT_DEDUPE_SIZE)
-        │   │   └── sync.ts           # sau reconnect: invalidate queries, fetch after-cursor, xả outbox
-        │   ├── outbox/
-        │   │   ├── outbox.db.ts      # IndexedDB (idb) store "outbox" theo userId
-        │   │   └── outbox.ts         # enqueue, flush, backoff, FAILED sau OUTBOX_MAX_AGE_MS
-        │   ├── webrtc/
-        │   │   ├── support.ts        # isSecureContext, RTCPeerConnection, mediaDevices
-        │   │   ├── media.ts          # acquireMedia(callType) + fallback voice + map lỗi DOMException
-        │   │   ├── ice-servers.ts    # GET /calls/ice-servers, cache tới expiresAt - TURN_REFRESH_BEFORE_S
-        │   │   ├── candidate-queue.ts# hàng đợi ICE trước setRemoteDescription, dedupe, lọc theo revision
-        │   │   └── peer-session.ts   # class PeerSession: tạo pc, offer/answer, ICE restart, stats
-        │   ├── e2ee/
-        │   │   ├── signal-adapter.ts # bọc thư viện Signal (D-12), import() động; safety number bằng WebCrypto
-        │   │   ├── codec.ts          # [NEW] base64 / binary string / UTF-8 ↔ ArrayBuffer
-        │   │   ├── signal-store.ts   # IndexedDB: identity, prekeys, signed prekeys, sessions, known identities, bản rõ tin SECRET
-        │   │   ├── device-keys.ts    # sinh & đăng ký khóa, bổ sung prekey khi e2ee:prekeys-low
-        │   │   ├── envelope.ts       # encryptFanout / decryptForThisDevice
-        │   │   └── safety-number.ts
-        │   ├── device/
-        │   │   └── device-id.ts      # getDeviceId() (localStorage hustalo.deviceId), getTabId() (sessionStorage hustalo.tabId)
-        │   └── time/
-        │       ├── server-clock.ts   # ước lượng lệch giờ từ occurredAt (median 5 mẫu gần nhất)
-        │       └── format.ts         # định dạng giờ/ngày tiếng Việt
-        ├── i18n/
-        │   ├── vi.ts                 # chuỗi UI tiếng Việt (ui_ux_spec.md)
-        │   ├── errors.ts             # ErrorCode → thông điệp hiển thị
-        │   └── errors.test.ts
-        ├── stores/
-        │   ├── auth.store.ts         # accessToken (chỉ RAM), user, expiresAt
-        │   ├── socket.store.ts       # connectionState: connecting|connected|reconnecting|offline|expired
-        │   ├── presence.store.ts
-        │   ├── typing.store.ts
-        │   ├── call.store.ts         # CallStatus (mirror server) + localPhase + media flags
-        │   ├── outbox.store.ts       # mirror trạng thái outbox để render bubble PENDING/FAILED
-        │   ├── e2ee.store.ts         # [NEW] M7: device READY/LIMIT, placeholder tin SECRET, revision session/identity
-        │   └── ui.store.ts           # theme, toasts, banners
-        ├── features/
+        ├── main.ts                   # bootstrap: env → logger → mongo → redis → app → gateway → jobs → listen; SIGTERM
+        ├── app.ts                    # createApp(deps): express + middleware + router + error handler
+        ├── config/
+        │   └── env.ts                # Zod parse process.env, fail-fast; export const env
+        ├── __tests__/                # test kiến trúc toàn server (không thuộc module nào)
+        │   ├── arch.test.ts                # hợp đồng chỉ định nghĩa ở @hustalo/shared (AC-ARCH-002)
+        │   ├── eslint-arch.test.ts         # import/no-cycle + ràng buộc import theo thư mục (AC-ARCH-001)
+        │   ├── bundle-secrets.test.ts      # check-bundle-secrets.mjs (EC-SEC-006, AC-105)
+        │   ├── no-console.test.ts          # [NEW] M6: no-console mức error cho mã client (EC-SEC-007)
+        │   └── deploy.test.ts              # [NEW] M6.5: TC-ARCH-016 — bảng §9.7 trên E2E_BASE_URL (bỏ qua khi không đặt)
+        ├── redis-down.int.test.ts    # [NEW] M6: Redis down — health degraded, auth 503, limiter bộ nhớ, presence degraded, call:invite 503
+        ├── log-scan.int.test.ts      # [NEW] M6: quét log toàn luồng (AC-104, AC-ARCH-010)
+        ├── infra/
+        │   ├── db/
+        │   │   ├── mongo.ts                # connect (replicaSet bắt buộc), health ping
+        │   │   ├── transaction.ts          # withTxn(fn): session.withTransaction, retry MONGO_TXN_MAX_RETRIES
+        │   │   ├── indexes.ts              # entry `npm run db:indexes`: Model.syncIndexes() cho mọi model
+        │   │   └── seed.ts                 # entry `npm run db:seed`: alice, bob, carol
+        │   ├── redis/
+        │   │   ├── redis.ts                # ioredis client chính; cờ healthy theo event ready/error/end
+        │   │   ├── keys.ts                 # hàm tạo key (Phụ lục A) — cấm nối chuỗi key ở nơi khác
+        │   │   └── scripts/
+        │   │       ├── call-invite.lua         # kiểm tra bận/glare + tạo call:active + user:incall (atomic)
+        │   │       ├── call-transition.lua     # CAS trạng thái: expectedFrom[] → to, tăng version
+        │   │       ├── call-deadlines-claim.lua# ZRANGEBYSCORE ≤ now LIMIT n + ZREM (claim nguyên tử)
+        │   │       ├── presence-touch.lua      # ZADD lease + ZREMRANGEBYSCORE hết hạn + trả trạng thái chuyển
+        │   │       └── presence-drop.lua       # ZREM connection, nếu 0 lease sống → ZADD offline-pending
+        │   ├── crypto/
+        │   │   ├── key-ring.ts             # parse DATA_ENCRYPTION_KEYS / DATA_ENCRYPTION_ACTIVE_KEY_ID
+        │   │   ├── aes-gcm.ts              # encryptField / decryptField (mục 9.2)
+        │   │   ├── password.ts             # argon2id hash/verify + dummy hash chống timing
+        │   │   └── random.ts               # randomToken(32), hmacSha256(pepper, value), timingSafeEqual
+        │   ├── jwt/
+        │   │   └── jwt.ts                  # signAccessToken / verifyAccessToken (jose, HS256)
+        │   ├── runtime/
+        │   │   └── is-main.ts              # isMainModule(import.meta.url) — entry script chạy đúng trên Windows (DG-02)
+        │   ├── logger/
+        │   │   └── logger.ts               # pino + redact (mục 11.3)
+        │   ├── metrics/
+        │   │   └── metrics.ts              # prom-client registry + metric mục 11.1 + server /metrics
+        │   ├── rate-limit/
+        │   │   └── rate-limiter.ts         # factory theo RATE_LIMITS; insurance limiter bộ nhớ (D-10)
+        │   └── turn/
+        │       └── xirsys.client.ts        # gọi Xirsys REST, timeout XIRSYS_TIMEOUT_MS
+        ├── http/
+        │   ├── router.ts                   # mount /api/v1/* từ modules/*/routes
+        │   ├── errors/
+        │   │   └── app-error.ts            # class AppError(code, message, details?)
+        │   └── middleware/
+        │       ├── request-id.ts           # X-Request-Id (nhận UUID hợp lệ từ client hoặc sinh mới)
+        │       ├── security.ts             # helmet, cors whitelist, body limit REST_BODY_LIMIT_BYTES
+        │       ├── authenticate.ts         # Bearer JWT → req.auth {userId, sid, deviceId}; check revoked
+        │       ├── csrf.ts                 # double-submit cho /auth/refresh, /auth/logout
+        │       ├── rate-limit.ts           # middleware theo rule
+        │       ├── validate.ts             # validate({body, query, params}) bằng Zod
+        │       └── error-handler.ts        # AppError/ZodError/Mongo error → ErrorResponse
+        ├── realtime/
+        │   ├── gateway.ts                  # new Server(httpServer, opts mục 6.4), adapter, middleware, register handlers
+        │   ├── rooms.ts                    # userRoom, deviceRoom, tabRoom, sessionRoom, convRoom, presenceRoom, presenceNoLastSeenRoom
+        │   ├── emitter.ts                  # emitToUser/Device/Session/Conv: tự gắn eventId (uuid) + occurredAt
+        │   ├── with-ack.ts                 # wrap(handler, {schema, rateRule}): parse envelope, rate limit, map lỗi → ACK
+        │   ├── middleware/
+        │   │   ├── socket-auth.ts          # verify auth.token, auth.deviceId, auth.tabId; join rooms; hẹn giờ session:expired
+        │   │   └── socket-rate-limit.ts    # limiter theo socket/user cho từng event
+        │   └── handlers/
+        │       ├── session.handler.ts      # connection/disconnect lifecycle, đẩy call:incoming đang chờ khi online
+        │       ├── conversation.handler.ts # conversation:join, conversation:leave
+        │       ├── message.handler.ts      # message:send, message:delivered, message:read, message:edit, message:delete
+        │       ├── typing.handler.ts       # typing:start, typing:stop
+        │       ├── presence.handler.ts     # presence:subscribe
+        │       └── call.handler.ts         # call:invite, accept, reject, cancel, offer, answer, ice-candidate, ice-restart, end, state
+        ├── modules/
         │   ├── auth/
-        │   │   ├── LoginPage.tsx
-        │   │   ├── RegisterPage.tsx
-        │   │   ├── auth.api.ts
-        │   │   └── useSessionLifecycle.ts   # refresh trước exp, xử lý session:expired/revoked
+        │   │   ├── auth.routes.ts          # /auth/register, login, refresh, logout, me, change-password
+        │   │   ├── auth.controller.ts
+        │   │   ├── auth.service.ts         # register, login, rotateRefresh, logout, changePassword, revokeFamily, lockUser
+        │   │   ├── auth.repository.ts      # refreshSessions CRUD
+        │   │   ├── auth.schema.ts
+        │   │   ├── refreshSession.model.ts
+        │   │   ├── auth.test.ts            # unit: rotation/reuse logic
+        │   │   └── auth.int.test.ts        # integration Supertest
+        │   ├── users/
+        │   │   ├── users.routes.ts         # /users/search, /users/me, /users/blocked, /users/{userId}/block
+        │   │   ├── users.controller.ts
+        │   │   ├── users.service.ts        # search, updateMe, block/unblock, isBlockedEitherWay
+        │   │   ├── users.repository.ts
+        │   │   ├── users.schema.ts
+        │   │   ├── user.model.ts
+        │   │   ├── userBlock.model.ts
+        │   │   ├── users.test.ts
+        │   │   └── users.int.test.ts
         │   ├── conversations/
-        │   │   ├── ChatListPane.tsx
-        │   │   ├── ConversationListItem.tsx
-        │   │   ├── ConversationSearch.tsx
-        │   │   ├── NewChatDialog.tsx
-        │   │   ├── conversations.api.ts
-        │   │   └── useConversationEvents.ts # message:new/status, conversation:* → setQueryData
-        │   ├── chat/
-        │   │   ├── ChatRoomPane.tsx
-        │   │   ├── ChatHeader.tsx
-        │   │   ├── MessageList.tsx
-        │   │   ├── MessageBubble.tsx
-        │   │   ├── MessageStatusIcon.tsx
-        │   │   ├── DateDivider.tsx
-        │   │   ├── TypingIndicator.tsx
-        │   │   ├── NewMessagesButton.tsx
-        │   │   ├── Composer.tsx
-        │   │   ├── E2eeBadge.tsx
-        │   │   ├── messages.api.ts
-        │   │   ├── useMessages.ts           # infinite query before/after cursor
-        │   │   ├── useSendMessage.ts        # outbox enqueue + emit
-        │   │   └── useReadReceipts.ts       # visibilitychange + IntersectionObserver
-        │   ├── groups/
-        │   │   ├── CreateGroupDialog.tsx
-        │   │   ├── MemberManagerDialog.tsx
-        │   │   └── groups.api.ts
-        │   ├── presence/
-        │   │   ├── OnlineDot.tsx
-        │   │   └── usePresence.ts
+        │   │   ├── conversations.routes.ts # /conversations, /{id}, /{id}/members, /{id}/members/{userId}
+        │   │   ├── conversations.controller.ts
+        │   │   ├── conversations.service.ts# createDirect/Secret (idempotent), createGroup, update, add/remove/role, assertMember
+        │   │   ├── conversations.repository.ts
+        │   │   ├── conversations.schema.ts
+        │   │   ├── conversation.model.ts
+        │   │   ├── conversationMember.model.ts
+        │   │   ├── conversations.test.ts
+        │   │   └── conversations.int.test.ts
+        │   ├── messages/
+        │   │   ├── messages.routes.ts      # GET /conversations/{id}/messages, POST /conversations/{id}/read
+        │   │   ├── messages.controller.ts
+        │   │   ├── messages.service.ts     # send (txn), history, edit, delete, toDTO (decrypt), createSystemMessage
+        │   │   ├── receipts.service.ts     # markDelivered, markRead (cursor, một chiều), unreadCount
+        │   │   ├── messages.repository.ts
+        │   │   ├── messages.schema.ts
+        │   │   ├── message.model.ts
+        │   │   ├── messageReceipt.model.ts
+        │   │   ├── message.crypto.ts       # encryptContent/decryptContent với AAD conversationId:messageId
+        │   │   ├── messages.test.ts
+        │   │   └── messages.int.test.ts
+        │   ├── presence/                   # NGOẠI LỆ: không routes/controller/model (chỉ Redis + socket)
+        │   │   ├── presence.service.ts     # connect/disconnect/heartbeat, snapshot, privacy filter
+        │   │   ├── presence.repository.ts  # Redis presence:* (Lua)
+        │   │   ├── presence.sweeper.ts     # xử lý presence:offline-pending → OFFLINE + lastSeenAt
+        │   │   ├── typing.service.ts       # typing:{conversationId}:{userId}
+        │   │   ├── presence.schema.ts
+        │   │   ├── presence.test.ts
+        │   │   └── presence.int.test.ts
         │   ├── calls/
-        │   │   ├── CallOverlay.tsx           # route /call/:callId dạng overlay
-        │   │   ├── IncomingCallScreen.tsx
-        │   │   ├── OutgoingCallScreen.tsx
-        │   │   ├── InCallScreen.tsx
-        │   │   ├── CallControls.tsx
-        │   │   ├── CallEndedNotice.tsx
-        │   │   ├── useCallController.ts      # hook React mỏng bọc call-controller.ts
-        │   │   ├── call-controller.ts        # [NEW] lõi điều phối PeerSession ↔ socket ↔ call.store, không phụ thuộc React (test bằng socket giả)
-        │   │   ├── autoplay.ts               # [NEW] hàng chờ phần tử media bị chặn autoplay; AutoplayUnlockButton gọi lại play()
-        │   │   ├── call-stats-hook.ts        # [NEW] window.__hustaloCallStats() cho E2E, chỉ gắn khi import.meta.env.DEV
-        │   │   ├── useRingtone.ts            # phát nhạc chuông, xử lý autoplay bị chặn
-        │   │   ├── calls.api.ts
-        │   │   └── CallHistoryList.tsx
-        │   ├── settings/
-        │   │   ├── SettingsPage.tsx
-        │   │   ├── ProfileSection.tsx
-        │   │   ├── PrivacySection.tsx
-        │   │   ├── DevicesSection.tsx
-        │   │   ├── device-name.ts            # [NEW] M7: "Chrome trên Windows" từ userAgent
-        │   │   ├── ThemeSection.tsx
-        │   │   └── SafetyNumberDialog.tsx
-        │   └── e2ee/
-        │       ├── useSecretSession.ts
-        │       ├── IdentityChangedBanner.tsx
-        │       ├── e2ee.api.ts               # [NEW] M7: REST /e2ee/*
-        │       ├── e2ee-runtime.ts           # [NEW] M7: SignalStore + SecretCrypto của phiên, đăng ký khóa, e2ee:prekeys-low
-        │       ├── secret-messages.ts        # [NEW] M7: điền bản rõ / placeholder cho tin SECRET trước khi vào cache
-        │       └── secret-send.ts            # [NEW] M7: outbox gửi SECRET, mã hóa lại khi CONFLICT (tối đa 2 lần)
-        ├── components/
-        │   ├── layout/
-        │   │   ├── AppShell.tsx
-        │   │   └── ConnectionBanner.tsx
-        │   └── ui/
-        │       ├── Button.tsx
-        │       ├── IconButton.tsx
-        │       ├── Avatar.tsx
-        │       ├── Modal.tsx
-        │       ├── Toast.tsx
-        │       ├── Banner.tsx
-        │       ├── Spinner.tsx
-        │       └── TextField.tsx
+        │   │   ├── calls.routes.ts         # GET /calls, GET /calls/ice-servers
+        │   │   ├── calls.controller.ts
+        │   │   ├── calls.service.ts        # invite/accept/reject/cancel/end/report/relay (gọi state machine)
+        │   │   ├── call.state-machine.ts   # bảng chuyển trạng thái mục 8.2 (hàm thuần, không I/O)
+        │   │   ├── callState.repository.ts # Redis call:active, user:incall, call:deadlines (Lua)
+        │   │   ├── calls.repository.ts     # Mongo callHistory
+        │   │   ├── call.sweeper.ts         # xử lý deadline mỗi CALL_DEADLINE_SWEEP_INTERVAL_MS
+        │   │   ├── iceServers.service.ts   # Xirsys + cache + fallback (mục 9.5)
+        │   │   ├── calls.schema.ts
+        │   │   ├── callHistory.model.ts
+        │   │   ├── call.state-machine.test.ts
+        │   │   ├── calls.test.ts
+        │   │   └── calls.int.test.ts
+        │   ├── e2ee/
+        │   │   ├── e2ee.routes.ts          # /e2ee/devices, /e2ee/devices/{deviceId}/keys|prekeys, /e2ee/users/{userId}/bundles|identities
+        │   │   ├── e2ee.controller.ts
+        │   │   ├── e2ee.service.ts         # registerDevice, uploadPrekeys, getBundles (consume atomic), revokeDevice, assertEnvelope
+        │   │   ├── e2ee.repository.ts
+        │   │   ├── e2ee.schema.ts
+        │   │   ├── userDevice.model.ts
+        │   │   ├── oneTimePreKey.model.ts
+        │   │   ├── e2ee.test.ts
+        │   │   └── e2ee.int.test.ts
+        │   └── health/                     # NGOẠI LỆ: không repository/model
+        │       ├── health.routes.ts        # GET /health
+        │       ├── health.controller.ts
+        │       ├── health.service.ts       # ping mongo + redis, trạng thái degraded
+        │       ├── health.schema.ts
+        │       └── health.test.ts
+        ├── jobs/
+        │   ├── user-lock.ts                # npm run user:lock / user:unlock -w server (FR-AUTH-006, DG-03)
+        │   ├── user-lock.int.test.ts
+        │   ├── reencrypt-messages.ts       # job xoay khóa (mục 9.2.4): npm run job:reencrypt -w server
+        │   └── reconcile-calls.ts          # chạy lúc boot: callHistory non-terminal mồ côi → FAILED/SERVER_RESTART
         └── test/
-            └── setup.ts               # vitest jsdom, fake-indexeddb
+            ├── global-setup.ts             # MongoMemoryReplSet (1 node), REDIS_URL_TEST
+            ├── test-env.ts                 # biến môi trường cố định cho test
+            ├── factories.ts                # createUser, createConversation, loginAs
+            ├── socket-client.ts            # connectAs(user, deviceId) → typed client + emitWithAck
+            └── fake-clock.ts
+```
+
+#### Repo `HustAlo-client` `[NEW]` (D-24)
+
+Gốc repo `HustAlo-client` chính là thư mục `client/` của cây trên trước khi tách: **mọi đường dẫn `client/…` trong bộ spec = đường dẫn tính từ gốc repo `HustAlo-client`** (ví dụ `client/src/lib/api/http.ts` → `src/lib/api/http.ts`). Hai repo clone cạnh nhau: `<thư mục>/HustAlo` và `<thư mục>/HustAlo-client` (development_guide.md §2.6).
+
+```text
+HustAlo-client/                       # = client/ trong mọi đường dẫn của spec
+├── CLAUDE.md                         # quy tắc agent; nguồn sự thật là ../HustAlo/.spec (HUSTALO_SERVER_DIR)
+├── package-lock.json
+├── server.version                    # SHA commit HustAlo dùng làm backend cho E2E (development_guide.md §2.6)
+├── eslint.config.js                  # rule client của eslint.config.js monorepo (development_guide.md §8.2)
+├── .prettierrc.json  .prettierignore  .editorconfig  .gitattributes  .nvmrc  .npmrc  .dockerignore
+├── .gitignore                        # node_modules/, .env*, !.env.example, dist, playwright-report, test-results
+├── .github/
+│   └── workflows/
+│       ├── ci.yml                    # verify (typecheck, lint, unit, build) + e2e với backend HustAlo@server.version
+│       └── docker.yml                # build + push hustalo-client:<sha> lên Docker Hub (không deploy — D-25)
+├── scripts/
+│   ├── check-bundle-secrets.mjs      # chuyển từ monorepo: quét dist/ (EC-SEC-006, AC-105)
+│   ├── check-bundle-size.mjs         # chuyển từ monorepo: JS khởi tạo ≤ 300 KB gzip (NFR-05)
+│   └── gen-sounds.mjs                # chuyển từ monorepo: sinh public/sounds/*.wav
+├── package.json                  # name "@hustalo/client"; @hustalo/shared = URL tarball GitHub Release (§4.3)
+├── tsconfig.json                 # gộp tsconfig.base.json của monorepo (cùng cờ strict)
+├── vite.config.ts                # http mặc định; https mkcert (HUSTALO_SERVER_DIR/infra/certs) khi VITE_HTTPS=1; proxy /api + /socket.io → :4000 (ws: true)
+├── vitest.config.ts              # jsdom, setupFiles src/test/setup.ts
+├── Dockerfile                    # [NEW] M6.5: multi-stage, context = gốc HustAlo-client (npm run build gồm kiểm bundle → nginx-unprivileged :8080 phục vụ dist)
+├── nginx.conf                    # [NEW] M6.5: nginx trong image client — SPA fallback, /assets immutable, index.html no-cache
+├── lighthouserc.json             # [NEW] M6: Lighthouse CI trên client/dist — LCP ≤ 2,5 s (NFR-05)
+├── tailwind.config.ts            # theme.extend từ ui_ux_spec.md
+├── postcss.config.js
+├── playwright.config.ts          # projects chromium/firefox/webkit; launch args fake media; firefox bỏ call-network.spec.ts; webServer = npm run dev của HUSTALO_SERVER_DIR
+├── index.html
+├── .env.example
+├── public/
+│   ├── sounds/ringtone.wav       # nhạc chuông cuộc gọi đến (sinh bằng scripts/gen-sounds.mjs)
+│   ├── sounds/ringback.wav       # âm chờ cuộc gọi đi (sinh bằng scripts/gen-sounds.mjs)
+│   ├── theme-init.js             # đặt class theme trước khi React mount (tránh nháy màu)
+│   ├── fonts/                    # [NEW] M6: inter-{latin,latin-ext,vietnamese}.woff2 (Inter variable 400–700) + OFL.txt
+│   └── favicon.svg
+├── e2e/
+│   ├── fixtures.ts               # backend/infra đọc từ HUSTALO_SERVER_DIR; login nhanh qua API, twoUsers, mockGetUserMediaError, recordCallStates/recordSent, callStats, dockerCompose, setIcePolicyRelay
+│   ├── vite.network.config.ts    # [NEW] M5: Vite :5174 proxy tới server riêng :4100 cho call-network.spec.ts
+│   ├── auth.spec.ts
+│   ├── chat.spec.ts
+│   ├── group.spec.ts
+│   ├── presence.spec.ts
+│   ├── call.spec.ts
+│   ├── call-network.spec.ts      # relay-only (server riêng :4100), pause coturn + setOffline, restart server — chỉ Chromium
+│   ├── smoke.spec.ts             # [NEW] M6.5: @smoke TC-ARCH-017 (chạy được với E2E_BASE_URL)
+│   └── e2ee.spec.ts
+└── src/
+    ├── main.tsx
+    ├── App.tsx                   # providers: QueryClientProvider, Router, ThemeProvider, CallOverlay
+    ├── styles/
+    │   └── index.css             # Tailwind + CSS variables design tokens
+    ├── routes/
+    │   ├── router.tsx            # /login, /register, /chats, /chats/:conversationId, /call/:callId, /settings
+    │   └── guards/
+    │       ├── RequireAuth.tsx
+    │       └── RedirectIfAuthed.tsx
+    ├── lib/
+    │   ├── fonts/
+    │   │   └── fonts.ts          # [NEW] M6: đăng ký FontFace Inter tự host sau first-contentful-paint (ui_ux_spec.md §1.1, NFR-05)
+    │   ├── api/
+    │   │   ├── http.ts           # fetch wrapper: Bearer, X-CSRF-Token, refresh 1 lần khi TOKEN_EXPIRED
+    │   │   ├── refresh.ts        # Web Locks + retry khi 409 (D-19)
+    │   │   └── queryClient.ts
+    │   ├── socket/
+    │   │   ├── socket.ts         # io(VITE_SOCKET_URL, opts mục 6.4), auth {token, deviceId}
+    │   │   ├── emit.ts           # emitWithAck(event, payload) → envelope {requestId, payload}, timeout SOCKET_ACK_TIMEOUT_MS
+    │   │   ├── event-dedupe.ts   # LRU eventId (CLIENT_EVENT_DEDUPE_SIZE)
+    │   │   └── sync.ts           # sau reconnect: invalidate queries, fetch after-cursor, xả outbox
+    │   ├── outbox/
+    │   │   ├── outbox.db.ts      # IndexedDB (idb) store "outbox" theo userId
+    │   │   └── outbox.ts         # enqueue, flush, backoff, FAILED sau OUTBOX_MAX_AGE_MS
+    │   ├── webrtc/
+    │   │   ├── support.ts        # isSecureContext, RTCPeerConnection, mediaDevices
+    │   │   ├── media.ts          # acquireMedia(callType) + fallback voice + map lỗi DOMException
+    │   │   ├── ice-servers.ts    # GET /calls/ice-servers, cache tới expiresAt - TURN_REFRESH_BEFORE_S
+    │   │   ├── candidate-queue.ts# hàng đợi ICE trước setRemoteDescription, dedupe, lọc theo revision
+    │   │   └── peer-session.ts   # class PeerSession: tạo pc, offer/answer, ICE restart, stats
+    │   ├── e2ee/
+    │   │   ├── signal-adapter.ts # bọc thư viện Signal (D-12), import() động; safety number bằng WebCrypto
+    │   │   ├── codec.ts          # [NEW] base64 / binary string / UTF-8 ↔ ArrayBuffer
+    │   │   ├── signal-store.ts   # IndexedDB: identity, prekeys, signed prekeys, sessions, known identities, bản rõ tin SECRET
+    │   │   ├── device-keys.ts    # sinh & đăng ký khóa, bổ sung prekey khi e2ee:prekeys-low
+    │   │   ├── envelope.ts       # encryptFanout / decryptForThisDevice
+    │   │   └── safety-number.ts
+    │   ├── device/
+    │   │   └── device-id.ts      # getDeviceId() (localStorage hustalo.deviceId), getTabId() (sessionStorage hustalo.tabId)
+    │   └── time/
+    │       ├── server-clock.ts   # ước lượng lệch giờ từ occurredAt (median 5 mẫu gần nhất)
+    │       └── format.ts         # định dạng giờ/ngày tiếng Việt
+    ├── i18n/
+    │   ├── vi.ts                 # chuỗi UI tiếng Việt (ui_ux_spec.md)
+    │   ├── errors.ts             # ErrorCode → thông điệp hiển thị
+    │   └── errors.test.ts
+    ├── stores/
+    │   ├── auth.store.ts         # accessToken (chỉ RAM), user, expiresAt
+    │   ├── socket.store.ts       # connectionState: connecting|connected|reconnecting|offline|expired
+    │   ├── presence.store.ts
+    │   ├── typing.store.ts
+    │   ├── call.store.ts         # CallStatus (mirror server) + localPhase + media flags
+    │   ├── outbox.store.ts       # mirror trạng thái outbox để render bubble PENDING/FAILED
+    │   ├── e2ee.store.ts         # [NEW] M7: device READY/LIMIT, placeholder tin SECRET, revision session/identity
+    │   └── ui.store.ts           # theme, toasts, banners
+    ├── features/
+    │   ├── auth/
+    │   │   ├── LoginPage.tsx
+    │   │   ├── RegisterPage.tsx
+    │   │   ├── auth.api.ts
+    │   │   └── useSessionLifecycle.ts   # refresh trước exp, xử lý session:expired/revoked
+    │   ├── conversations/
+    │   │   ├── ChatListPane.tsx
+    │   │   ├── ConversationListItem.tsx
+    │   │   ├── ConversationSearch.tsx
+    │   │   ├── NewChatDialog.tsx
+    │   │   ├── conversations.api.ts
+    │   │   └── useConversationEvents.ts # message:new/status, conversation:* → setQueryData
+    │   ├── chat/
+    │   │   ├── ChatRoomPane.tsx
+    │   │   ├── ChatHeader.tsx
+    │   │   ├── MessageList.tsx
+    │   │   ├── MessageBubble.tsx
+    │   │   ├── MessageStatusIcon.tsx
+    │   │   ├── DateDivider.tsx
+    │   │   ├── TypingIndicator.tsx
+    │   │   ├── NewMessagesButton.tsx
+    │   │   ├── Composer.tsx
+    │   │   ├── E2eeBadge.tsx
+    │   │   ├── messages.api.ts
+    │   │   ├── useMessages.ts           # infinite query before/after cursor
+    │   │   ├── useSendMessage.ts        # outbox enqueue + emit
+    │   │   └── useReadReceipts.ts       # visibilitychange + IntersectionObserver
+    │   ├── groups/
+    │   │   ├── CreateGroupDialog.tsx
+    │   │   ├── MemberManagerDialog.tsx
+    │   │   └── groups.api.ts
+    │   ├── presence/
+    │   │   ├── OnlineDot.tsx
+    │   │   └── usePresence.ts
+    │   ├── calls/
+    │   │   ├── CallOverlay.tsx           # route /call/:callId dạng overlay
+    │   │   ├── IncomingCallScreen.tsx
+    │   │   ├── OutgoingCallScreen.tsx
+    │   │   ├── InCallScreen.tsx
+    │   │   ├── CallControls.tsx
+    │   │   ├── CallEndedNotice.tsx
+    │   │   ├── useCallController.ts      # hook React mỏng bọc call-controller.ts
+    │   │   ├── call-controller.ts        # [NEW] lõi điều phối PeerSession ↔ socket ↔ call.store, không phụ thuộc React (test bằng socket giả)
+    │   │   ├── autoplay.ts               # [NEW] hàng chờ phần tử media bị chặn autoplay; AutoplayUnlockButton gọi lại play()
+    │   │   ├── call-stats-hook.ts        # [NEW] window.__hustaloCallStats() cho E2E, chỉ gắn khi import.meta.env.DEV
+    │   │   ├── useRingtone.ts            # phát nhạc chuông, xử lý autoplay bị chặn
+    │   │   ├── calls.api.ts
+    │   │   └── CallHistoryList.tsx
+    │   ├── settings/
+    │   │   ├── SettingsPage.tsx
+    │   │   ├── ProfileSection.tsx
+    │   │   ├── PrivacySection.tsx
+    │   │   ├── DevicesSection.tsx
+    │   │   ├── device-name.ts            # [NEW] M7: "Chrome trên Windows" từ userAgent
+    │   │   ├── ThemeSection.tsx
+    │   │   └── SafetyNumberDialog.tsx
+    │   └── e2ee/
+    │       ├── useSecretSession.ts
+    │       ├── IdentityChangedBanner.tsx
+    │       ├── e2ee.api.ts               # [NEW] M7: REST /e2ee/*
+    │       ├── e2ee-runtime.ts           # [NEW] M7: SignalStore + SecretCrypto của phiên, đăng ký khóa, e2ee:prekeys-low
+    │       ├── secret-messages.ts        # [NEW] M7: điền bản rõ / placeholder cho tin SECRET trước khi vào cache
+    │       └── secret-send.ts            # [NEW] M7: outbox gửi SECRET, mã hóa lại khi CONFLICT (tối đa 2 lần)
+    ├── components/
+    │   ├── layout/
+    │   │   ├── AppShell.tsx
+    │   │   └── ConnectionBanner.tsx
+    │   └── ui/
+    │       ├── Button.tsx
+    │       ├── IconButton.tsx
+    │       ├── Avatar.tsx
+    │       ├── Modal.tsx
+    │       ├── Toast.tsx
+    │       ├── Banner.tsx
+    │       ├── Spinner.tsx
+    │       └── TextField.tsx
+    └── test/
+        └── setup.ts               # vitest jsdom, fake-indexeddb
 ```
 
 Quy ước test client: unit test `*.test.ts(x)` đặt **cạnh file nguồn** (ví dụ `lib/api/http.test.ts`, `routes/guards/guards.test.tsx`); `src/test/` chỉ chứa setup dùng chung. Cây trên không liệt kê từng file test client.
@@ -678,7 +703,8 @@ Quy ước test client: unit test `*.test.ts(x)` đặt **cạnh file nguồn** 
 
 ### 4.3 Cấu hình workspace
 
-- `packages/shared/package.json`: `"exports": { ".": { "types": "./src/index.ts", "default": "./src/index.ts" } }`. Server dev chạy bằng `tsx` (đọc TS trực tiếp), build bằng `tsup` với `noExternal: ['@hustalo/shared']`. Client dùng Vite (đọc TS trực tiếp).
+- `packages/shared/package.json`: `"exports": { ".": { "types": "./src/index.ts", "default": "./src/index.ts" } }` (trong monorepo). Server dev chạy bằng `tsx` (đọc TS trực tiếp), build bằng `tsup` với `noExternal: ['@hustalo/shared']`.
+- Client (repo `HustAlo-client`, D-24) không dùng workspace: `"@hustalo/shared": "https://github.com/Danghoa894/HustAlo/releases/download/shared-vX.Y.Z/hustalo-shared-X.Y.Z.tgz"`. Tarball do `scripts/pack-shared.mjs` tạo: `dist/index.js` (ESM, tsup) + `dist/index.d.ts`, `exports` trỏ `dist/`, `zod` là dependency; integrity khóa trong `package-lock.json` của client. Một phiên bản đã phát hành không bao giờ phát hành lại (development_guide.md §2.7).
 - Không đặt logic I/O trong `packages/shared` (không import `mongoose`, `ioredis`, DOM API).
 
 ### 4.4 Nội dung chuẩn của `packages/shared`
@@ -2393,6 +2419,9 @@ Ngoài danh sách biến trong yêu cầu gốc, `development_guide.md` (`.env.e
 | `REDIS_URL_TEST` | `redis://:<pass>@localhost:6379/15` | Redis cho integration test |
 | `SOCKET_ADAPTER` | `memory` | `memory` \| `redis-streams` (10.4) |
 | `TRUST_PROXY` | `1` | Số hop proxy tin cậy |
+| `HUSTALO_SERVER_DIR` | `../HustAlo` | Chỉ ở repo `HustAlo-client` (D-24), không phải biến `VITE_`: đường dẫn monorepo dùng cho dev/E2E (backend, `infra/`, `infra/certs`) |
+| `HUSTALO_CLIENT_DIR` | `../HustAlo-client` | Chỉ ở repo `HustAlo` (D-24): đường dẫn repo client cho `scripts/client-run.mjs`, `trace:check` |
+| `CLIENT_IMAGE_TAG` | (workflow ghi) | `infra/.env.prod`: SHA commit `HustAlo-client` của image client đang chạy, lấy từ `infra/client.version` (D-25) |
 | `DEV_CALL_RING_TIMEOUT_MS` | (không đặt) | Chỉ có hiệu lực khi `NODE_ENV != production`: thay `CALL_RING_TIMEOUT_MS` cho deadline `RING` khi test tay; production bỏ qua. Client không đọc biến này mà đếm ngược theo `ringExpiresAt` |
 
 Giá trị nhạy cảm (`JWT_ACCESS_SECRET`, `REFRESH_TOKEN_PEPPER`, `DATA_ENCRYPTION_KEYS`, `XIRSYS_SECRET`) chỉ sinh bằng `scripts/gen-secrets.mjs`; file này không chứa giá trị thật.
@@ -2411,3 +2440,4 @@ Giá trị nhạy cảm (`JWT_ACCESS_SECRET`, `REFRESH_TOKEN_PEPPER`, `DATA_ENCR
 - [x] **Không có secret thật, không chỗ trống:** ví dụ dùng `<ngắn hạn>`, `tr.example.net`, `<host>`; không có "TODO"/"..." thay nội dung; các điểm chưa chắc chắn về API bên thứ ba đều ghi `// Xác minh với tài liệu chính thức của …` kèm giả định (Socket.IO `skipMiddlewares`/`tryAllTransports`/adapter, Xirsys API, libsignal TS, rate-limiter-flexible, OWASP Argon2).
 - [x] **Sửa 8 mâu thuẫn của bản nháp:** (1) cấu trúc server chốt `modules/ realtime/ infra/ http/` (D-01); (2) tên event theo 3.3; (3) một enum `CallStatus` cho state machine/DB/UI (8.1); (4) người tạo nhóm là OWNER; (5) `message:edit/delete` có quy tắc 15 phút, chỉ người gửi, placeholder thu hồi (FR-CHAT-007/008); (6) AES-256-GCM (9.2) và E2EE (7(h), 9.3) đặc tả mức code; (7) không lồng code block; (8) glare, đổ chuông đa thiết bị, chặn người dùng, OWNER rời nhóm, gọi nhóm bị từ chối đều có quyết định (D-03, D-07, D-21, D-22, D-23).
 - [x] **Không mâu thuẫn với file đã sinh trước:** đây là file đầu tiên (1/6). Các điểm các file sau phải đối chiếu: cây thư mục 4.1 (`development_guide.md`, `ui_ux_spec.md`), endpoint 4.6 gồm 4 endpoint `[NEW]` (`api_spec.yaml`), payload event 4.5 (`api_spec.yaml` `x-socket-events`), Redis key Phụ lục A và collection list (`database_schema.md`), chuỗi UI 8.6 (`ui_ux_spec.md`), FR/EC registry (`product_requirements.md`), biến môi trường Phụ lục D (`development_guide.md`).
+- [x] **Tách repo client (D-24, D-25, R-06; duyệt 2026-11-05):** không đổi tech stack, enum, event, mã lỗi, hằng số, API hay hành vi; chỉ đổi nơi đặt mã client, cách phân phối `@hustalo/shared` (tarball semver) và cách phát hành. Quy ước đường dẫn `client/…` = gốc `HustAlo-client` giữ nguyên mọi tham chiếu `client/…` ở các file spec khác.
