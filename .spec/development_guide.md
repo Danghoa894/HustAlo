@@ -44,7 +44,7 @@ Quy ước Test ID cho AC kiến trúc `[NEW]`: `AC-ARCH-0NN` ↔ `TC-ARCH-0NN` 
 | mkcert | bản ổn định mới nhất | `mkcert -version` | **Tùy chọn**: chỉ cần khi bật HTTPS local (`VITE_HTTPS=1`) — test từ điện thoại trong LAN (mục 5.5) hoặc `turns:` của coturn local (T-09) |
 | Git | 2.40+ | `git --version` | Bật `core.autocrlf=false` trên Windows (xem 1.4) |
 | Trình duyệt | Chrome/Edge, Firefox (2 bản ổn định gần nhất), Safari 17+ khi test tay | — | Theo NFR-10 |
-| Playwright browsers | theo phiên bản `@playwright/test` trong lockfile | `npx playwright install --with-deps` (chạy trong `client/`) | Cho `npm run test:e2e` |
+| Playwright browsers | theo phiên bản `@playwright/test` trong lockfile | `npx playwright install --with-deps` (chạy trong repo `HustAlo-client`) | Cho `npm run test:e2e` |
 | k6 | bản ổn định mới nhất | `k6 version` | Chỉ cần từ M6 (đo NFR-01, NFR-09) |
 
 Cài mkcert:
@@ -117,24 +117,31 @@ Lý do: script Lua (`server/src/infra/redis/scripts/*.lua`), `infra/mongo/init-r
 
 ### 2.1 Lệnh
 
+Hai repo clone **cạnh nhau** trong cùng một thư mục cha (D-24, mục 2.6):
+
 ```bash
-git clone <repo-url> hustalo
-cd hustalo
+git clone https://github.com/Danghoa894/HustAlo.git HustAlo
+git clone https://github.com/Danghoa894/HustAlo-client.git HustAlo-client
+cd HustAlo
 nvm use            # hoặc fnm use / Volta; đọc .nvmrc = 22
-npm install        # cài cả 3 workspace, sinh một package-lock.json duy nhất ở gốc
+npm install        # cài 2 workspace (packages/shared, server), một package-lock.json duy nhất ở gốc
+cd ../HustAlo-client
+npm install        # @hustalo/shared lấy từ tarball GitHub Release (mục 2.7)
 ```
 
-`npm install` chỉ chạy ở thư mục gốc. Không chạy `npm install` bên trong `client/`, `server/` hay `packages/shared/` (sẽ tạo lockfile lạc). Thêm dependency cho một workspace: `npm install <pkg> -w server` (hoặc `-w client`, `-w packages/shared`).
+Trong `HustAlo`, `npm install` chỉ chạy ở thư mục gốc. Không chạy `npm install` bên trong `server/` hay `packages/shared/` (sẽ tạo lockfile lạc). Thêm dependency cho một workspace: `npm install <pkg> -w server` (hoặc `-w packages/shared`). Dependency của client thêm trong repo `HustAlo-client`.
+
+Chuyển tiếp: tới khi kế hoạch tách repo (`docs/proposals/tach-repo-client.md`, bước 6) xong, `client/` trong `HustAlo` vẫn còn và chạy theo cách cũ nhưng **đóng băng** — mọi thay đổi client làm ở `HustAlo-client`.
 
 ### 2.2 Workspace
 
 | Thư mục | Tên package | Vai trò | Chạy bằng |
 |---|---|---|---|
-| `packages/shared` | `@hustalo/shared` | Enum, hằng số, mã lỗi, Zod schema, tên event, kiểu socket, util thuần (kiến trúc §4.4) | Được `server` và `client` import trực tiếp từ TS source |
+| `packages/shared` | `@hustalo/shared` | Enum, hằng số, mã lỗi, Zod schema, tên event, kiểu socket, util thuần (kiến trúc §4.4) | `server` import trực tiếp TS source; client dùng tarball đã phát hành (mục 2.7) |
 | `server` | `@hustalo/server` | Express + Socket.IO + job | `tsx` (dev), `tsup` (build) |
-| `client` | `@hustalo/client` | React SPA | Vite |
+| repo `HustAlo-client` | `@hustalo/client` | React SPA (mục 2.6) | Vite |
 
-Quy tắc phụ thuộc: `client` và `server` được import `@hustalo/shared`; `shared` không import gì từ hai package kia, không import `mongoose`, `ioredis`, DOM API (kiến trúc §4.3). `client` không bao giờ import từ `server` và ngược lại (ESLint chặn, mục 8.2).
+Quy tắc phụ thuộc: `client` và `server` được import `@hustalo/shared`; `shared` không import gì từ hai package kia, không import `mongoose`, `ioredis`, DOM API (kiến trúc §4.3). `client` không bao giờ import từ `server` và ngược lại (hai repo tách nhau; ESLint của client vẫn chặn `mongoose`, `ioredis`, `node:*` trong `src/`, mục 8.2).
 
 ### 2.3 `package.json` gốc
 
@@ -143,18 +150,18 @@ Quy tắc phụ thuộc: `client` và `server` được import `@hustalo/shared`
   "name": "hustalo",
   "private": true,
   "type": "module",
-  "workspaces": ["packages/shared", "server", "client"],
+  "workspaces": ["packages/shared", "server"],
   "engines": { "node": ">=22 <23", "npm": ">=10" },
   "scripts": {
     "dev": "concurrently -k -n server,client -c blue,green \"npm:dev:server\" \"npm:dev:client\"",
-    "dev:client": "npm run dev -w client",
+    "dev:client": "node scripts/client-run.mjs dev",
     "dev:server": "npm run dev -w server",
-    "build": "npm run build -w server && npm run build -w client && node scripts/check-bundle-secrets.mjs",
+    "build": "npm run build -w server && node scripts/client-run.mjs build",
     "test": "npm run test:unit && npm run test:integration",
     "test:unit": "npm run test:scripts && npm run test:unit --workspaces --if-present",
     "test:scripts": "node --test \"scripts/__tests__/*.test.mjs\"",
     "test:integration": "npm run test:integration -w server",
-    "test:e2e": "npm run test:e2e -w client --",
+    "test:e2e": "node scripts/client-run.mjs test:e2e",
     "lint": "eslint . --max-warnings 0 && prettier --check . && redocly lint .spec/api_spec.yaml --config .redocly.yaml",
     "format": "prettier --write .",
     "typecheck": "npm run typecheck --workspaces --if-present",
@@ -169,7 +176,8 @@ Quy tắc phụ thuộc: `client` và `server` được import `@hustalo/shared`
     "certs": "node scripts/make-certs.mjs",
     "secrets": "node scripts/gen-secrets.mjs",
     "trace:check": "node scripts/check-traceability.mjs",
-    "spec:check": "redocly lint .spec/api_spec.yaml --config .redocly.yaml && node scripts/spec-check.mjs"
+    "spec:check": "redocly lint .spec/api_spec.yaml --config .redocly.yaml && node scripts/spec-check.mjs",
+    "shared:pack": "node scripts/pack-shared.mjs"
   }
 }
 ```
@@ -178,7 +186,8 @@ Ghi chú:
 - 14 script bắt buộc: `dev, dev:client, dev:server, build, test, test:unit, test:integration, test:e2e, lint, typecheck, db:indexes, db:seed, infra:up, infra:down`. Các script còn lại là `[NEW]`.
 - `npm test` = unit + integration (không gồm E2E) và là lệnh trong CLAUDE.md bước 4. Integration cần Redis đang chạy (`npm run infra:up`); MongoDB của integration là `MongoMemoryReplSet` (không cần container Mongo).
 - `npm run test:e2e` cần `infra:up`, `db:indexes`, `db:seed` và trình duyệt Playwright; bắt buộc ở gate milestone có test tầng E và trong CI.
-- `test:e2e` kết thúc bằng `--` để tham số sau `npm run test:e2e -- …` tới thẳng Playwright (vd. `--project=chromium --grep @smoke`, mục 9.7). Thiếu `--`, npm lồng (`-w client`) hiểu `--project`/`--grep` là cờ của npm và Playwright chỉ nhận `@smoke` như bộ lọc file → "No tests found".
+- `dev:client`, `build` (phần client) và `test:e2e` chạy script tương ứng của repo `HustAlo-client` qua `scripts/client-run.mjs` `[NEW]`: tìm repo client ở `HUSTALO_CLIENT_DIR` (mặc định `../HustAlo-client`; không có → exit 1 kèm hướng dẫn clone), chạy `npm run <script> -- <tham số còn lại>` với `cwd` là repo client và `HUSTALO_SERVER_DIR` = gốc `HustAlo`, trả đúng exit code. Tham số sau `npm run test:e2e -- …` (vd. `--project=chromium --grep @smoke`, mục 9.7) tới thẳng Playwright: `client-run.mjs` tự chèn `--` trước tham số khi gọi npm lồng (thiếu `--`, npm hiểu `--project`/`--grep` là cờ của npm và Playwright chỉ nhận `@smoke` như bộ lọc file → "No tests found").
+- `typecheck`, `lint`, `test` ở gốc `HustAlo` không còn gồm client; repo `HustAlo-client` có lệnh cùng tên (mục 2.6). Thay đổi chạm cả hai repo phải xanh ở cả hai.
 
 Dev dependency ở gốc (cài một lần, phiên bản được khóa bởi `package-lock.json`, không ghi tay trong spec):
 
@@ -216,26 +225,14 @@ npm install -D typescript concurrently eslint @eslint/js typescript-eslint eslin
 - `test:coverage` `[NEW]`: unit rồi integration kèm `@vitest/coverage-v8` (cùng phiên bản `vitest`), ghi `coverage/{unit,integration}/coverage-final.json`. `call.state-machine.ts` 100% nhánh là ngưỡng theo file trong `vitest.config.ts` (unit). Ngưỡng 80% dòng cho `src/modules/**` tính trên unit + integration gộp bằng `scripts/coverage-merge.mjs` (`istanbul-lib-coverage`); `packages/shared` tự đặt ngưỡng 80% dòng. Ở gốc: `npm run test:coverage` chạy cả hai workspace rồi gộp (NFR-14, M6).
 - `build` ở gốc chạy thêm `scripts/check-bundle-size.mjs` sau `check-bundle-secrets.mjs`: JS khởi tạo ≤ 300 KB gzip (NFR-05).
 
-`client/package.json`:
-
-```json
-{
-  "scripts": {
-    "dev": "vite",
-    "build": "tsc --noEmit -p tsconfig.json && vite build",
-    "preview": "vite preview",
-    "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test:unit": "vitest run",
-    "test:e2e": "playwright test"
-  }
-}
-```
+`client/package.json` (gốc repo `HustAlo-client`): xem mục 2.6.
 
 `packages/shared/package.json`:
 
 ```json
 {
   "name": "@hustalo/shared",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "exports": { ".": { "types": "./src/index.ts", "default": "./src/index.ts" } },
@@ -246,6 +243,8 @@ npm install -D typescript concurrently eslint @eslint/js typescript-eslint eslin
 }
 ```
 
+`version` là phiên bản semver của hợp đồng, tăng theo mục 2.7 mỗi khi nội dung `packages/shared/src` đổi.
+
 ### 2.5 `.npmrc` `[NEW]`
 
 ```text
@@ -254,7 +253,55 @@ save-exact=true
 fund=false
 ```
 
-`engine-strict` chặn cài bằng Node khác 22; `save-exact` ghi phiên bản chính xác khi thêm dependency (khóa thư viện Signal theo rủi ro R-04).
+`engine-strict` chặn cài bằng Node khác 22; `save-exact` ghi phiên bản chính xác khi thêm dependency (khóa thư viện Signal theo rủi ro R-04). Repo `HustAlo-client` dùng cùng nội dung.
+
+### 2.6 Repo client `HustAlo-client` `[NEW]` (D-24)
+
+- Gốc repo = `client/` của cây kiến trúc §4.1: **mọi đường dẫn `client/…` trong spec tính từ gốc `HustAlo-client`**. Lịch sử git của `client/` được giữ bằng `git subtree split --prefix=client`.
+- Spec chỉ ở `HustAlo/.spec/`; `CLAUDE.md` của repo client trỏ tới đó. Sửa spec = PR vào `HustAlo` (mục 8.5).
+- Biến môi trường (không phải `VITE_`, không vào bundle): `HUSTALO_SERVER_DIR` — đường dẫn monorepo, mặc định `../HustAlo`. Dùng cho chứng chỉ HTTPS (`<HUSTALO_SERVER_DIR>/infra/certs`, mục 5.2), backend E2E (mục 6.6) và quét secret (`<HUSTALO_SERVER_DIR>/server/.env`, mục 4.6).
+- `server.version`: một dòng, SHA 40 ký tự của commit `HustAlo` (trên `main`) dùng làm backend cho E2E trong CI. Đổi khi client cần tính năng/hợp đồng mới của server.
+- File gốc riêng: `tsconfig.json` (gộp `tsconfig.base.json` của monorepo, cùng cờ strict), `eslint.config.js` (rule client của mục 8.2), `.prettierrc.json`, `.prettierignore`, `.editorconfig`, `.gitattributes` (`eol=lf`), `.gitignore`, `.nvmrc` (22), `.npmrc` (mục 2.5), `.dockerignore`, `scripts/check-bundle-secrets.mjs`, `scripts/check-bundle-size.mjs`, `scripts/gen-sounds.mjs` (chuyển từ monorepo, đường dẫn tính từ gốc repo client).
+
+`package.json` (phần chính):
+
+```json
+{
+  "name": "@hustalo/client",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22 <23", "npm": ">=10" },
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit -p tsconfig.json && vite build && node scripts/check-bundle-secrets.mjs && node scripts/check-bundle-size.mjs",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "lint": "eslint . --max-warnings 0 && prettier --check .",
+    "format": "prettier --write .",
+    "test": "vitest run",
+    "test:unit": "vitest run",
+    "test:e2e": "playwright test",
+    "sounds": "node scripts/gen-sounds.mjs"
+  },
+  "dependencies": {
+    "@hustalo/shared": "https://github.com/Danghoa894/HustAlo/releases/download/shared-v1.0.0/hustalo-shared-1.0.0.tgz"
+  }
+}
+```
+
+- `npm run typecheck && npm run lint && npm test` là lệnh CLAUDE.md bước 4 trong repo client. `test:e2e` cần backend: chạy `npm run infra:up`, `db:indexes`, `db:seed` trong `HUSTALO_SERVER_DIR` trước (mục 6.6).
+- Workflow `.github/workflows/ci.yml` của repo client:
+  - job `verify`: `npm ci`, `typecheck`, `lint`, `test`, `build` (gồm kiểm secret/kích thước bundle), `npm audit --omit=dev --audit-level=high`;
+  - job `e2e`: checkout repo client vào `HustAlo-client/` và `Danghoa894/HustAlo` ở SHA trong `server.version` vào `HustAlo/`; trong `HustAlo`: `npm ci`, `node scripts/ci-env.mjs`, `npm run infra:up`, `db:indexes`, `db:seed`; trong `HustAlo-client`: `cp .env.example .env`, `npx playwright install --with-deps`, `npm run test:e2e` với `HUSTALO_SERVER_DIR=$GITHUB_WORKSPACE/HustAlo`; fail → upload `playwright-report`.
+- Workflow `.github/workflows/docker.yml`: `workflow_run` của `ci` thành công trên `main` do `push` trong chính repo (cùng điều kiện mục 9.5) và `workflow_dispatch` → build `Dockerfile` (context = gốc repo client) → push `<dockerhub-user>/hustalo-client:<git-sha>` và `:latest`. Secret: `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN`. Không deploy (D-25).
+
+### 2.7 Phát hành `@hustalo/shared` `[NEW]` (D-24)
+
+- `npm run shared:pack` (`scripts/pack-shared.mjs`): typecheck + unit test `packages/shared`, build bằng `tsup` ra `dist/index.js` (ESM, một file) và `dist/index.d.ts` trong thư mục tạm `packages/shared/.pack/`, ghi `package.json` phát hành (cùng `name`, `version`, `license`; `exports` trỏ `dist/`; `dependencies.zod` đúng phiên bản của workspace; không có `private`), chạy `npm pack` → `packages/shared/hustalo-shared-<version>.tgz` (gitignored).
+- Workflow `.github/workflows/release-shared.yml`: trigger push tag `shared-v*`; tag phải bằng `shared-v` + `version` trong `packages/shared/package.json` (khác → fail); chạy `npm ci`, `npm run shared:pack`, tạo GitHub Release đính file `.tgz` (`permissions: contents: write`, token mặc định của workflow).
+- Semver của hợp đồng: **major** khi xóa/đổi tên/đổi kiểu một export, giá trị enum, mã lỗi, tên hoặc payload event theo cách không tương thích; **minor** khi chỉ thêm; **patch** khi sửa không đổi hợp đồng.
+- Phiên bản đã phát hành là bất biến: không xóa/ghi đè tag hay file của Release (lockfile client khóa integrity). Sai thì phát hành phiên bản mới.
+- Đổi hợp đồng theo thứ tự (mục 8.5): spec → `packages/shared` + tăng `version` + server, cùng một PR vào `HustAlo` → merge → gắn tag → PR vào `HustAlo-client` đổi URL `@hustalo/shared` (+ `server.version`) → image client mới → PR vào `HustAlo` đổi `infra/client.version` (mục 9.5).
 
 ---
 
@@ -561,7 +608,7 @@ SEED_PASSWORD=hustalo-dev-2026
 ### 4.3 `client/.env.example`
 
 ```bash
-# client/.env.example — copy thành client/.env.
+# client/.env.example (gốc repo HustAlo-client) — copy thành .env.
 # CHỈ biến có tiền tố VITE_ được đưa vào bundle trình duyệt → TUYỆT ĐỐI không đặt secret ở đây.
 # scripts/check-bundle-secrets.mjs làm build thất bại nếu có biến VITE_* mang tên nhạy cảm (AC-105).
 
@@ -575,6 +622,8 @@ VITE_SOCKET_URL=/
 # Playwright: URL đích của E2E (không phải biến VITE_, không vào bundle). Bỏ trống = http://localhost:5173.
 # Đặt https://<domain> để chạy smoke @smoke trên môi trường đã deploy (mục 9.7).
 # E2E_BASE_URL=https://hustalo.example.com
+# Đường dẫn repo HustAlo (backend, infra, infra/certs) cho dev/E2E (mục 2.6). Không phải biến VITE_. Bỏ trống = ../HustAlo.
+# HUSTALO_SERVER_DIR=../HustAlo
 ```
 
 Quyết định DG-09: client dùng URL **tương đối** để REST, cookie và WebSocket luôn cùng origin với trang (localhost hay LAN-IP đều chạy, không cần build lại).
@@ -736,6 +785,8 @@ Mở rộng so với kiến trúc §4.1: `gen-secrets.mjs` in thêm `REDIS_PASSW
 
 Chạy cuối `npm run build` (AC-105, AC-ARCH-011, EC-SEC-006). Hành vi:
 
+Script nằm ở repo `HustAlo-client` (`scripts/check-bundle-secrets.mjs`, chạy trong `npm run build` của client); `server/.env` dưới đây là `<HUSTALO_SERVER_DIR>/server/.env`, `client/dist` là `dist/` của repo client.
+
 1. Đọc `server/.env` (nếu có) và `process.env`; lấy giá trị (độ dài ≥ 8) của các biến `JWT_ACCESS_SECRET`, `REFRESH_TOKEN_PEPPER`, `XIRSYS_IDENT`, `XIRSYS_SECRET`, `TURN_FALLBACK_CREDENTIAL`, `SEED_PASSWORD`, mật khẩu trong `REDIS_URL`, và từng key base64 trong `DATA_ENCRYPTION_KEYS`.
 2. Quét mọi file trong `client/dist/**`; tìm thấy bất kỳ giá trị nào → in tên biến + tên file (không in giá trị), exit 1.
 3. Đọc `client/.env*` và `process.env`; tên biến `VITE_*` khớp `/SECRET|PEPPER|PASSWORD|CREDENTIAL|PRIVATE|XIRSYS|DATA_ENCRYPTION|JWT/i` → exit 1.
@@ -817,9 +868,10 @@ console.log(`[bundle-secrets] OK — đã quét ${secrets.length} giá trị bí
 # npm run certs
 
 # 2. File env
+# (trong HustAlo)
 cp infra/.env.example infra/.env
 cp server/.env.example server/.env
-cp client/.env.example client/.env
+cp ../HustAlo-client/.env.example ../HustAlo-client/.env
 npm run secrets            # dán các giá trị in ra vào infra/.env và server/.env
 
 # 3. Hạ tầng
@@ -830,7 +882,7 @@ npm run db:indexes
 npm run db:seed            # alice, bob, carol
 
 # 5. Chạy app
-npm run dev                # server :4000 + client http://localhost:5173 (VITE_HTTPS=1 → https)
+npm run dev                # server :4000 + client (HustAlo-client qua client-run.mjs) http://localhost:5173 (VITE_HTTPS=1 → https)
 ```
 
 PowerShell không có `cp`-alias khác hành vi đáng kể; nếu dùng `cmd`, thay `cp` bằng `copy`.
@@ -848,10 +900,13 @@ PowerShell không có `cp`-alias khác hành vi đáng kể; nếu dùng `cmd`, 
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import { existsSync, readFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const certFile = fileURLToPath(new URL('../infra/certs/localhost+lan.pem', import.meta.url));
-const keyFile = fileURLToPath(new URL('../infra/certs/localhost+lan-key.pem', import.meta.url));
+// Chứng chỉ mkcert nằm trong repo HustAlo (D-24, mục 2.6): <HUSTALO_SERVER_DIR>/infra/certs.
+const serverDir = resolve(fileURLToPath(new URL('.', import.meta.url)), process.env.HUSTALO_SERVER_DIR ?? '../HustAlo');
+const certFile = join(serverDir, 'infra/certs/localhost+lan.pem');
+const keyFile = join(serverDir, 'infra/certs/localhost+lan-key.pem');
 
 const API_TARGET = 'http://localhost:4000';
 
@@ -860,7 +915,7 @@ export default defineConfig(({ command, mode }) => {
   const env = { ...loadEnv(mode, process.cwd(), 'VITE_'), ...process.env };
   const https = command === 'serve' && env.VITE_HTTPS === '1';
   if (https && (!existsSync(certFile) || !existsSync(keyFile))) {
-    throw new Error('VITE_HTTPS=1 nhưng thiếu chứng chỉ trong infra/certs. Chạy: mkcert -install && npm run certs');
+    throw new Error(`VITE_HTTPS=1 nhưng thiếu chứng chỉ trong ${serverDir}/infra/certs. Chạy trong HustAlo: mkcert -install && npm run certs`);
   }
 
   return {
@@ -995,9 +1050,15 @@ Firefox: `about:webrtc`. Safari: Develop → WebRTC logging.
 
 ### 6.6 Playwright E2E — `client/playwright.config.ts`
 
+E2E chạy trong repo `HustAlo-client`, backend lấy từ monorepo ở `HUSTALO_SERVER_DIR` (mặc định `../HustAlo`, mục 2.6): `webServer` chạy `npm run dev` của monorepo (server + client qua `client-run.mjs`); `e2e/fixtures.ts` đọc `REDIS_URL` từ `<HUSTALO_SERVER_DIR>/server/.env`, chạy `docker compose` (`infra/docker-compose.yml`) với `cwd` = `HUSTALO_SERVER_DIR`, khởi server riêng (`setIcePolicyRelay`, `restartServer`) với `cwd` = `<HUSTALO_SERVER_DIR>/server` và Vite thứ hai bằng `node_modules/vite` của repo client. Trong CI hai repo được checkout cạnh nhau (`HustAlo/`, `HustAlo-client/`) nên giá trị mặc định đúng ở cả hai phía.
+
 ```ts
 // client/playwright.config.ts
 import { defineConfig, devices } from '@playwright/test';
+import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const serverDir = resolve(fileURLToPath(new URL('.', import.meta.url)), process.env.HUSTALO_SERVER_DIR ?? '../HustAlo');
 
 const chromiumMediaArgs = ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'];
 
@@ -1045,7 +1106,7 @@ export default defineConfig({
     : {
         webServer: {
           command: 'npm run dev',
-          cwd: '..',
+          cwd: serverDir,
           url: 'http://localhost:5173/api/v1/health',
           reuseExistingServer: !process.env.CI,
           timeout: 120_000,
@@ -1263,10 +1324,12 @@ Ràng buộc import theo thư mục (cấu hình `no-restricted-imports` theo `f
 | Thư mục | Không được import |
 |---|---|
 | `packages/shared/**` | `mongoose`, `ioredis`, `express`, `socket.io`, `react`, mọi thứ trong `server/`, `client/` |
-| `client/**` | `server/**`, `mongoose`, `ioredis`, `node:*` |
+| `client/**` (repo `HustAlo-client`: `src/**`) | `server/**`, `mongoose`, `ioredis`, `node:*` |
 | `server/**` | `client/**`, `react` |
 | `server/src/modules/*/**.repository.ts` | `realtime/**` (repository không phát event) |
 | `server/src/modules/**` (trừ `*.schema.ts`) | Khai báo `z.object` cho hợp đồng REST/socket — hợp đồng phải nằm ở `@hustalo/shared` (rule `no-restricted-syntax` riêng cho `CallExpression[callee.object.name='z']` trong `*.controller.ts`, `*.handler.ts`) |
+
+Repo `HustAlo-client` có `eslint.config.js` riêng gồm `hustaloRules`, `no-restricted-syntax` ở trên và các khối `files` dành cho client của monorepo (đường dẫn bỏ tiền tố `client/`); hai bản phải giữ cùng rule — đổi rule ở một repo thì đổi ở repo kia trong cùng đợt.
 
 Tắt rule bằng `eslint-disable` phải kèm lý do sau `--` và được reviewer chấp nhận (DoD §7.4).
 
@@ -1313,12 +1376,13 @@ Hợp đồng gồm: enum, hằng số, mã lỗi, tên/payload event, endpoint/
 3. Chờ người sở hữu spec duyệt.
 4. Sau khi duyệt: sửa test theo AC/EC mới → sửa code → cập nhật Traceability Matrix.
 5. Không bao giờ để code và spec lệch nhau trên nhánh `main`.
+6. Thay đổi `packages/shared` mà client cần dùng: phát hành phiên bản mới và cập nhật hai repo theo thứ tự ở mục 2.7.
 
 ### 8.6 Commit, nhánh, PR
 
 - Commit theo Conventional Commits: `<type>(<scope>): <mô tả ngắn, tiếng Việt hoặc tiếng Anh>`.
   - `type`: `feat`, `fix`, `test`, `refactor`, `perf`, `docs`, `chore`, `build`, `ci`, `spec`.
-  - `scope`: `shared`, `server`, `client`, `infra`, `spec`, hoặc tên module (`auth`, `messages`, `calls`, `e2ee`…).
+  - `scope`: `shared`, `server`, `client`, `infra`, `spec`, hoặc tên module (`auth`, `messages`, `calls`, `e2ee`…). Commit trong repo `HustAlo-client` dùng scope `client` hoặc tên feature.
   - Footer bắt buộc khi đổi hành vi: `Refs: FR-CHAT-002, AC-020, EC-NET-004`.
   - Ví dụ: `feat(messages): ACK message:send sau commit transaction` + `Refs: FR-CHAT-002, AC-020, AC-021`.
 - Nhánh: `m<số>/<mô-tả>` (ví dụ `m3/outbox-retry`), `fix/<mô-tả>`, `spec/<mô-tả>`.
@@ -1370,22 +1434,36 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
+      # Repo client ở đúng SHA đã ghim (D-25), checkout cạnh repo này: client-run.mjs dùng HUSTALO_CLIENT_DIR
+      - run: echo "CLIENT_SHA=$(tr -d '[:space:]' < infra/client.version)" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+        with:
+          repository: Danghoa894/HustAlo-client
+          ref: ${{ env.CLIENT_SHA }}
+          path: HustAlo-client
+      - run: npm ci
+        working-directory: HustAlo-client
       - run: node scripts/ci-env.mjs
       - run: npm run infra:up
       - run: npm run db:indexes && npm run db:seed
       - run: npx playwright install --with-deps
-        working-directory: client
+        working-directory: HustAlo-client
       - run: npm run test:e2e
+        env:
+          HUSTALO_CLIENT_DIR: HustAlo-client
       - run: npm run build
+        env:
+          HUSTALO_CLIENT_DIR: HustAlo-client
       - if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: playwright-report
-          path: client/playwright-report
+          path: HustAlo-client/playwright-report
 ```
 
 - Redis của job `verify` không có mật khẩu (container dịch vụ CI tạm thời); `REDIS_URL_TEST` khớp. `// Xác minh với tài liệu GitHub Actions: phiên bản major hiện hành của actions/checkout, setup-node, upload-artifact.`
-- `scripts/ci-env.mjs` `[NEW]`: sinh `infra/.env`, `server/.env`, `client/.env` từ các file `.env.example` với secret ngẫu nhiên (dùng lại logic `gen-secrets.mjs`), không in giá trị ra log.
+- `scripts/ci-env.mjs` `[NEW]`: sinh `infra/.env`, `server/.env` và `.env` của repo client (`HUSTALO_CLIENT_DIR`, nếu có) từ các file `.env.example` với secret ngẫu nhiên (dùng lại logic `gen-secrets.mjs`), không in giá trị ra log.
+- Job `e2e` của `HustAlo` chạy E2E của client **đã ghim** (`infra/client.version`) với server của commit đang kiểm: thay đổi server làm hỏng client bị chặn ngay ở PR (R-06). Repo `HustAlo-client` có CI riêng theo chiều ngược lại (mục 2.6). Trong thời gian chuyển tiếp (mục 2.1) job này vẫn chạy `client/` của monorepo.
 - Job `e2e` không cài mkcert: E2E chạy `http://localhost:5173` (DG-01), `COOKIE_SECURE=false` với `NODE_ENV=test`. coturn khởi động không có chứng chỉ thì chỉ tắt listener TLS 5349; healthcheck STUN 3478 vẫn pass.
 - Build/push image và deploy nằm ở workflow riêng `cicd-docker.yml` (mục 9.5), chỉ chạy sau khi `ci` xanh trên `main`.
 
@@ -1394,7 +1472,7 @@ jobs:
 - Đọc `.spec/development_guide.md`; thu mọi Test ID khớp `/TC-(?:AC|ARCH|DB|AUTH|NET|MSG|GROUP|PRES|CALL-SIG|CALL-MEDIA|CALL-NET|INFRA|SEC|E2EE)-\d{3}/g`.
   - `--milestone M3`: chỉ lấy ID trong đoạn từ tiêu đề `### M3` tới tiêu đề `###` kế tiếp. Giá trị hợp lệ khớp `^M\d(\.5)?$` (M0..M7 và `M6.5`); sai dạng → exit 2. Test: `scripts/__tests__/check-traceability.test.mjs` (`node --test`, chạy trong `npm run test:unit`).
   - Mặc định: lấy ID ở bảng Traceability Matrix.
-- Quét `packages/shared/src`, `server/src`, `client/src`, `client/e2e` tìm chuỗi `'TC-…'` hoặc `"TC-…"` hoặc `` `TC-…`` ở **đầu tên** `it(`/`test(`/`describe(`.
+- Quét `packages/shared/src`, `server/src`, `<HUSTALO_CLIENT_DIR>/src`, `<HUSTALO_CLIENT_DIR>/e2e` (mặc định `../HustAlo-client`; không có repo client → `--strict` exit 1 kèm hướng dẫn, không `--strict` chỉ cảnh báo) tìm chuỗi `'TC-…'` hoặc `"TC-…"` hoặc `` `TC-…`` ở **đầu tên** `it(`/`test(`/`describe(`.
 - In ID thiếu test. `--strict`: exit 1 nếu thiếu. Không có `--strict`: exit 0 (dùng khi đang làm dở milestone).
 - Một test có thể phủ nhiều ID: `it('TC-AC-021 TC-NET-004 retry trùng trả duplicate', …)`.
 
@@ -1445,16 +1523,16 @@ Phương án hạ tầng cho sinh viên (chọn một, ghi lựa chọn vào `do
 
 ### 9.2 Docker image
 
-- `.dockerignore` (gốc repo, build context là gốc vì là monorepo): `node_modules`, `**/node_modules`, `**/dist`, `.git`, `.env*` (trừ `!**/.env.example`), `infra/certs`, `infra/mongo/keyfile`, `coverage`, `client/playwright-report`, `client/test-results`, `.claude`, `docs`.
+- `.dockerignore` (gốc repo, build context là gốc vì là monorepo): `node_modules`, `**/node_modules`, `**/dist`, `.git`, `.env*` (trừ `!**/.env.example`), `infra/certs`, `infra/mongo/keyfile`, `coverage`, `.claude`, `docs`. Repo `HustAlo-client` có `.dockerignore` riêng: `node_modules`, `dist`, `.git`, `.env*` (trừ `!.env.example`), `playwright-report`, `test-results`, `.claude`.
 - `server/Dockerfile` (build từ gốc: `docker build -f server/Dockerfile .`):
   - stage `deps`: `node:22-alpine`, copy `package.json`, `package-lock.json`, `packages/shared/package.json`, `server/package.json` → `npm ci -w server -w packages/shared --include-workspace-root`.
   - stage `build`: copy source `packages/shared`, `server`, `tsconfig.base.json` → `npm run build -w server` (tsup bundle `@hustalo/shared`).
   - stage `runtime`: `node:22-alpine`, `NODE_ENV=production`, `npm ci --omit=dev -w server`, copy `server/dist`; `USER node`; `EXPOSE 4000`; `HEALTHCHECK CMD wget -qO- http://127.0.0.1:4000/api/v1/health || exit 1`; `CMD ["node", "dist/main.js"]`. Không copy file `.env` nào vào image; env truyền lúc chạy.
   - `// Xác minh: gói argon2 (native addon, prebuild qua node-gyp-build) có bản dựng cho linux-musl trên node:22-alpine — chạy thử hashPassword/verifyPassword trong container. Nếu không: stage deps và runtime dùng node:22-slim (glibc), không cài toolchain build trong runtime.`
-- `client/Dockerfile`:
-  - stage `build`: `node:22-alpine`, `npm ci -w client -w packages/shared --include-workspace-root`, `npm run build -w client`, rồi `node scripts/check-bundle-secrets.mjs` (AC-105).
+- `client/Dockerfile` (gốc repo `HustAlo-client`, `docker build .`):
+  - stage `build`: `node:22-alpine`, copy `package.json`, `package-lock.json`, `.npmrc` → `npm ci` (tải tarball `@hustalo/shared`, mục 2.7) → copy source → `npm run build` (gồm `check-bundle-secrets.mjs` — AC-105 — và `check-bundle-size.mjs`).
   - stage `runtime`: `nginx:alpine` (hoặc `nginxinc/nginx-unprivileged:alpine` để chạy non-root cổng 8080), copy `client/dist` → `/usr/share/nginx/html`. Image này chỉ phục vụ file tĩnh; TLS và proxy nằm ở nginx biên (mục 9.3). `// Xác minh với tài liệu chính thức của nginxinc/nginx-unprivileged: tag và cổng mặc định.`
-- Tag (Docker Hub, như bài Ex4): `<dockerhub-user>/hustalo-server:<git-sha>` và `<dockerhub-user>/hustalo-server:latest`; tương tự `<dockerhub-user>/hustalo-client:<git-sha>` và `:latest`. Production chạy theo tag SHA (`IMAGE_TAG`), `latest` chỉ để tham khảo.
+- Tag (Docker Hub, như bài Ex4): `<dockerhub-user>/hustalo-server:<git-sha HustAlo>` và `:latest` (workflow `cicd-docker.yml`); `<dockerhub-user>/hustalo-client:<git-sha HustAlo-client>` và `:latest` (workflow `docker.yml` của repo client, mục 2.6). Production chạy theo tag SHA (`IMAGE_TAG` cho server, `CLIENT_IMAGE_TAG` cho client — D-25), `latest` chỉ để tham khảo.
 
 ### 9.3 `infra/docker-compose.prod.yml`, MongoDB và nginx
 
@@ -1504,8 +1582,10 @@ Hai file, chỉ tồn tại trên VM (chmod 600), được workflow ghi từ Git
 ```bash
 # infra/.env.prod.example — biến cho docker-compose.prod.yml. Copy thành infra/.env.prod trên VM.
 DOCKERHUB_USERNAME=replace-with-dockerhub-user
-# SHA commit đã build (workflow ghi); rollback = đặt SHA cũ
+# SHA commit HustAlo của image server (workflow ghi); rollback = đặt SHA cũ
 IMAGE_TAG=replace-with-git-sha
+# SHA commit HustAlo-client của image client, workflow ghi từ infra/client.version (D-25); rollback độc lập với IMAGE_TAG
+CLIENT_IMAGE_TAG=replace-with-client-git-sha
 DOMAIN=hustalo.example.com
 MONGO_ROOT_USERNAME=root
 MONGO_ROOT_PASSWORD=replace-with-random
@@ -1549,7 +1629,7 @@ DEPLOY_KNOWN_HOSTS=<dòng known_hosts>
 # Thư mục trên VM chứa infra/ và server/.env.prod
 DEPLOY_PATH=/opt/hustalo
 PROD_DOMAIN=hustalo.example.com
-# Nội dung đầy đủ của infra/.env.prod và server/.env.prod (mục 9.4), trừ IMAGE_TAG và DOCKERHUB_USERNAME do workflow
+# Nội dung đầy đủ của infra/.env.prod và server/.env.prod (mục 9.4), trừ IMAGE_TAG, CLIENT_IMAGE_TAG và DOCKERHUB_USERNAME do workflow
 # ghi (dòng trùng trong secret bị bỏ; ký tự CR của bản dán từ Windows bị bỏ)
 PROD_INFRA_ENV=<nội dung>
 PROD_SERVER_ENV=<nội dung>
@@ -1557,9 +1637,10 @@ PROD_SERVER_ENV=<nội dung>
 
 Luồng workflow:
 1. Trigger: `workflow_run` của workflow `ci` kết thúc `success` trên `main` **do `push` trong chính repo** (`workflow_run.event == 'push'`, `head_repository` = repo này — PR từ fork có nhánh tên `main` không được deploy), và `workflow_dispatch` để deploy tay.
-2. Job `build-push`: kiểm tra `DOCKERHUB_USERNAME`/`DOCKERHUB_TOKEN` có giá trị (thiếu → `::error::` nêu tên secret, thay cho lỗi mơ hồ "Username and password required" của login-action), `actions/checkout` (ref = SHA của lần chạy `ci`), `docker/setup-buildx-action`, `docker/login-action` (`username: ${{ secrets.DOCKERHUB_USERNAME }}`, `password: ${{ secrets.DOCKERHUB_TOKEN }}`), `docker/build-push-action` hai lần (`file: server/Dockerfile` và `client/Dockerfile`, `context: .`, `push: true`, tag `<sha>` + `latest`, cache `type=gha`).
-3. Job `deploy` (`needs: build-push`, `environment: production`): kiểm tra secret deploy; SSH vào VM (key từ `DEPLOY_SSH_KEY`, `StrictHostKeyChecking yes` với `DEPLOY_KNOWN_HOSTS` hoặc ssh-keyscan); đồng bộ `infra/docker-compose.prod.yml`, `infra/deploy-prod.sh`, `infra/nginx/nginx.conf`, `infra/nginx/nginx.bootstrap.conf`, `infra/mongo/init-prod.js` (một luồng `tar` qua SSH); ghi `infra/.env.prod` (từ `PROD_INFRA_ENV` + `DOCKERHUB_USERNAME` + `IMAGE_TAG=<sha>`) và `server/.env.prod` (từ `PROD_SERVER_ENV`) với `umask 077`; chạy `bash infra/deploy-prod.sh <DEPLOY_PATH>` (mục 9.6). Script in `HUSTALO_TLS=ready|bootstrap` → output `tls` của job.
-4. Job `verify`: `tls != ready` → fail kèm hướng dẫn lấy chứng chỉ (mục 9.6); thiếu `PROD_DOMAIN`/`SMOKE_*` → fail nêu tên secret; rồi chạy bảng mục 9.7 (health, redirect, HSTS, smoke `@smoke` với `E2E_BASE_URL=https://${{ secrets.PROD_DOMAIN }}`). Fail → workflow đỏ, ghi SHA trước đó để rollback.
+2. Job `build-push`: kiểm tra `DOCKERHUB_USERNAME`/`DOCKERHUB_TOKEN` có giá trị (thiếu → `::error::` nêu tên secret, thay cho lỗi mơ hồ "Username and password required" của login-action), `actions/checkout` (ref = SHA của lần chạy `ci`), `docker/setup-buildx-action`, `docker/login-action` (`username: ${{ secrets.DOCKERHUB_USERNAME }}`, `password: ${{ secrets.DOCKERHUB_TOKEN }}`), `docker/build-push-action` cho `server/Dockerfile` (`context: .`, `push: true`, tag `<sha>` + `latest`, cache `type=gha`). Image client **không** build ở đây (D-25): đọc `infra/client.version` (đúng 40 ký tự hex, sai → `::error::`), kiểm `<dockerhub-user>/hustalo-client:<client-sha>` đã có trên Docker Hub (`docker buildx imagetools inspect`; chưa có → `::error::` "chưa build image client — chờ workflow docker của HustAlo-client"), xuất output `client_tag`.
+3. Job `deploy` (`needs: build-push`, `environment: production`): kiểm tra secret deploy; SSH vào VM (key từ `DEPLOY_SSH_KEY`, `StrictHostKeyChecking yes` với `DEPLOY_KNOWN_HOSTS` hoặc ssh-keyscan); đồng bộ `infra/docker-compose.prod.yml`, `infra/deploy-prod.sh`, `infra/nginx/nginx.conf`, `infra/nginx/nginx.bootstrap.conf`, `infra/mongo/init-prod.js` (một luồng `tar` qua SSH); ghi `infra/.env.prod` (từ `PROD_INFRA_ENV` + `DOCKERHUB_USERNAME` + `IMAGE_TAG=<sha>` + `CLIENT_IMAGE_TAG=<client_tag>`) và `server/.env.prod` (từ `PROD_SERVER_ENV`) với `umask 077`; chạy `bash infra/deploy-prod.sh <DEPLOY_PATH>` (mục 9.6). Script in `HUSTALO_TLS=ready|bootstrap` → output `tls` của job.
+4. Job `verify`: `tls != ready` → fail kèm hướng dẫn lấy chứng chỉ (mục 9.6); thiếu `PROD_DOMAIN`/`SMOKE_*` → fail nêu tên secret; rồi chạy bảng mục 9.7 (health, redirect, HSTS, smoke `@smoke` với `E2E_BASE_URL=https://${{ secrets.PROD_DOMAIN }}`). Smoke chạy từ repo `HustAlo-client` checkout ở `client_tag` (repo public, không cần token; `npm ci` trong thư mục đó). Fail → workflow đỏ, ghi SHA trước đó để rollback.
+- Đổi phiên bản client production = PR sửa `infra/client.version` (SHA commit `main` của `HustAlo-client` đã có image); merge → `ci` (E2E với client mới) → `cicd-docker`.
 - Mọi bước `run` dùng `shell: bash` (`-eo pipefail`). Không `echo` secret; không bật `set -x` trong bước có secret. `// Xác minh với tài liệu chính thức của GitHub Actions và docker/*-action: phiên bản major hiện hành của login-action, build-push-action, setup-buildx-action và cú pháp workflow_run.`
 
 ### 9.6 Lệnh deploy và rollback
@@ -1590,7 +1671,7 @@ docker run --rm -v /etc/letsencrypt:/etc/letsencrypt -v /var/www/certbot:/var/ww
 ```
 
 `// Xác minh với tài liệu chính thức của certbot (image certbot/certbot): tham số certonly --webroot và gia hạn (certbot renew + nginx -s reload).`
-- Rollback: sửa `IMAGE_TAG=<sha cũ>` trong `infra/.env.prod` rồi chạy lại `pull` + `up -d --wait`. Migration dữ liệu (`database_schema.md` §6.4) phải tương thích ngược một phiên bản để rollback an toàn.
+- Rollback: sửa `IMAGE_TAG=<sha cũ>` (server) và/hoặc `CLIENT_IMAGE_TAG=<sha cũ>` (client) trong `infra/.env.prod` rồi chạy lại `pull` + `up -d --wait`; ghi lại bằng PR đổi `infra/client.version` để lần deploy sau không đưa phiên bản lỗi trở lại. Migration dữ liệu (`database_schema.md` §6.4) phải tương thích ngược một phiên bản để rollback an toàn.
 - Không chạy `db:seed` ở production (env.ts cấm `SEED_PASSWORD`). Tài khoản smoke (`SMOKE_A_*`, `SMOKE_B_*` trong GitHub Secrets) **tự tạo** ở mỗi lần smoke: `POST /auth/register` với chính thông tin đó — `201` vừa tạo, `409` đã có, `429` vượt rate limit register (retry trong cùng phút); với `409`/`429` xác nhận bằng `POST /auth/login` = 200, nếu không thì fail kèm thông báo (email/username thuộc tài khoản khác hoặc mật khẩu secret đã đổi). Không cần đăng ký tay; chỉ 2 tài khoản cố định trên production.
 
 ### 9.7 Kiểm tra sau deploy
@@ -1601,7 +1682,7 @@ docker run --rm -v /etc/letsencrypt:/etc/letsencrypt -v /var/www/certbot:/var/ww
 | Redirect | `curl -sI http://<domain>/` | `301`, `Location: https://<domain>/` | `TC-ARCH-016` |
 | HSTS | `curl -sI https://<domain>/` | Có `Strict-Transport-Security: max-age=31536000; includeSubDomains` | `TC-ARCH-016` |
 | SPA fallback | `curl -s -o /dev/null -w '%{http_code}' https://<domain>/chats/abc` | `200` (trả `index.html`) | — |
-| Smoke E2E | `E2E_BASE_URL=https://<domain> npm run test:e2e -- --project=chromium --grep @smoke` | Pass: đăng nhập 2 user, gửi/nhận tin, socket `wss://` transport websocket | `TC-ARCH-017` |
+| Smoke E2E | Trong `HustAlo-client` (SHA `CLIENT_IMAGE_TAG`): `E2E_BASE_URL=https://<domain> npm run test:e2e -- --project=chromium --grep @smoke` | Pass: đăng nhập 2 user, gửi/nhận tin, socket `wss://` transport websocket | `TC-ARCH-017` |
 | Cổng nội bộ | Từ máy ngoài: `nc -zv <domain> 27017`, `6379`, `9464` | Đều bị từ chối/timeout | — |
 | Log | `docker compose ... logs server --tail=200` | Không có token, mật khẩu, nội dung tin (kiến trúc §11.3) | — |
 
@@ -1657,6 +1738,7 @@ docker run --rm -v /etc/letsencrypt:/etc/letsencrypt -v /var/www/certbot:/var/ww
   - Biến môi trường: đủ danh sách gốc + Phụ lục D (`NODE_ENV`, `METRICS_PORT`, `REDIS_KEY_PREFIX`, `REDIS_URL_TEST`, `SOCKET_ADAPTER`, `TRUST_PROXY`) + `SEED_PASSWORD` (`database_schema.md` §6.5).
   - Cookie/CSRF (kiến trúc §6.3), Socket.IO path/ping (§6.4), ICE servers/Xirsys/fallback/`ICE_TRANSPORT_POLICY` (§9.5), Redis/Mongo down (§10.1–10.2), `db:indexes`/`db:migrate`/`db:seed` (`database_schema.md` §6.3–6.5), `user:lock`/`user:unlock` (PRD FR-AUTH-006), `job:reencrypt` (kiến trúc §9.2.4), lint OpenAPI bằng `@redocly/cli` (`api_spec.yaml` header), DoD (PRD §7), NFR-05/09/11/13/14 (PRD §6).
   - Quyết định mới của file này: DG-01..DG-10. DG-03 (job `user:lock` báo instance qua kênh Redis `ops:user-locked`) và DG-10 (Xirsys chưa cấu hình → fallback không cảnh báo) là **bổ sung chi tiết hiện thực**, không đổi hợp đồng API/event.
+  - **Tách repo client (D-24, D-25; duyệt 2026-11-05):** mục 2.1–2.7, 4.3, 4.6, 5.1, 5.2, 6.6, 8.2, 8.5–8.8, 9.2, 9.4–9.7. File `[NEW]`: `scripts/client-run.mjs`, `scripts/pack-shared.mjs`, `.github/workflows/release-shared.yml`, `infra/client.version`; repo client: `server.version`, `.github/workflows/{ci,docker}.yml`, file gốc mục 2.6. Biến mới: `HUSTALO_SERVER_DIR`, `HUSTALO_CLIENT_DIR`, `CLIENT_IMAGE_TAG` (kiến trúc Phụ lục D). Test ID, Gate và Traceability Matrix không đổi; đường dẫn `client/…` = gốc `HustAlo-client`.
   - **Đề xuất sửa spec (chờ duyệt, chưa áp dụng vào file khác):** `database_schema.md` §6.3 dùng `if (import.meta.url === \`file://${process.argv[1]}\`)` — điều kiện này luôn sai trên Windows nên `npm run db:indexes` không chạy gì; đề xuất đổi thành `if (isMainModule(import.meta.url))` theo DG-02 và thêm `server/src/infra/runtime/is-main.ts` vào cây kiến trúc §4.1.
 
 ---

@@ -1124,7 +1124,7 @@ Không có phím tắt trả lời/từ chối cuộc gọi (tránh thao tác nh
 
 ## 8. File client bổ sung so với cây kiến trúc §4.1
 
-Các file đánh dấu `[NEW]` trong file này bổ sung vào cây `client/` của `system_architecture.md` §4.1 (không đổi cấu trúc hiện có):
+Các file đánh dấu `[NEW]` trong file này bổ sung vào cây `client/` của `system_architecture.md` §4.1 (không đổi cấu trúc hiện có). Từ D-24, `client/` là gốc repo `HustAlo-client`: mọi đường dẫn `client/…` trong file này tính từ gốc repo đó.
 
 | File | Vai trò |
 |---|---|
