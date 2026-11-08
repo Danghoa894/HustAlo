@@ -1,6 +1,6 @@
 # Đề xuất sửa spec — Ảnh đại diện, menu tin nhắn trên thiết bị cảm ứng, `db:migrate`
 
-- **Trạng thái:** ĐÃ DUYỆT 2026-11-09, chọn **phương án C** cho ảnh đại diện. Spec đã sửa (bước 1 mục 5): kiến trúc D-26, §4.1, §9.6, Phụ lục C; PRD §1.2, §1.3, FR-USER-002, FR-CHAT-007/008, EC-MSG-018; DB §6.4, §7 (TC-DB-027); UI §3.3, §7, §8, `ProfileSection`; DG §2, §9.6 bước 5a–5c, Gate M3/M6.5, Traceability. `spec:check` xanh. Chưa sửa code (bước 2–4).
+- **Trạng thái:** ĐÃ DUYỆT 2026-11-09, chọn **phương án C** cho ảnh đại diện. Spec đã sửa (bước 1 mục 5): kiến trúc D-26, §4.1, §9.6, Phụ lục C; PRD §1.2, §1.3, FR-USER-002, FR-CHAT-007/008, EC-MSG-018; DB §6.4, §7 (TC-DB-027); UI §3.3, §7, §8, `ProfileSection`; DG §2, §9.6 bước 5a–5c, Gate M3/M6.5, Traceability. `spec:check` xanh. Bước 2 (migrate) xong 2026-11-09: `server/src/infra/db/migrate.ts`, `migrations/index.ts`, entry tsup, `infra/deploy-prod.sh` bước 5a, TC-DB-027 (6 test integration). Còn bước 3–4 (menu, avatar).
 - **Ngày:** 2026-11-08
 - **Nguồn:** đợt kiểm tra chỉ đọc ngày 08/11/2026 trên commit `b398d2c` (typecheck, lint, unit, integration 201/201, build xanh; E2E Chromium 39/41, 2 test chập chờn chạy lại pass).
 - **Lý do:** ba lỗi nhóm P0 của đợt kiểm tra. Theo `CLAUDE.md`, chỗ nào spec sai hoặc thiếu thì phải duyệt spec trước khi code.

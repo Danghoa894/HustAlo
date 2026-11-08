@@ -2,7 +2,7 @@ import { cpSync } from 'node:fs';
 import { defineConfig } from 'tsup';
 
 export default defineConfig({
-  entry: ['src/main.ts', 'src/infra/db/indexes.ts'],
+  entry: ['src/main.ts', 'src/infra/db/indexes.ts', 'src/infra/db/migrate.ts'],
   format: ['esm'],
   target: 'node22',
   platform: 'node',

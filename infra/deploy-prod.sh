@@ -12,7 +12,8 @@
 #      mongod (uid 999 trong image mongo) còn từ chối keyfile có quyền group/other hoặc không đọc được.
 #   4. Chọn cấu hình nginx: có chứng chỉ Let's Encrypt (/etc/letsencrypt/live/hustalo) → nginx.conf (80 + 443);
 #      chưa có → nginx.bootstrap.conf (chỉ cổng 80 phục vụ ACME HTTP-01) để lấy chứng chỉ lần đầu (§9.6).
-#   5. up -d --wait, rồi tạo index (idempotent).
+#   5. Migrate bằng image server mới TRƯỚC khi thay container (database_schema.md §6.4) — lỗi thì dừng, server cũ
+#      vẫn chạy; rồi up -d --wait, rồi tạo index (idempotent).
 #   Lỗi bất kỳ → in `docker compose ps` + log ngắn của các service để chẩn đoán.
 #
 # In ra một dòng `HUSTALO_TLS=ready|bootstrap` để workflow biết TLS đã sẵn sàng hay chưa.
@@ -109,7 +110,9 @@ else
   printf '::warning::%s\n' "Chưa có chứng chỉ $CERT_DIR — nginx chạy cấu hình bootstrap (chỉ HTTP/ACME). Lấy chứng chỉ một lần trên VM theo development_guide.md §9.6 rồi chạy lại workflow."
 fi
 
-# ---- 5. Up + index ----
+# ---- 5. Migrate + up + index (development_guide.md §9.6 bước 5a–5c) ----
+# run --rm khởi động mongo, mongo-init, redis theo depends_on; exit khác 0 → set -e dừng script, không `up`.
+"${COMPOSE[@]}" run --rm server node dist/infra/db/migrate.js
 "${COMPOSE[@]}" up -d --wait --wait-timeout 300 --remove-orphans
 "${COMPOSE[@]}" exec -T server node dist/infra/db/indexes.js
 

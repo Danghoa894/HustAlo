@@ -19,7 +19,8 @@ test('chấp nhận M0..M7', () => {
 test('chấp nhận M6.5 và chỉ lấy ID trong mục "### M6.5"', () => {
   const r = run('--milestone', 'M6.5');
   assert.equal(r.status, 0, r.stderr);
-  assert.match(r.stdout, /milestone M6\.5: \d+\/2 /);
+  // Gate M6.5: TC-ARCH-016, TC-ARCH-017, TC-DB-027 (development_guide.md §7).
+  assert.match(r.stdout, /milestone M6\.5: \d+\/3 /);
 });
 
 test('M6 không lấy nhầm ID của M6.5', () => {
