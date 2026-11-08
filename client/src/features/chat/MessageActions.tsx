@@ -1,5 +1,7 @@
 // client/src/features/chat/MessageActions.tsx — menu "Sao chép", "Sửa", "Thu hồi" của bubble (ui_ux_spec.md §3.3).
 // "Sửa"/"Thu hồi" chỉ khi canEditOrRecall theo giờ server ước lượng; "Thu hồi" hỏi xác nhận.
+// `open`/`onOpenChange`: MessageBubble mở menu bằng nhấn giữ, chuột phải, Shift+F10 (useMessageMenuTrigger, EC-MSG-018).
+// Nút MoreHorizontal hiện khi hover/focus; menu đang mở thì nút cũng hiện (focus nằm trong menu).
 import type { Message } from '@hustalo/shared';
 import { useState } from 'react';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
@@ -13,9 +15,11 @@ export interface MessageActionsProps {
   meId: string;
   onEdit: (m: Message) => void;
   onRecall: (m: Message) => Promise<boolean>;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
-export function MessageActions({ message, meId, onEdit, onRecall }: MessageActionsProps) {
+export function MessageActions({ message, meId, onEdit, onRecall, open, onOpenChange }: MessageActionsProps) {
   const [confirm, setConfirm] = useState(false);
   const [busy, setBusy] = useState(false);
   const own = canEditOrRecall(message, meId, serverNow());
@@ -51,8 +55,15 @@ export function MessageActions({ message, meId, onEdit, onRecall }: MessageActio
   if (items.length === 0) return null;
   return (
     <>
-      <span className="opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
-        <Menu label={vi.chat.messageActions} items={items} />
+      <span
+        className={`${open ? 'opacity-100' : 'opacity-0'} transition-opacity focus-within:opacity-100 group-hover:opacity-100`}
+      >
+        <Menu
+          label={vi.chat.messageActions}
+          items={items}
+          {...(open !== undefined ? { open } : {})}
+          {...(onOpenChange ? { onOpenChange } : {})}
+        />
       </span>
       <ConfirmDialog
         open={confirm}

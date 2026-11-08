@@ -2,18 +2,22 @@
 // aria-label "{tên}, {giờ}"; nội dung dir="auto" (RTL, EC-MSG-003) và React escape (không dangerouslySetInnerHTML,
 // EC-MSG-004); thu hồi / không hiển thị được → placeholder nghiêng. Bubble outbox: PENDING mờ 70% + 🕒, FAILED ⚠ +
 // "Thử lại"/"Xóa" (NOT_A_MEMBER, USER_BLOCKED chỉ "Xóa").
+// Menu tin mở bằng nhấn giữ 500 ms / chuột phải / Shift+F10 (useMessageMenuTrigger, ui_ux_spec.md §3.3, EC-MSG-018);
+// `-webkit-touch-callout: none` chặn menu hệ thống iOS, `select-none` chỉ trong lúc nhấn giữ.
 import type { Message } from '@hustalo/shared';
 import { AlertCircle, Ban } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Avatar } from '../../components/ui/Avatar';
 import { vi } from '../../i18n/vi';
 import type { OutboxItem } from '../../lib/outbox/outbox.db';
 import { useE2eeStore } from '../../stores/e2ee.store';
 import { formatClock } from '../../lib/time/format';
+import { serverNow } from '../../lib/time/server-clock';
 import { MessageActions } from './MessageActions';
 import { MessageMeta } from './MessageMeta';
 import { MessageStatusIcon } from './MessageStatusIcon';
-import type { OwnStatus } from './message-state';
+import { hasMessageActions, type OwnStatus } from './message-state';
+import { useMessageMenuTrigger } from './useMessageMenuTrigger';
 
 const bubbleBase = 'max-w-[min(75%,560px)] rounded-bubble px-3 py-2 text-base';
 const bubbleTone = (mine: boolean) => (mine ? 'bg-bubble-out text-bubble-on-out' : 'bg-bubble-in text-text');
@@ -77,6 +81,13 @@ export function MessageBubble({
 }: MessageBubbleProps) {
   const time = formatClock(m.createdAt);
   const name = m.sender.displayName;
+  const [menuOpen, setMenuOpen] = useState(false);
+  const { pressing, handlers } = useMessageMenuTrigger({
+    enabled: hasMessageActions(m, meId, serverNow()),
+    onOpen: () => {
+      setMenuOpen(true);
+    },
+  });
   return (
     <div className={`group flex items-end gap-2 px-4 ${first ? 'mt-2' : 'mt-0.5'} ${mine ? 'flex-row-reverse' : ''}`}>
       {!mine ? <span className="w-8 shrink-0">{last ? <Avatar name={name} size={32} /> : null}</span> : null}
@@ -85,14 +96,22 @@ export function MessageBubble({
         aria-label={vi.chat.bubbleLabel(name, time)}
         tabIndex={0}
         data-message-id={m.id}
-        className={`flex min-w-0 flex-col outline-none ${mine ? 'items-end' : 'items-start'}`}
+        {...handlers}
+        className={`flex min-w-0 flex-col outline-none [-webkit-touch-callout:none] ${pressing ? 'select-none' : ''} ${mine ? 'items-end' : 'items-start'}`}
       >
         {showName ? <span className="px-1 text-xs font-medium text-text-secondary">{name}</span> : null}
         <div className={`flex items-center gap-1 ${mine ? 'flex-row-reverse' : ''}`}>
           <div title={time} className={`${bubbleBase} ${bubbleTone(mine)} ${editing ? 'ring-2 ring-primary' : ''}`}>
             <Body m={m} mine={mine} />
           </div>
-          <MessageActions message={m} meId={meId} onEdit={onEdit} onRecall={onRecall} />
+          <MessageActions
+            message={m}
+            meId={meId}
+            onEdit={onEdit}
+            onRecall={onRecall}
+            open={menuOpen}
+            onOpenChange={setMenuOpen}
+          />
         </div>
         <MessageMeta time={last ? time : null} edited={m.editedAt !== null && m.deletedAt === null}>
           {status && last ? <MessageStatusIcon status={status} /> : null}
