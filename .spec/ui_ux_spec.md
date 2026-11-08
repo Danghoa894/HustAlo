@@ -608,7 +608,14 @@ GROUP: ✓✓ khi mọi thành viên khác đã nhận, ✓✓ xanh khi mọi th
 | SECRET chưa thiết lập | Gửi được (tin đầu thiết lập session); header hiển thị "Đang thiết lập mã hóa…" |
 | SECRET identity đổi và đã xác minh | Composer disabled, placeholder "Hãy xác nhận mã an toàn mới để tiếp tục" |
 
-**Menu tin nhắn (`MessageActions`):** mở bằng hover nút `MoreHorizontal`, chuột phải, nhấn giữ 500 ms (mobile) hoặc phím `Shift+F10`/`ContextMenu` khi bubble focus.
+**Menu tin nhắn (`MessageActions`):** mở bằng hover nút `MoreHorizontal`, chuột phải, nhấn giữ 500 ms (mobile) hoặc phím `Shift+F10`/`ContextMenu` khi bubble focus (EC-MSG-018). Bắt sự kiện trong `useMessageMenuTrigger` (`features/chat/useMessageMenuTrigger.ts`) gắn vào `MessageBubble`:
+- **Chuột phải:** `contextmenu` trên bubble → `preventDefault()`, mở menu tại bubble.
+- **Nhấn giữ:** `pointerdown` với `pointerType === 'touch'` hẹn 500 ms; hủy khi `pointerup`/`pointercancel` hoặc ngón tay di chuyển > 10 px so với điểm chạm (đang cuộn). Hết 500 ms → mở menu.
+- **Android Chrome** phát `contextmenu` khi giữ: trong lúc đang nhấn giữ cảm ứng chỉ `preventDefault()`, không mở lần hai.
+- **iOS Safari:** bubble có `-webkit-touch-callout: none` để không hiện menu hệ thống; "Sao chép" vẫn có trong `MessageActions`.
+- **Bàn phím:** `Shift+F10` hoặc `ContextMenu` khi bubble focus → mở menu, focus mục đầu (`Menu` §6.3).
+- **Nút `MoreHorizontal`:** hiện khi hover/focus bubble; trên thiết bị `(hover: none)` không bắt buộc hiện, nhấn giữ là cách chính.
+- Tin không có mục nào (của người khác mà không có nội dung để sao chép, ví dụ đã thu hồi) → không mở menu, không chặn hành vi mặc định.
 - "Sao chép" (mọi tin có nội dung).
 - "Sửa" — tin của mình, TEXT, không SECRET, chưa thu hồi, `now(serverClock) - createdAt < 15 phút`.
 - "Thu hồi" — tin của mình, chưa thu hồi, trong 15 phút → modal xác nhận "Thu hồi tin nhắn này với mọi người?" [Hủy] [Thu hồi].
@@ -841,7 +848,7 @@ Cây component:
 ```text
 features/settings/SettingsPage.tsx
 ├── SettingsNav [NEW] (features/settings/SettingsNav.tsx) — role="navigation"
-├── ProfileSection (features/settings/ProfileSection.tsx) — displayName (đếm /80), avatarUrl, username (chỉ đọc), email (chỉ đọc)
+├── ProfileSection (features/settings/ProfileSection.tsx) — displayName (đếm /80), username (chỉ đọc), email (chỉ đọc); không có ô `avatarUrl` (D-26)
 ├── PrivacySection (features/settings/PrivacySection.tsx) — Switch "Hiển thị lần truy cập gần nhất" + mô tả "Nếu tắt, bạn cũng sẽ không thấy lần truy cập của người khác." Switch lưu ngay khi bật/tắt (`PATCH /users/me {privacy}`, không có nút "Lưu"): thành công → toast "Đã lưu thay đổi" và `presence:subscribe` lại; lỗi → switch trở về giá trị cũ + toast lỗi.
 ├── DevicesSection (features/settings/DevicesSection.tsx) — Q['e2ee','devices'], nút "Thu hồi" (DELETE /e2ee/devices/{deviceId})
 ├── BlockedSection [NEW] (features/settings/BlockedSection.tsx) — Q['users','blocked'] = `GET /users/blocked` (M3), nút "Bỏ chặn"
@@ -1111,14 +1118,14 @@ Không có phím tắt trả lời/từ chối cuộc gọi (tránh thao tác nh
 | Khóa cuộn khi gọi | `CallOverlay`/`IncomingCallScreen` mở → `document.body.style.overflow = 'hidden'`, `overscroll-behavior: contain` trên overlay; trả lại khi đóng |
 | Kéo để làm mới | Tắt `overscroll-behavior-y: contain` trên `MessageList` để tránh pull-to-refresh của trình duyệt khi cuộn lên |
 | Vùng chạm | ≥ 44×44 px; nút cuộc gọi 56/64 px; khoảng cách giữa nút ≥ 8 px |
-| Nhấn giữ bubble | 500 ms mở `MessageActions`; tắt chọn văn bản mặc định trên bubble (`user-select: none` trong lúc nhấn giữ), vẫn có "Sao chép" |
+| Nhấn giữ bubble | 500 ms mở `MessageActions` (EC-MSG-018); di chuyển > 10 px hoặc thả sớm thì hủy; tắt chọn văn bản mặc định trên bubble (`user-select: none` trong lúc nhấn giữ, `-webkit-touch-callout: none`), vẫn có "Sao chép" — chi tiết §3.3 "Menu tin nhắn" |
 | Tab chạy nền và read receipt | `useReadReceipts` chỉ gửi `message:read` khi `document.visibilityState === 'visible'` **và** `document.hasFocus()` **và** tin hiển thị ≥ 50% (`IntersectionObserver`, threshold 0.5); khi `visibilitychange → visible` gửi read cho tin cuối đang hiển thị (EC-MSG-009). Delivered không phụ thuộc visibility |
 | Tab nền — tiêu đề | `document.title = "({n}) HUSTALO"` với n = tổng chưa đọc (> 99 → "99+"); cuộc gọi đến: nhấp nháy "📞 Cuộc gọi đến" |
 | Tab nền — outbox | Flush khi `visibilitychange → visible` và sự kiện `online` (EC-NET-008) |
 | Mobile chuyển app khi gọi video | Track local có thể bị `mute`; khi `visibilitychange → visible` kiểm tra `track.readyState`, `ended` → lấy lại camera và `replaceTrack` (EC-CALL-MEDIA-011) |
 | Xoay màn hình | Video remote `object-fit: cover` (mobile dọc), `contain` (ngang/desktop); PiP giữ góc đã chọn |
 | Âm thanh iOS | Mọi `<audio>`/`<video>` có `playsInline`; nhạc chuông chỉ phát sau một tương tác của người dùng trong phiên (nếu không → `AutoplayUnlockButton`) |
-| Ảnh nền thấp băng thông | Avatar `loading="lazy"`, kích thước 40/48/96/120 px, chữ cái đầu khi không có ảnh |
+| Ảnh nền thấp băng thông | Avatar chỉ vẽ chữ cái đầu của tên (D-26: không tải ảnh từ `avatarUrl`, không có request ảnh ngoài), kích thước 40/48/96/120 px |
 
 ---
 
@@ -1135,7 +1142,7 @@ Các file đánh dấu `[NEW]` trong file này bổ sung vào cây `client/` c�
 | `client/src/components/ui/PasswordField.tsx`, `SegmentedTabs.tsx`, `UnreadBadge.tsx` | UI chung |
 | `client/src/features/auth/AuthCard.tsx`, `SessionModal.tsx` | Đăng nhập / phiên |
 | `client/src/features/conversations/ChatListHeader.tsx`, `ConversationList.tsx` | Danh sách chat |
-| `client/src/features/chat/EmptyRoomPlaceholder.tsx`, `RoomMenu.tsx`, `SystemMessage.tsx`, `MessageMeta.tsx`, `MessageActions.tsx`, `ReadByIndicator.tsx`, `BlockedComposerNotice.tsx`, `RoomNotFound.tsx` | Phòng chat (CharCounter, EditingBar là component nội bộ của `Composer.tsx`) |
+| `client/src/features/chat/EmptyRoomPlaceholder.tsx`, `RoomMenu.tsx`, `SystemMessage.tsx`, `MessageMeta.tsx`, `MessageActions.tsx`, `useMessageMenuTrigger.ts` [NEW] (EC-MSG-018), `ReadByIndicator.tsx`, `BlockedComposerNotice.tsx`, `RoomNotFound.tsx` | Phòng chat (CharCounter, EditingBar là component nội bộ của `Composer.tsx`) |
 | `client/src/features/groups/UserPicker.tsx`, `MemberRow.tsx`, `TransferOwnerDialog.tsx`, `RenameGroupDialog.tsx` | Nhóm |
 | `client/src/features/calls/AutoplayUnlockButton.tsx`, `LocalVideo.tsx`, `RemoteVideo.tsx`, `RemoteAudio.tsx`, `CallStatusText.tsx`, `CallTopBar.tsx`, `MediaErrorPanel.tsx` | Cuộc gọi (NetworkQualityBadge, DeviceToast nội bộ trong `CallTopBar.tsx` / `InCallScreen.tsx`) |
 | `client/src/features/settings/SettingsNav.tsx`, `BlockedSection.tsx`, `SecuritySection.tsx` | Cài đặt |
@@ -1160,4 +1167,5 @@ Các file đánh dấu `[NEW]` trong file này bổ sung vào cây `client/` c�
   - Kiến trúc §9.6: không inline script (theme-init.js), font từ domain đã cho phép trong CSP; React escape, không `dangerouslySetInnerHTML`, `dir="auto"` + `unicode-bidi: isolate`.
   - PRD: FR-CHAT-005 (typing tối đa 2 tên), FR-CHAT-011 (chuỗi SYSTEM), FR-PRES-002 (chuỗi lastSeen dùng ở `ChatHeader`), FR-USER-003 (`blockedByMe`/`canMessage`), FR-E2EE-006 (chặn gửi khi identity đổi và đã xác minh), FR-CALL-011 (nhạc chuông, nhấp nháy tiêu đề), D-22 (ẩn nút gọi trong GROUP).
   - DB: hiển thị dựa trên `deletedAt`, `editedAt`, `system.kind`, cursor receipt (`ReadByIndicator` theo §3.2 DB).
-  - **Chuỗi mới do file này bổ sung** (không mâu thuẫn, `development_guide.md`/test dùng): "Đang sửa tin nhắn", "Gửi thất bại. Thử lại", "Hãy xác nhận mã an toàn mới để tiếp tục", "Thiết bị này đã bị thu hồi. Vui lòng đăng nhập lại.", "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.", "Bạn đang trong một cuộc gọi khác", "Cuộc gọi nhóm chưa được hỗ trợ" (từ D-22), "Bạn đã chặn người này", "Chọn một cuộc trò chuyện để bắt đầu nhắn tin", "Đã có lỗi xảy ra. Vui lòng thử lại."; bổ sung ở M1 (§3.1, §3.8): "Nhập lại mật khẩu", "Đã có tài khoản?", "Mật khẩu nhập lại không khớp", "Vui lòng nhập thông tin này", "Ảnh đại diện (URL)", "Quay lại", "Ẩn mật khẩu".
+  - **Chuỗi mới do file này bổ sung** (không mâu thuẫn, `development_guide.md`/test dùng): "Đang sửa tin nhắn", "Gửi thất bại. Thử lại", "Hãy xác nhận mã an toàn mới để tiếp tục", "Thiết bị này đã bị thu hồi. Vui lòng đăng nhập lại.", "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.", "Bạn đang trong một cuộc gọi khác", "Cuộc gọi nhóm chưa được hỗ trợ" (từ D-22), "Bạn đã chặn người này", "Chọn một cuộc trò chuyện để bắt đầu nhắn tin", "Đã có lỗi xảy ra. Vui lòng thử lại."; bổ sung ở M1 (§3.1, §3.8): "Nhập lại mật khẩu", "Đã có tài khoản?", "Mật khẩu nhập lại không khớp", "Vui lòng nhập thông tin này", "Ảnh đại diện (URL)" (bỏ từ D-26), "Quay lại", "Ẩn mật khẩu".
+- [x] **Ảnh đại diện và menu tin nhắn (duyệt 2026-11-09, `docs/proposals/sua-spec-p0-avatar-menu-migrate.md`):** D-26 — `ProfileSection` bỏ ô `avatarUrl`, Avatar chỉ chữ cái đầu, chuỗi "Ảnh đại diện (URL)" ngừng dùng; §3.3 "Menu tin nhắn" làm rõ cách bắt sự kiện (chuột phải, nhấn giữ 500 ms hủy khi di chuyển > 10 px, chống mở hai lần trên Android, iOS `-webkit-touch-callout`, `Shift+F10`/`ContextMenu`) cho EC-MSG-018; §7 dòng "Nhấn giữ bubble" và §8 thêm `useMessageMenuTrigger.ts`. Không đổi route, token, chuỗi khác. Đã đối chiếu: kiến trúc D-26 và CSP §9.6, PRD FR-USER-002 và EC-MSG-018.

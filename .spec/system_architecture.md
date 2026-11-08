@@ -137,6 +137,7 @@ Các con số dưới đây là mục tiêu đo được; `product_requirements.
 | D-23 | OWNER rời nhóm khi chưa chuyển quyền → `CONFLICT` (409). ADMIN xóa/hạ quyền OWNER → `FORBIDDEN`. | Sửa mâu thuẫn #4/#8. |
 | D-24 | **Tách client thành repo riêng `Danghoa894/HustAlo-client`** (duyệt 2026-11-05). Repo `HustAlo` giữ `packages/shared`, `server`, `infra`, `scripts`, `load`, `.spec`, `docs` và việc deploy; `.spec/` chỉ có ở `HustAlo` (nguồn sự thật duy nhất). Client nhận `@hustalo/shared` qua **tarball có phiên bản semver trên GitHub Release** của `HustAlo` (tag `shared-vX.Y.Z`, development_guide.md §2.7), không chép mã shared. Hai repo clone cạnh nhau; client tìm monorepo qua `HUSTALO_SERVER_DIR`, monorepo tìm client qua `HUSTALO_CLIENT_DIR`. | Chủ dự án chỉ phụ trách client và làm trong repo riêng; repo `HustAlo` public nên tải tarball không cần token (GitHub Packages bắt buộc PAT kể cả khi đọc; npm không cài được thư mục con của repo git). |
 | D-25 | **`HustAlo` là repo phát hành duy nhất.** `HustAlo-client` chỉ build + push image `hustalo-client:<sha>`; `HustAlo` ghim phiên bản client trong `infra/client.version` (đổi qua PR), deploy server (`IMAGE_TAG`) và client (`CLIENT_IMAGE_TAG`) cùng một lần, job `verify` chạy smoke từ `HustAlo-client` ở đúng SHA đã ghim. Ngược lại `HustAlo-client` ghim backend dùng cho E2E trong `server.version`. | Secret SSH của VM chỉ ở một repo; production luôn là một cặp server–client đã kiểm tương thích; rollback từng phần bằng hai tag độc lập. |
+| D-26 | **Client MVP không hiển thị ảnh đại diện từ `avatarUrl`** (duyệt 2026-11-09). Avatar chỉ là chữ cái đầu của tên; `ProfileSection` không có ô nhập `avatarUrl`. API, Zod schema và DB **giữ nguyên** trường `avatarUrl` (`https://`, ≤ 2048, FR-USER-002, AC-013) để không đổi hợp đồng `@hustalo/shared`. CSP `img-src 'self' data: blob:` (9.6) giữ nguyên. Ảnh đại diện thật làm cùng tính năng tải ảnh lên server (ngoài MVP). | Ảnh tải từ URL do người dùng tự đặt cho máy chủ của họ biết IP và thời điểm mỗi người xem mở danh sách chat/phòng/danh sách chặn (có thể ép `Cache-Control: no-store`) → vô hiệu FR-USER-004 (ẩn lastSeen) và một phần D-21 (người đã chặn vẫn bị theo dõi), trái PG-04. Proxy ảnh qua server cần chống SSRF và cache — để sau MVP (`docs/proposals/sua-spec-p0-avatar-menu-migrate.md`). |
 
 ### 2.2 Rủi ro đã biết
 
@@ -328,7 +329,7 @@ hustalo/                              # repo HustAlo (monorepo: shared, server, 
 └── server/
     ├── package.json                  # name "@hustalo/server"; dev: tsx watch; build: tsup (bundle @hustalo/shared)
     ├── tsconfig.json
-    ├── tsup.config.ts
+    ├── tsup.config.ts                # entry: src/main.ts, src/infra/db/indexes.ts, src/infra/db/migrate.ts (database_schema.md §6.4)
     ├── vitest.config.ts              # unit: src/**/*.test.ts trừ *.int.test.ts
     ├── vitest.integration.config.ts  # integration: src/**/*.int.test.ts, globalSetup mongo-memory replset
     ├── Dockerfile                    # [NEW] M6.5: multi-stage (deps → build tsup → runtime), USER node, HEALTHCHECK /api/v1/health
@@ -352,6 +353,10 @@ hustalo/                              # repo HustAlo (monorepo: shared, server, 
         │   │   ├── mongo.ts                # connect (replicaSet bắt buộc), health ping
         │   │   ├── transaction.ts          # withTxn(fn): session.withTransaction, retry MONGO_TXN_MAX_RETRIES
         │   │   ├── indexes.ts              # entry `npm run db:indexes`: Model.syncIndexes() cho mọi model
+        │   │   ├── migrate.ts              # entry `npm run db:migrate` / production `node dist/infra/db/migrate.js` (database_schema.md §6.4)
+        │   │   ├── migrate.int.test.ts     # TC-DB-027
+        │   │   ├── migrations/             # NNN-<tên>.ts; MVP v1.0.0 rỗng (chỉ index.ts liệt kê migration)
+        │   │   │   └── index.ts
         │   │   └── seed.ts                 # entry `npm run db:seed`: alice, bob, carol
         │   ├── redis/
         │   │   ├── redis.ts                # ioredis client chính; cờ healthy theo event ready/error/end
@@ -2008,6 +2013,7 @@ object-src 'none'
 ```
 
   (`style-src 'unsafe-inline'` cần cho style động của video PiP. Font Inter tự host (ui_ux_spec.md §1.1, NFR-05) nên không có domain Google Fonts.)
+  (`img-src` cố ý không có host ngoài: client MVP không hiển thị ảnh từ `avatarUrl` (D-26).)
 - `Referrer-Policy: no-referrer`, `X-Content-Type-Options: nosniff`, `Permissions-Policy: camera=(self), microphone=(self), geolocation=()`.
 - CORS: `origin` ∈ `CORS_ORIGINS` (danh sách phân tách bằng dấu phẩy), `credentials: true`, methods `GET,POST,PATCH,PUT,DELETE`, headers `Authorization, Content-Type, X-CSRF-Token, X-Request-Id, Idempotency-Key`. Origin khác → không set header CORS (trình duyệt chặn); Socket.IO dùng cùng whitelist.
 - Hiển thị: React escape mặc định; ESLint `react/no-danger: error`; link trong tin nhắn hiển thị dạng text (MVP không tự động linkify). Bubble dùng `dir="auto"` và CSS `unicode-bidi: isolate` chống ký tự điều khiển RTL làm đảo giao diện (EC-MSG-003); payload XSS hiển thị nguyên văn (EC-MSG-004).
@@ -2291,6 +2297,7 @@ Ma trận edge case trong `product_requirements.md` phải chứa **đúng** cá
 | EC-MSG-015 | Sửa/thu hồi sau 15 phút | `FORBIDDEN` | 4.5 |
 | EC-MSG-016 | Payload SECRET có `content` / DIRECT có `ciphertext` | `VALIDATION_ERROR` | 9.3 |
 | EC-MSG-017 | Sửa tin trong SECRET | `FORBIDDEN` (D-16) | 4.5 |
+| EC-MSG-018 | Thiết bị không có hover (cảm ứng) hoặc chỉ dùng bàn phím cần mở menu tin nhắn | Không liên quan server; client mở `MessageActions` bằng nhấn giữ 500 ms, chuột phải, `Shift+F10`/`ContextMenu`; cuộn (di chuyển > 10 px) không mở menu (`ui_ux_spec.md` §3.3, §7) | — |
 
 ### GROUP
 
@@ -2403,7 +2410,7 @@ Ma trận edge case trong `product_requirements.md` phải chứa **đúng** cá
 | EC-E2EE-007 | Đăng nhập thiết bị mới không đọc lịch sử SECRET cũ | Hành vi thiết kế | 7(h) |
 | EC-E2EE-008 | Danh sách thiết bị đổi giữa lúc gửi | `CONFLICT` → tải lại bundle, mã hóa lại | 7(h) |
 
-Tổng: 106 edge case.
+Tổng: 107 edge case.
 
 ---
 
@@ -2441,3 +2448,4 @@ Giá trị nhạy cảm (`JWT_ACCESS_SECRET`, `REFRESH_TOKEN_PEPPER`, `DATA_ENCR
 - [x] **Sửa 8 mâu thuẫn của bản nháp:** (1) cấu trúc server chốt `modules/ realtime/ infra/ http/` (D-01); (2) tên event theo 3.3; (3) một enum `CallStatus` cho state machine/DB/UI (8.1); (4) người tạo nhóm là OWNER; (5) `message:edit/delete` có quy tắc 15 phút, chỉ người gửi, placeholder thu hồi (FR-CHAT-007/008); (6) AES-256-GCM (9.2) và E2EE (7(h), 9.3) đặc tả mức code; (7) không lồng code block; (8) glare, đổ chuông đa thiết bị, chặn người dùng, OWNER rời nhóm, gọi nhóm bị từ chối đều có quyết định (D-03, D-07, D-21, D-22, D-23).
 - [x] **Không mâu thuẫn với file đã sinh trước:** đây là file đầu tiên (1/6). Các điểm các file sau phải đối chiếu: cây thư mục 4.1 (`development_guide.md`, `ui_ux_spec.md`), endpoint 4.6 gồm 4 endpoint `[NEW]` (`api_spec.yaml`), payload event 4.5 (`api_spec.yaml` `x-socket-events`), Redis key Phụ lục A và collection list (`database_schema.md`), chuỗi UI 8.6 (`ui_ux_spec.md`), FR/EC registry (`product_requirements.md`), biến môi trường Phụ lục D (`development_guide.md`).
 - [x] **Tách repo client (D-24, D-25, R-06; duyệt 2026-11-05):** không đổi tech stack, enum, event, mã lỗi, hằng số, API hay hành vi; chỉ đổi nơi đặt mã client, cách phân phối `@hustalo/shared` (tarball semver) và cách phát hành. Quy ước đường dẫn `client/…` = gốc `HustAlo-client` giữ nguyên mọi tham chiếu `client/…` ở các file spec khác.
+- [x] **Ảnh đại diện, menu tin nhắn, migrate (duyệt 2026-11-09, `docs/proposals/sua-spec-p0-avatar-menu-migrate.md`):** thêm D-26 (không hiển thị `avatarUrl` ở client MVP; API/DB/CSP không đổi); ghi chú `img-src` ở 9.6; Phụ lục C thêm EC-MSG-018 (107 EC, khớp ma trận PRD); cây 4.1 thêm `infra/db/migrate.ts`, `migrate.int.test.ts` (TC-DB-027), `migrations/index.ts` và entry thứ ba của `tsup.config.ts`. Không đổi tech stack, enum, event, mã lỗi, hằng số, endpoint. Đã đối chiếu: `product_requirements.md` §1.2/§1.3/FR-USER-002/EC-MSG-018, `database_schema.md` §6.4/§7, `ui_ux_spec.md` dòng 611/844/1114/1121, `development_guide.md` §2/§9.6 (các file này sửa ở lượt kế tiếp).
