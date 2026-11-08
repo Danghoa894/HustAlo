@@ -45,12 +45,26 @@ describe('ProfileSection (ui_ux_spec.md §3.8, FR-USER-002)', () => {
     expect(fetchMock.mock.calls.some(([u]) => urlOf(u).endsWith('/users/me'))).toBe(false);
   });
 
-  it('TC-AC-013 avatarUrl http:// → lỗi "Ảnh đại diện phải là URL https://"', async () => {
+  it('D-26 không có ô nhập ảnh đại diện; avatarUrl sẵn có không bị gửi lại khi lưu tên', async () => {
+    const withAvatar = userMe({ avatarUrl: 'https://cdn.example/a.png' });
+    useAuthStore.setState({ user: withAvatar });
+    fetchMock.mockImplementation((input) =>
+      Promise.resolve(urlOf(input).endsWith('/auth/me') ? jsonResponse(200, withAvatar) : jsonResponse(500, {})),
+    );
     renderPage(<ProfileSection />, { path: '/settings/profile' });
     await screen.findByDisplayValue('Alice Nguyễn');
-    fireEvent.change(screen.getByLabelText(t.settings.profile.avatarUrl), { target: { value: 'http://x' } });
+    expect(screen.queryByLabelText(/Ảnh đại diện/)).toBeNull();
+    expect(screen.queryByDisplayValue('https://cdn.example/a.png')).toBeNull();
+    expect(screen.getAllByRole('textbox')).toHaveLength(3); // tên hiển thị, tên người dùng, email
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, userMe({ displayName: 'Alice Mới' })));
+    fireEvent.change(nameInput(), { target: { value: 'Alice Mới' } });
     save();
-    expect(screen.getByText(t.settings.profile.invalidAvatarUrl)).toBeInTheDocument();
+    await waitFor(() => {
+      expect(useAuthStore.getState().user?.displayName).toBe('Alice Mới');
+    });
+    const i = fetchMock.mock.calls.findIndex(([u]) => urlOf(u).endsWith('/users/me'));
+    expect(requestBody(fetchMock, i)).toEqual({ displayName: 'Alice Mới' });
   });
 
   it('TC-AC-013 lưu tên mới → PATCH /users/me chỉ trường đổi, cập nhật store, toast "Đã lưu thay đổi"', async () => {
@@ -73,12 +87,11 @@ describe('ProfileSection (ui_ux_spec.md §3.8, FR-USER-002)', () => {
     renderPage(<ProfileSection />, { path: '/settings/profile' });
     await screen.findByDisplayValue('Alice Nguyễn');
     fetchMock.mockResolvedValueOnce(
-      errorResponse(400, 'VALIDATION_ERROR', { details: [{ path: 'avatarUrl', message: 'Invalid url' }] }),
+      errorResponse(400, 'VALIDATION_ERROR', { details: [{ path: 'displayName', message: 'Invalid' }] }),
     );
-    fireEvent.change(screen.getByLabelText(t.settings.profile.avatarUrl), {
-      target: { value: 'https://cdn.example/a.png' },
-    });
+    fireEvent.change(nameInput(), { target: { value: 'Alice Khác' } });
     save();
-    expect(await screen.findByText(t.settings.profile.invalidAvatarUrl)).toBeInTheDocument();
+    expect(await screen.findByText(t.common.required)).toBeInTheDocument();
+    expect(nameInput()).toHaveAttribute('aria-invalid', 'true');
   });
 });

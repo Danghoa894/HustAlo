@@ -1,5 +1,6 @@
-// client/src/features/settings/ProfileSection.tsx — hồ sơ: displayName (đếm /80), avatarUrl, username/email chỉ đọc
+// client/src/features/settings/ProfileSection.tsx — hồ sơ: displayName (đếm /80), username/email chỉ đọc
 // (ui_ux_spec.md §3.8; FR-USER-002, AC-013). Dữ liệu Q['me'] = GET /auth/me; lưu = PATCH /users/me các trường đã đổi.
+// Không có ô `avatarUrl` (D-26): client MVP không hiển thị ảnh đại diện, API vẫn giữ trường này.
 import { UpdateMeRequestSchema, type UpdateMeRequest, type UserMe } from '@hustalo/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo, type FormEvent } from 'react';
@@ -14,30 +15,22 @@ import { errorFields, formErrorMessage, useForm, zodFieldErrors } from '../auth/
 import { DisplayNameCounter } from '../auth/RegisterPage';
 import { SectionSkeleton } from './SectionSkeleton';
 
-type Field = 'displayName' | 'avatarUrl';
+type Field = 'displayName';
 const FALLBACK: Record<Field, string> = {
   displayName: vi.common.required,
-  avatarUrl: vi.settings.profile.invalidAvatarUrl,
 };
 
 const toPatch = (v: Record<Field, string>, base: UserMe): UpdateMeRequest => {
   const patch: UpdateMeRequest = {};
   if (v.displayName !== base.displayName) patch.displayName = v.displayName;
-  const avatarUrl = v.avatarUrl.trim() === '' ? null : v.avatarUrl.trim();
-  if (avatarUrl !== base.avatarUrl) patch.avatarUrl = avatarUrl;
   return patch;
 };
 
 const validate = (v: Record<Field, string>) =>
-  zodFieldErrors(
-    UpdateMeRequestSchema,
-    { displayName: v.displayName, avatarUrl: v.avatarUrl.trim() === '' ? null : v.avatarUrl.trim() },
-    v,
-    FALLBACK,
-  );
+  zodFieldErrors(UpdateMeRequestSchema, { displayName: v.displayName }, v, FALLBACK);
 
 function ProfileForm({ me }: { me: UserMe }) {
-  const initial = useMemo(() => ({ displayName: me.displayName, avatarUrl: me.avatarUrl ?? '' }), [me]);
+  const initial = useMemo(() => ({ displayName: me.displayName }), [me]);
   const form = useForm<Field>(initial, validate);
   const queryClient = useQueryClient();
   const pushToast = useUiStore((s) => s.pushToast);
@@ -76,13 +69,6 @@ function ProfileForm({ me }: { me: UserMe }) {
         autoComplete="name"
         hint={<DisplayNameCounter value={form.values.displayName} />}
         {...form.field('displayName')}
-      />
-      <TextField
-        label={vi.settings.profile.avatarUrl}
-        type="url"
-        inputMode="url"
-        placeholder="https://"
-        {...form.field('avatarUrl')}
       />
       <TextField label={vi.settings.profile.username} value={me.username} readOnly />
       <TextField label={vi.settings.profile.email} value={me.email} readOnly />
