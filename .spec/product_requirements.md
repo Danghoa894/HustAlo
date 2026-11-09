@@ -45,7 +45,7 @@
 ### 1.2 Phạm vi MVP
 
 - Tài khoản: đăng ký, đăng nhập, đăng xuất, đổi mật khẩu, phiên đa thiết bị.
-- Hồ sơ: tên hiển thị, ảnh đại diện dạng URL, quyền riêng tư lastSeen, chặn người dùng.
+- Hồ sơ: tên hiển thị, quyền riêng tư lastSeen, chặn người dùng. Ảnh đại diện: chỉ chữ cái đầu của tên (D-26).
 - Hội thoại: DIRECT (1-1), GROUP (tối đa `GROUP_MAX_MEMBERS` = 100), SECRET (1-1 E2EE).
 - Tin nhắn văn bản: gửi, lịch sử, receipt, typing, sửa/thu hồi trong `MESSAGE_EDIT_WINDOW_MS` (15 phút), SYSTEM message.
 - Presence online/offline + lastSeen đa thiết bị.
@@ -59,7 +59,7 @@
 |---|---|
 | Gọi nhóm | `call:invite` trong GROUP → `VALIDATION_ERROR` "Cuộc gọi nhóm chưa được hỗ trợ"; UI ẩn nút gọi (FR-CALL-010) |
 | Gửi file, ảnh, sticker, voice note | Không có UI, không có API |
-| Tải ảnh đại diện lên server | Chỉ nhận `avatarUrl` dạng `https://` |
+| Ảnh đại diện (tải lên hoặc từ URL) | Client không hiển thị ảnh và không có ô nhập; API vẫn nhận/trả `avatarUrl` dạng `https://` để giữ hợp đồng (D-26) |
 | Push notification / Service Worker | Không; cuộc gọi tới người offline chờ tối đa `CALL_RING_TIMEOUT_MS` (D-08) |
 | Tìm kiếm full-text nội dung tin nhắn | Không (giới hạn của AES tầng ứng dụng) |
 | SECRET GROUP, sửa tin trong SECRET | Không (D-16) |
@@ -179,6 +179,7 @@ Mọi FR dùng hằng số trong `packages/shared/src/constants.ts` (kiến trú
 #### FR-USER-002 — Cập nhật hồ sơ
 - **Mô tả:** `PATCH /users/me { displayName?, avatarUrl?, privacy? }`.
 - **Quy tắc:** `displayName` như FR-AUTH-001; `avatarUrl` là URL `https://`, tối đa 2048 ký tự, hoặc `null` để xóa; `privacy.showLastSeen: boolean`. Ít nhất một trường, ngược lại `VALIDATION_ERROR`. Thay đổi `displayName`/`avatarUrl` không phát event realtime ở MVP; client khác thấy khi tải lại dữ liệu.
+- **Client MVP (D-26):** `ProfileSection` không có ô nhập `avatarUrl`; mọi `Avatar` chỉ vẽ chữ cái đầu, không tải ảnh từ `avatarUrl` (lý do: ảnh từ URL tùy ý lộ IP/thời điểm truy cập của người xem cho chủ máy chủ ảnh, vô hiệu FR-USER-004). Trường vẫn được API kiểm tra và lưu như trên (AC-013).
 - **AC:** AC-013.
 
 #### FR-USER-003 — Chặn / bỏ chặn
@@ -244,12 +245,12 @@ Mọi FR dùng hằng số trong `packages/shared/src/constants.ts` (kiến trú
 #### FR-CHAT-007 — Sửa tin
 - **Mô tả:** `message:edit { messageId, content }`.
 - **Quy tắc:** chỉ người gửi; trong `MESSAGE_EDIT_WINDOW_MS` (15 phút) tính theo `createdAt` server; không áp dụng cho SYSTEM, tin đã thu hồi, tin SECRET (D-16); vi phạm → `FORBIDDEN`. `content` theo quy tắc FR-CHAT-002; nội dung giống hệt bản cũ → ACK ok, không phát event. Thành công: mã hóa lại (IV mới), set `editedAt`, phát `message:edit` tới mọi người tham gia; UI hiển thị nhãn "Đã chỉnh sửa". Không lưu lịch sử phiên bản. Sửa không đổi vị trí tin và không đổi receipt.
-- **AC:** AC-030, AC-031. **EC:** EC-MSG-015, EC-MSG-017.
+- **AC:** AC-030, AC-031. **EC:** EC-MSG-015, EC-MSG-017, EC-MSG-018.
 
 #### FR-CHAT-008 — Thu hồi tin
 - **Mô tả:** `message:delete { messageId }` — thu hồi với mọi người.
 - **Quy tắc:** chỉ người gửi; trong 15 phút; không áp dụng SYSTEM (`FORBIDDEN`). Áp dụng cả SECRET. Thành công: xóa `contentEnc`/`ciphertext`, set `deletedAt`, phát `message:delete`; mọi client hiển thị placeholder **"Tin nhắn đã bị thu hồi"** đúng vị trí cũ. Thu hồi lần hai → ACK ok trả bản hiện tại (idempotent). Nếu là tin cuối, preview danh sách chat hiển thị "Tin nhắn đã bị thu hồi". Không có "xóa phía tôi" ở MVP.
-- **AC:** AC-031, AC-032. **EC:** EC-MSG-015.
+- **AC:** AC-031, AC-032. **EC:** EC-MSG-015, EC-MSG-018.
 
 #### FR-CHAT-009 — Danh sách hội thoại
 - **Mô tả:** `GET /conversations?cursor=&limit=` trả `ConversationSummary[]`.
@@ -631,7 +632,7 @@ Mọi FR dùng hằng số trong `packages/shared/src/constants.ts` (kiến trú
 
 ## 5. Ma trận edge case
 
-ID khớp registry `system_architecture.md` Phụ lục C (106 dòng, 11 nhóm). "Trạng thái UI" ghi chuỗi tiếng Việt chính hoặc tên thành phần UI; `ui_ux_spec.md` dùng đúng các chuỗi này. "—" ở cột Mã lỗi nghĩa là không trả lỗi. Cột "Tầng" dùng ký hiệu mục 4 (U = unit, I = integration, E = E2E) và thêm T = test tay (`development_guide.md` §6.2); "chưa gán" = milestone sau chưa chốt tầng.
+ID khớp registry `system_architecture.md` Phụ lục C (107 dòng, 11 nhóm). "Trạng thái UI" ghi chuỗi tiếng Việt chính hoặc tên thành phần UI; `ui_ux_spec.md` dùng đúng các chuỗi này. "—" ở cột Mã lỗi nghĩa là không trả lỗi. Cột "Tầng" dùng ký hiệu mục 4 (U = unit, I = integration, E = E2E) và thêm T = test tay (`development_guide.md` §6.2); "chưa gán" = milestone sau chưa chốt tầng.
 
 ### 5.1 AUTH
 
@@ -682,6 +683,7 @@ ID khớp registry `system_architecture.md` Phụ lục C (106 dòng, 11 nhóm).
 | EC-MSG-015 | MSG | Sửa/thu hồi sau 15 phút | Từ chối theo `createdAt` server | Ẩn mục "Sửa"/"Thu hồi" sau 15 phút | Toast "Chỉ có thể sửa hoặc thu hồi tin trong 15 phút" | FORBIDDEN | I | TC-MSG-015 |
 | EC-MSG-016 | MSG | SECRET có `content`, hoặc DIRECT/GROUP có `ciphertext` | Từ chối | Client luôn chọn `kind` theo loại hội thoại | Bubble FAILED | VALIDATION_ERROR | U, I | TC-MSG-016 |
 | EC-MSG-017 | MSG | Sửa tin trong SECRET | Từ chối (D-16) | Không hiển thị mục "Sửa" trong SECRET | — | FORBIDDEN | chưa gán | TC-MSG-017 |
+| EC-MSG-018 | MSG | Thiết bị không có hover (cảm ứng) hoặc chỉ dùng bàn phím cần sửa/thu hồi/sao chép tin | Không liên quan | Mở `MessageActions` bằng nhấn giữ 500 ms (hủy khi thả sớm hoặc di chuyển > 10 px), chuột phải (`contextmenu`), `Shift+F10`/`ContextMenu` khi bubble focus; Android không mở hai lần khi `contextmenu` đến trong lúc nhấn giữ; tin không có mục nào thì không mở | Menu "Sao chép" / "Sửa" / "Thu hồi" tại bubble | — | U | TC-MSG-018 |
 
 ### 5.4 GROUP
 
@@ -847,10 +849,11 @@ Một FR/milestone chỉ được coi là xong khi **tất cả** điều kiện
   - Event dùng đúng tên §4.5 kiến trúc; không có `message:ack`, `call:initiate`.
   - Hằng số: `MESSAGE_MAX_LENGTH` 4000, `MESSAGE_EDIT_WINDOW_MS` 15 phút, `GROUP_MAX_MEMBERS` 100, `GROUP_TITLE_MAX` 100, `DISPLAY_NAME_MAX` 80, `HISTORY_PAGE_DEFAULT/MAX` 30/100, `CONVERSATION_PAGE_DEFAULT/MAX` 20/50, `UNREAD_COUNT_CAP` 99, token 15 phút/30 ngày, `REFRESH_REUSE_GRACE_S` 10, presence 60/20/10 s, typing 5/3 s, call 45/30/20 s + 2 ICE restart, `ICE_DISCONNECTED_GRACE_MS` 3 s, TURN 1 h/5 phút, outbox 200/1-2-4-8 s/30 s/24 h, `GROUP_ADD_BATCH_MAX` 50, E2EE 100/20/5 thiết bị/7 ngày, rate limit đúng `RATE_LIMITS`.
 - [x] **FR/AC tham chiếu bằng ID:** 56 FR của registry kiến trúc (Phụ lục B) đều có mục ở §3, cộng 2 FR mới được phép bổ sung: `FR-CHAT-011` (SYSTEM message) và `FR-CALL-011` (âm báo cuộc gọi). Mỗi FR liệt kê AC và EC; 102 AC (AC-001..AC-122, có khoảng trống đánh số để chèn sau) đều chỉ ra FR gốc; Test ID `TC-AC-<số>`.
-- [x] **Edge case có ID trong ma trận:** ma trận §5 có đúng 106 dòng, trùng 1-1 với registry kiến trúc Phụ lục C (AUTH 8, NET 10, MSG 17, GROUP 7, PRES 5, CALL-SIG 16, CALL-MEDIA 13, CALL-NET 10, INFRA 3, SEC 9, E2EE 8); mỗi dòng có hành vi server/client, trạng thái UI, mã lỗi, Test ID `TC-*`. Các yêu cầu AC tối thiểu (chat 13 trường hợp, call 16, E2EE 4) đều có AC tương ứng.
+- [x] **Edge case có ID trong ma trận:** ma trận §5 có đúng 107 dòng, trùng 1-1 với registry kiến trúc Phụ lục C (AUTH 8, NET 10, MSG 18, GROUP 7, PRES 5, CALL-SIG 16, CALL-MEDIA 13, CALL-NET 10, INFRA 3, SEC 9, E2EE 8); mỗi dòng có hành vi server/client, trạng thái UI, mã lỗi, Test ID `TC-*`. Các yêu cầu AC tối thiểu (chat 13 trường hợp, call 16, E2EE 4) đều có AC tương ứng.
 - [x] **Không có secret thật, không chỗ trống:** không có giá trị secret; email/user ví dụ là dữ liệu seed; không có "TODO" hay "tương tự như trên".
 - [x] **Không mâu thuẫn với `system_architecture.md` — các điểm đã đối chiếu:**
   - D-03 glare gộp (FR-CALL-005, AC-077); D-04 caller là offerer (FR-CALL-006); D-06 đang đổ chuông tính là bận (FR-CALL-004); D-07 từ chối một tab là từ chối tất cả (AC-072); D-08 gọi người offline (AC-088); D-10 rate limit khi Redis down (AC-109); D-11 một SECRET mỗi cặp (FR-E2EE-004); D-16 không sửa tin SECRET (EC-MSG-017); D-17 đếm code point (AC-036); D-19 grace refresh (AC-007); D-21 chặn hai chiều (FR-USER-003); D-22 không gọi nhóm (AC-086); D-23 OWNER rời nhóm (AC-053).
   - State machine T01–T36 (§8.2) khớp kết cục trong FR-CALL-004/006/009 và AC-070..092; chuỗi UI §8.6 dùng lại nguyên văn trong ma trận §5.
   - Endpoint dùng đúng §4.6 kể cả 4 endpoint `[NEW]` (`/auth/change-password`, `PATCH /conversations/{id}/members/{userId}`, `GET /e2ee/devices`, `DELETE /e2ee/devices/{deviceId}`).
   - **Bổ sung so với kiến trúc (không mâu thuẫn, các file sau phải phản ánh):** `GET /auth/me` trả `blockedUserIds`; `ConversationSummary` có `blockedByMe`, `canMessage`, `myLastDeliveredMessageId`, `myLastReadMessageId`; `UserPublic` trong kết quả tìm kiếm có `blockedByMe`; `CallRecord` có `direction`; nhóm có OWNER duy nhất rời thì `conversations.deletedAt`; script `user:lock`/`user:unlock`; các trường dữ liệu ở §3.9.
+- [x] **Ảnh đại diện và menu tin nhắn (duyệt 2026-11-09, `docs/proposals/sua-spec-p0-avatar-menu-migrate.md`):** §1.2, §1.3 và FR-USER-002 theo D-26 (client không hiển thị/không nhập `avatarUrl`; API, AC-013 không đổi); thêm EC-MSG-018 (tầng U, TC-MSG-018) vào ma trận §5 và dòng EC của FR-CHAT-007/008. Không đổi enum, event, mã lỗi, hằng số, endpoint. Đã đối chiếu `system_architecture.md` D-26, Phụ lục C (107 EC) và `ui_ux_spec.md` dòng 611, 1114.

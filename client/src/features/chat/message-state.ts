@@ -90,3 +90,8 @@ export function canEditOrRecall(m: Message, meId: string, serverNowMs: number): 
     serverNowMs - Date.parse(m.createdAt) < MESSAGE_EDIT_WINDOW_MS
   );
 }
+
+/** MessageActions có ít nhất một mục: "Sao chép" (có nội dung, chưa thu hồi) hoặc "Sửa"/"Thu hồi" (EC-MSG-018). */
+export function hasMessageActions(m: Message, meId: string, serverNowMs: number): boolean {
+  return (m.content !== null && m.deletedAt === null) || canEditOrRecall(m, meId, serverNowMs);
+}

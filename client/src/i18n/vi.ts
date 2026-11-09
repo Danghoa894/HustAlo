@@ -343,11 +343,9 @@ export const vi = {
     saved: 'Đã lưu thay đổi',
     profile: {
       displayName: 'Tên hiển thị',
-      avatarUrl: 'Ảnh đại diện (URL)',
       username: 'Tên người dùng',
       email: 'Email',
       counter: (n: number) => `${n}/${DISPLAY_NAME_MAX}`,
-      invalidAvatarUrl: 'Ảnh đại diện phải là URL https://',
     },
     security: {
       changePassword: 'Đổi mật khẩu',

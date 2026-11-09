@@ -1,4 +1,6 @@
-// client/src/components/ui/Avatar.tsx — chữ cái đầu của tên; tên là dữ liệu người dùng → chỉ render dạng text
+// client/src/components/ui/Avatar.tsx — chữ cái đầu của tên; tên là dữ liệu người dùng → chỉ render dạng text.
+// Cố ý không nhận/tải ảnh từ `avatarUrl` (D-26, ui_ux_spec.md §7): ảnh từ URL tùy ý lộ IP và thời điểm truy cập
+// của người xem cho chủ máy chủ ảnh; CSP `img-src 'self' data: blob:` cũng chặn host ngoài.
 export interface AvatarProps {
   name: string;
   size?: number;

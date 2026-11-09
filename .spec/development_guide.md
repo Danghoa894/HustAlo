@@ -13,7 +13,7 @@
 |---|---|
 | `system_architecture.md` | Cây thư mục §4.1 (file nào nằm ở đâu), cổng §3, cấu hình Socket.IO §6.4, TURN §9.5, độ tin cậy §10, biến môi trường Phụ lục D, AC kiến trúc `AC-ARCH-001..017` §12 |
 | `product_requirements.md` | FR, AC (`TC-AC-*`), ma trận edge case (`TC-<NHÓM>-*`), NFR §6, Definition of Done §7 — dùng làm gate của từng milestone |
-| `database_schema.md` | `npm run db:indexes` §6.3, `db:migrate` §6.4, `db:seed` §6.5, test database `TC-DB-001..026` §7 |
+| `database_schema.md` | `npm run db:indexes` §6.3, `db:migrate` §6.4, `db:seed` §6.5, test database `TC-DB-001..027` §7 |
 | `ui_ux_spec.md` | Màn hình và chuỗi UI kiểm tra trong E2E; file client bổ sung §8 |
 | `api_spec.yaml` | Lint bằng `@redocly/cli` trong `npm run lint`; `operationId` dùng trong Traceability Matrix |
 | `CLAUDE.md` | Quy trình mỗi tác vụ, các điều cấm, lệnh chuẩn |
@@ -221,7 +221,7 @@ npm install -D typescript concurrently eslint @eslint/js typescript-eslint eslin
 
 - `// Xác minh với tài liệu chính thức của tsx: giả định tsx chuyển tiếp cờ Node --env-file cho process con.` Nếu không, thay bằng `process.loadEnvFile('.env')` ở đầu `config/env.ts` khi `NODE_ENV !== 'production'` và file tồn tại.
 - `src/jobs/user-lock.ts` `[NEW]`: nhận `lock|unlock <email>`; `lock` gọi `auth.service.lockUser(email)` (kiến trúc §7(a): set `users.status = LOCKED`, thu hồi mọi family với lý do `ACCOUNT_LOCKED`, phát `session:revoked`, ngắt socket, kết thúc cuộc gọi `LOGOUT`); `unlock` set `status = ACTIVE`. Cách dùng: `npm run user:lock -w server -- alice@hustalo.local`. Vì job chạy ở process riêng, việc phát event tới socket đi qua Redis: job publish lên kênh Redis `${REDIS_KEY_PREFIX}ops:user-locked` `{ userId }`, `session.handler` của mọi instance subscribe kênh này và thực hiện `disconnectSockets(true)` cho room `user:{userId}` (DG-03).
-- `src/infra/db/migrate.ts` và `src/infra/db/migrations/` theo `database_schema.md` §6.4.
+- `src/infra/db/migrate.ts` và `src/infra/db/migrations/` theo `database_schema.md` §6.4. `db:migrate` (tsx) dùng ở dev; production chạy `node dist/infra/db/migrate.js` (entry thứ ba trong `tsup.config.ts`, mục 9.6 bước 5a). Test: TC-DB-027.
 - `test:coverage` `[NEW]`: unit rồi integration kèm `@vitest/coverage-v8` (cùng phiên bản `vitest`), ghi `coverage/{unit,integration}/coverage-final.json`. `call.state-machine.ts` 100% nhánh là ngưỡng theo file trong `vitest.config.ts` (unit). Ngưỡng 80% dòng cho `src/modules/**` tính trên unit + integration gộp bằng `scripts/coverage-merge.mjs` (`istanbul-lib-coverage`); `packages/shared` tự đặt ngưỡng 80% dòng. Ở gốc: `npm run test:coverage` chạy cả hai workspace rồi gộp (NFR-14, M6).
 - `build` ở gốc chạy thêm `scripts/check-bundle-size.mjs` sau `check-bundle-secrets.mjs`: JS khởi tạo ≤ 300 KB gzip (NFR-05).
 
@@ -1191,7 +1191,7 @@ Checklist:
 - [ ] `modules/messages/*` (service, `receipts.service.ts`, repository, `messageReceipt.model.ts`, `message.crypto.ts`), `realtime/handlers/message.handler.ts` (`message:send`, `message:delivered`, `message:read`, `message:edit`, `message:delete`; phát `message:new`, `message:status`), `jobs/reencrypt-messages.ts`.
 - [ ] Client: `features/chat/*` (MessageList, MessageBubble, MessageStatusIcon, DateDivider, NewMessagesButton, Composer, MessageActions, MessageMeta, ReadByIndicator, BlockedComposerNotice, EmptyRoomPlaceholder, RoomMenu (mục DIRECT "Chặn"/"Bỏ chặn"), `useMessages.ts`, `useSendMessage.ts`, `useReadReceipts.ts`), `lib/outbox/*`, `stores/outbox.store.ts`, `lib/socket/event-dedupe.ts`, `lib/socket/sync.ts`, `lib/time/*`, `components/layout/LiveRegions.tsx`, `components/ui/UnreadBadge.tsx`, `features/settings/BlockedSection.tsx` (chuyển từ M1) + endpoint `GET /users/blocked`; `LastMessagePreview.sender`.
 
-Gate: `TC-AC-011` (phần đồng bộ), `TC-AC-014` (phần tin nhắn), `TC-AC-015`, `TC-AC-020`, `TC-AC-021`, `TC-AC-022`, `TC-AC-023`, `TC-AC-024`, `TC-AC-025`, `TC-AC-028`, `TC-AC-029`, `TC-AC-030`, `TC-AC-031`, `TC-AC-032`, `TC-AC-033`, `TC-AC-034`, `TC-AC-035`, `TC-AC-036`, `TC-AC-037`, `TC-AC-039`, `TC-AC-040`, `TC-AC-041`, `TC-AC-042`, `TC-AC-043`, `TC-AC-057`, `TC-AC-100`, `TC-AC-101`, `TC-AC-106`, `TC-ARCH-005`, `TC-ARCH-006`, `TC-MSG-001`, `TC-MSG-002`, `TC-MSG-003`, `TC-MSG-004`, `TC-MSG-005`, `TC-MSG-006`, `TC-MSG-007`, `TC-MSG-008`, `TC-MSG-009`, `TC-MSG-010`, `TC-MSG-011`, `TC-MSG-012`, `TC-MSG-013`, `TC-MSG-014`, `TC-MSG-015`, `TC-MSG-016` (phần DIRECT/GROUP có `ciphertext`), `TC-NET-001`, `TC-NET-002`, `TC-NET-003`, `TC-NET-004`, `TC-NET-005`, `TC-NET-006`, `TC-NET-007`, `TC-NET-008`, `TC-NET-009`, `TC-NET-010`, `TC-SEC-002`, `TC-SEC-003`, `TC-INFRA-001`, `TC-INFRA-003`, `TC-GROUP-007`, `TC-DB-005`, `TC-DB-006`, `TC-DB-007`, `TC-DB-009`, `TC-DB-010`, `TC-DB-011`, `TC-DB-013`, `TC-DB-014`, `TC-DB-020`.
+Gate: `TC-AC-011` (phần đồng bộ), `TC-AC-014` (phần tin nhắn), `TC-AC-015`, `TC-AC-020`, `TC-AC-021`, `TC-AC-022`, `TC-AC-023`, `TC-AC-024`, `TC-AC-025`, `TC-AC-028`, `TC-AC-029`, `TC-AC-030`, `TC-AC-031`, `TC-AC-032`, `TC-AC-033`, `TC-AC-034`, `TC-AC-035`, `TC-AC-036`, `TC-AC-037`, `TC-AC-039`, `TC-AC-040`, `TC-AC-041`, `TC-AC-042`, `TC-AC-043`, `TC-AC-057`, `TC-AC-100`, `TC-AC-101`, `TC-AC-106`, `TC-ARCH-005`, `TC-ARCH-006`, `TC-MSG-001`, `TC-MSG-002`, `TC-MSG-003`, `TC-MSG-004`, `TC-MSG-005`, `TC-MSG-006`, `TC-MSG-007`, `TC-MSG-008`, `TC-MSG-009`, `TC-MSG-010`, `TC-MSG-011`, `TC-MSG-012`, `TC-MSG-013`, `TC-MSG-014`, `TC-MSG-015`, `TC-MSG-016` (phần DIRECT/GROUP có `ciphertext`), `TC-NET-001`, `TC-NET-002`, `TC-NET-003`, `TC-NET-004`, `TC-NET-005`, `TC-NET-006`, `TC-NET-007`, `TC-NET-008`, `TC-NET-009`, `TC-NET-010`, `TC-SEC-002`, `TC-SEC-003`, `TC-INFRA-001`, `TC-INFRA-003`, `TC-GROUP-007`, `TC-DB-005`, `TC-DB-006`, `TC-DB-007`, `TC-DB-009`, `TC-DB-010`, `TC-DB-011`, `TC-DB-013`, `TC-DB-014`, `TC-DB-020`, `TC-MSG-018`.
 
 ### M4 — Presence và typing
 
@@ -1246,7 +1246,7 @@ Checklist:
 - [ ] `client/playwright.config.ts` đọc `E2E_BASE_URL`; spec smoke gắn tag `@smoke`.
 - [ ] Hạ tầng theo mục 9.1 (VM + domain + Let's Encrypt); chạy đủ bảng mục 9.7 trên môi trường đã deploy; ghi URL, commit SHA đã deploy và kết quả vào `docs/STATUS.md`.
 
-Gate: `TC-ARCH-016`, `TC-ARCH-017`.
+Gate: `TC-ARCH-016`, `TC-ARCH-017`, `TC-DB-027`.
 
 ### M7 — E2EE (Secret Chat)
 
@@ -1652,7 +1652,10 @@ Workflow chạy `bash infra/deploy-prod.sh <DEPLOY_PATH>` trên VM. Script idemp
 3. Bảo đảm `infra/mongo/keyfile` (mục 9.3).
    Keyfile vừa được tạo/sửa, hoặc container `mongo` đang `restarting`/`exited`/`created`/`dead`/`unhealthy` → `docker compose ... rm --stop --force mongo mongo-init` (chỉ xóa container, **giữ** volume `mongo-data`) để `up` tạo lại. Container tạo lúc keyfile còn là thư mục giữ mountpoint dạng thư mục và crash-loop mãi; compose không tự tạo lại vì cấu hình không đổi (run #8).
 4. Có `/etc/letsencrypt/live/hustalo/{fullchain,privkey}.pem` → `NGINX_CONF=nginx.conf` (80 + 443); chưa có → `NGINX_CONF=nginx.bootstrap.conf` (chỉ cổng 80: ACME HTTP-01, đường dẫn khác trả 503) + `::warning::`. Workflow ghi đè `infra/nginx/*.conf` mỗi lần deploy nên không "tạm comment block 443" bằng tay.
-5. `up -d --wait --wait-timeout 300 --remove-orphans`, rồi `exec -T server node dist/infra/db/indexes.js` (index idempotent).
+5. Migrate, khởi động, tạo index (`database_schema.md` §6.4):
+   - 5a. `run --rm server node dist/infra/db/migrate.js` — chạy bằng image server **mới** trước khi thay container đang chạy; Compose tự khởi động mongo, mongo-init, redis theo `depends_on`. Exit khác 0 → dừng deploy (sang bước 6), container server cũ vẫn phục vụ.
+   - 5b. `up -d --wait --wait-timeout 300 --remove-orphans`.
+   - 5c. `exec -T server node dist/infra/db/indexes.js` (index idempotent, chạy sau khi server mới đã lên — ngoại lệ có chủ đích, `database_schema.md` §6.4).
 6. Lỗi ở bất kỳ bước nào → in `docker compose ps -a` + 60 dòng log cuối của mongo, mongo-init, redis, server, nginx (log không chứa secret — kiến trúc §11.3).
 
 Chạy tay tương đương trên VM:
@@ -1729,7 +1732,7 @@ docker run --rm -v /etc/letsencrypt:/etc/letsencrypt -v /var/www/certbot:/var/ww
 
 - [x] **Enum, event, mã lỗi, hằng số khớp mục 2 và 3:** file này không định nghĩa enum/event/mã lỗi mới; các hằng số được dùng đúng tên/giá trị của `constants.ts` (kiến trúc §4.4.1): `CALL_RING_TIMEOUT_MS` 45 s (giá trị mặc định env và ràng buộc DG-08), `SOCKET_PING_INTERVAL_MS` 25 s, `SOCKET_PING_TIMEOUT_MS` 20 s, `CALL_MAX_ICE_RESTARTS` 2, `TURN_CREDENTIAL_TTL_S` 1 h, `PASSWORD_MIN/MAX` 8..128 (seed password). Tên event `call:*`, `session:*`, `e2ee:prekeys-low` dùng đúng danh sách 35 event; không có `message:ack` hay `call:initiate`.
 - [x] **FR/AC được tham chiếu bằng ID:** mỗi milestone liệt kê FR và Gate theo `TC-AC-*`; Traceability Matrix phủ đủ 58 FR (56 FR trong registry kiến trúc Phụ lục B + `FR-CHAT-011`, `FR-CALL-011` do PRD bổ sung).
-- [x] **Edge case có ID:** đủ 106 EC (`TC-AUTH-001..008`, `TC-NET-001..010`, `TC-MSG-001..017`, `TC-GROUP-001..007`, `TC-PRES-001..005`, `TC-CALL-SIG-001..016`, `TC-CALL-MEDIA-001..013`, `TC-CALL-NET-001..010`, `TC-INFRA-001..003`, `TC-SEC-001..009`, `TC-E2EE-001..008`) đều nằm trong Gate của đúng một hoặc nhiều milestone và trong Traceability Matrix; 26 test database `TC-DB-001..026` và 17 `TC-ARCH-*` (016–017 ở M6.5) cũng được phân vào milestone.
+- [x] **Edge case có ID:** đủ 107 EC (`TC-AUTH-001..008`, `TC-NET-001..010`, `TC-MSG-001..018`, `TC-GROUP-001..007`, `TC-PRES-001..005`, `TC-CALL-SIG-001..016`, `TC-CALL-MEDIA-001..013`, `TC-CALL-NET-001..010`, `TC-INFRA-001..003`, `TC-SEC-001..009`, `TC-E2EE-001..008`) đều nằm trong Gate của đúng một hoặc nhiều milestone và trong Traceability Matrix; 26 test database `TC-DB-001..026` và 17 `TC-ARCH-*` (016–017 ở M6.5) cũng được phân vào milestone.
 - [x] **Không có secret thật, không chỗ trống:** mọi file `.env.example` dùng giá trị mẫu `replace-…`; `SEED_PASSWORD` là mật khẩu dev cục bộ, bị env.ts cấm ở production; chỗ chưa chắc chắn về công cụ bên thứ ba đều có `// Xác minh với tài liệu chính thức của …` (tsx `--env-file`, tag image coturn/mongo-express, Xirsys base URL và quota, Playwright `setOffline`, GitHub Actions, menu Android).
 - [x] **Không mâu thuẫn với file đã sinh — các điểm đã đối chiếu:**
   - Cây thư mục kiến trúc §4.1: dùng đúng `infra/docker-compose.yml`, `infra/mongo/init-replica.js` (host `mongo:27017`), `infra/coturn/turnserver.conf`, `infra/certs/localhost+lan*.pem`, `scripts/gen-secrets.mjs` (có `--data-key` như §9.2.4), `scripts/check-bundle-secrets.mjs`, `server/src/infra/db/{indexes,seed}.ts`, `jobs/reencrypt-messages.ts`, `test/{global-setup,fake-clock}.ts`, `client/{vite,playwright}.config.ts`, `client/e2e/*`.
@@ -1740,6 +1743,8 @@ docker run --rm -v /etc/letsencrypt:/etc/letsencrypt -v /var/www/certbot:/var/ww
   - Quyết định mới của file này: DG-01..DG-10. DG-03 (job `user:lock` báo instance qua kênh Redis `ops:user-locked`) và DG-10 (Xirsys chưa cấu hình → fallback không cảnh báo) là **bổ sung chi tiết hiện thực**, không đổi hợp đồng API/event.
   - **Tách repo client (D-24, D-25; duyệt 2026-11-05):** mục 2.1–2.7, 4.3, 4.6, 5.1, 5.2, 6.6, 8.2, 8.5–8.8, 9.2, 9.4–9.7. File `[NEW]`: `scripts/client-run.mjs`, `scripts/pack-shared.mjs`, `.github/workflows/release-shared.yml`, `infra/client.version`; repo client: `server.version`, `.github/workflows/{ci,docker}.yml`, file gốc mục 2.6. Biến mới: `HUSTALO_SERVER_DIR`, `HUSTALO_CLIENT_DIR`, `CLIENT_IMAGE_TAG` (kiến trúc Phụ lục D). Test ID, Gate và Traceability Matrix không đổi; đường dẫn `client/…` = gốc `HustAlo-client`.
   - **Đề xuất sửa spec (chờ duyệt, chưa áp dụng vào file khác):** `database_schema.md` §6.3 dùng `if (import.meta.url === \`file://${process.argv[1]}\`)` — điều kiện này luôn sai trên Windows nên `npm run db:indexes` không chạy gì; đề xuất đổi thành `if (isMainModule(import.meta.url))` theo DG-02 và thêm `server/src/infra/runtime/is-main.ts` vào cây kiến trúc §4.1.
+
+- [x] **Ảnh đại diện, menu tin nhắn, migrate (duyệt 2026-11-09, `docs/proposals/sua-spec-p0-avatar-menu-migrate.md`):** mục 2 ghi rõ `db:migrate` chỉ dùng ở dev, production chạy `dist/infra/db/migrate.js`; §9.6 bước 5 tách 5a migrate (trước khi thay container) / 5b `up` / 5c index; Gate M3 thêm `TC-MSG-018`, Gate M6.5 thêm `TC-DB-027`; Traceability FR-CHAT-007/008 thêm EC-MSG-018/TC-MSG-018, FR-USER-002 ghi D-26; bảng test không gắn FR thêm TC-DB-027. Đã đối chiếu: kiến trúc D-26, §4.1, Phụ lục C (107 EC); PRD EC-MSG-018, FR-USER-002; `database_schema.md` §6.4, §7; `ui_ux_spec.md` §3.3, §7, §8.
 
 ---
 
@@ -1757,7 +1762,7 @@ Cột "Test ID" liệt kê test bắt buộc; `npm run trace:check -- --strict` 
 | FR-AUTH-006 | AC-010 | EC-AUTH-005 | Script `user:lock`/`user:unlock`; `session:revoked` | `users`, `refreshSessions`; `session:revoked:{sid}` | §3.9 SessionModal | TC-AC-010, TC-AUTH-005 | M1 |
 | FR-AUTH-007 | AC-011, AC-ARCH-014 | EC-AUTH-002 | Handshake `auth.token`; `session:expired` | — (JWT); `session:revoked:{sid}` | §3.0 ConnectionBanner, §3.9 SessionModal | TC-AC-011, TC-ARCH-014, TC-AUTH-002 | M1, M3 (sync) |
 | FR-USER-001 | AC-012 | — | `GET /users/search` (`searchUsers`) | `users`, `userBlocks` | §3.2 NewChatDialog, §3.4 UserPicker | TC-AC-012 | M1 |
-| FR-USER-002 | AC-013 | — | `PATCH /users/me` (`updateMe`), `GET /auth/me` (`getMe`) | `users` | §3.8 ProfileSection | TC-AC-013 | M1 |
+| FR-USER-002 | AC-013 | — | `PATCH /users/me` (`updateMe`), `GET /auth/me` (`getMe`) | `users` | §3.8 ProfileSection (không có ô `avatarUrl`, D-26) | TC-AC-013 | M1 |
 | FR-USER-003 | AC-014, AC-015, AC-033, AC-087 | EC-MSG-011, EC-CALL-SIG-013, EC-GROUP-003 | `GET /users/blocked` (`listBlockedUsers`), `POST/DELETE /users/{userId}/block` (`blockUser`, `unblockUser`); ACK `USER_BLOCKED` cho `message:send`, `typing:start`, `call:invite` | `userBlocks`, `conversations` | §3.3 BlockedComposerNotice, §3.8 BlockedSection | TC-AC-014, TC-AC-015, TC-AC-033, TC-AC-087, TC-MSG-011, TC-CALL-SIG-013, TC-GROUP-003 | M1, M3, M4, M5 |
 | FR-USER-004 | AC-016 | EC-PRES-004 | `PATCH /users/me` (`privacy.showLastSeen`); `presence:snapshot`, `presence:update` | `users` | §3.8 PrivacySection, §3.3 ChatHeader | TC-AC-016, TC-PRES-004 | M4 |
 | FR-CHAT-001 | AC-017 | — | `POST /conversations` type DIRECT (`createConversation`) | `conversations`, `conversationMembers` | §3.2 NewChatDialog | TC-AC-017, TC-DB-008 | M2 |
@@ -1766,8 +1771,8 @@ Cột "Test ID" liệt kê test bắt buộc; `npm run trace:check -- --strict` 
 | FR-CHAT-004 | AC-022, AC-023, AC-024, AC-025, AC-042, AC-043 | EC-MSG-008, EC-MSG-009, EC-MSG-014, EC-SEC-003 | `message:delivered`, `message:read`, `message:status`; `POST /conversations/{id}/read` (`markConversationRead`) | `messageReceipts`, `conversationMembers` (cursor) | §3.3 MessageStatusIcon, ReadByIndicator | TC-AC-022, TC-AC-023, TC-AC-024, TC-AC-025, TC-AC-042, TC-AC-043, TC-MSG-008, TC-MSG-009, TC-MSG-014, TC-SEC-003, TC-DB-010, TC-DB-011, TC-DB-014 | M3 |
 | FR-CHAT-005 | AC-026 | — | `typing:start`, `typing:stop`, `typing:update` | `typing:{conversationId}:{userId}`, `rl:typing:*` | §3.3 TypingIndicator, §3.2 preview | TC-AC-026 | M4 |
 | FR-CHAT-006 | AC-040, AC-041 | EC-MSG-007, EC-NET-001, EC-INFRA-001 | `message:send` (retry cùng `clientMessageId`) | IndexedDB `outbox` (client); `messages` | §3.3 bubble PENDING/FAILED | TC-AC-040, TC-AC-041, TC-MSG-007, TC-NET-001, TC-INFRA-001 | M3 |
-| FR-CHAT-007 | AC-030, AC-031 | EC-MSG-015, EC-MSG-017 | `message:edit` | `messages` (`editedAt`, `contentEnc`) | §3.3 MessageActions, MessageMeta "Đã chỉnh sửa" | TC-AC-030, TC-AC-031, TC-MSG-015, TC-MSG-017 | M3, M7 (SECRET) |
-| FR-CHAT-008 | AC-031, AC-032 | EC-MSG-015 | `message:delete` | `messages` (`deletedAt`, xóa `contentEnc`/`ciphertext`) | §3.3 bubble "Tin nhắn đã bị thu hồi", §3.2 preview | TC-AC-031, TC-AC-032, TC-MSG-015 | M3, M7 (SECRET) |
+| FR-CHAT-007 | AC-030, AC-031 | EC-MSG-015, EC-MSG-017, EC-MSG-018 | `message:edit` | `messages` (`editedAt`, `contentEnc`) | §3.3 MessageActions (nhấn giữ, chuột phải, `Shift+F10`), MessageMeta "Đã chỉnh sửa" | TC-AC-030, TC-AC-031, TC-MSG-015, TC-MSG-017, TC-MSG-018 | M3, M7 (SECRET) |
+| FR-CHAT-008 | AC-031, AC-032 | EC-MSG-015, EC-MSG-018 | `message:delete` | `messages` (`deletedAt`, xóa `contentEnc`/`ciphertext`) | §3.3 MessageActions "Thu hồi", bubble "Tin nhắn đã bị thu hồi", §3.2 preview | TC-AC-031, TC-AC-032, TC-MSG-015, TC-MSG-018 | M3, M7 (SECRET) |
 | FR-CHAT-009 | AC-039 | EC-MSG-014 | `GET /conversations` (`listConversations`); `message:new`, `conversation:updated` | `conversations`, `conversationMembers`, `messages`, `messageReceipts` | §3.2 ChatListPane, UnreadBadge | TC-AC-039, TC-MSG-014, TC-DB-013 | M2, M3 |
 | FR-CHAT-010 | AC-028 | EC-NET-001, EC-NET-002, EC-NET-003, EC-NET-004, EC-NET-005, EC-NET-006, EC-NET-007, EC-NET-008, EC-NET-009, EC-NET-010 | Reconnect Socket.IO (`connectionStateRecovery`); `GET /conversations/{id}/messages?after=` | `messages` | §3.0 ConnectionBanner | TC-AC-028, TC-NET-001, TC-NET-002, TC-NET-003, TC-NET-004, TC-NET-005, TC-NET-006, TC-NET-007, TC-NET-008, TC-NET-009, TC-NET-010 | M3 |
 | FR-CHAT-011 | AC-050, AC-091 | — | `message:new` (type SYSTEM) | `messages` (`system.kind`) | §3.3 SystemMessage | TC-AC-050, TC-AC-091 | M2, M3, M5 |
@@ -1817,3 +1822,4 @@ Bảng phủ AC kiến trúc và test database không gắn FR trực tiếp:
 | TC-DB-001 | `ensureIndexes()` idempotent | M0 |
 | TC-DB-004 | `strict: 'throw'` | M0 |
 | TC-DB-026 | TTL index | M6 |
+| TC-DB-027 | Runner `migrate.ts`: thứ tự, idempotent, lỗi giữa chừng (`database_schema.md` §6.4) | M6.5 |

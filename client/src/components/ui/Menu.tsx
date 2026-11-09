@@ -1,5 +1,8 @@
 // client/src/components/ui/Menu.tsx — menu thả xuống (RoomMenu, MemberRow): role="menu", Esc/click ngoài để đóng,
 // ↑/↓ di chuyển, focus mục đầu khi mở, trả focus về nút khi đóng (ui_ux_spec.md §6.3).
+// `open` + `onOpenChange` (tùy chọn) cho phép mở từ bên ngoài — MessageActions mở bằng nhấn giữ / chuột phải
+// (EC-MSG-018). Đóng khi `pointerdown` ra ngoài (không dùng `mousedown`: sau khi nhả tay trên cảm ứng trình duyệt
+// có thể phát mousedown giả lập vào bubble, làm đóng ngay menu vừa mở bằng nhấn giữ).
 import { MoreHorizontal } from 'lucide-react';
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
 import { IconButton } from './IconButton';
@@ -10,21 +13,36 @@ export interface MenuItem {
   danger?: boolean;
 }
 
-export function Menu({ label, items }: { label: string; items: MenuItem[] }) {
-  const [open, setOpen] = useState(false);
+export interface MenuProps {
+  label: string;
+  items: MenuItem[];
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+}
+
+export function Menu({ label, items, open: controlledOpen, onOpenChange }: MenuProps) {
+  const [innerOpen, setInnerOpen] = useState(false);
+  const open = controlledOpen ?? innerOpen;
+  const setOpen = (next: boolean) => {
+    if (controlledOpen === undefined) setInnerOpen(next);
+    onOpenChange?.(next);
+  };
   const menuId = useId();
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  // Listener ngoài (effect) luôn gọi bản setOpen mới nhất (controlled/uncontrolled) mà không đăng ký lại.
+  const closeRef = useRef(setOpen);
+  closeRef.current = setOpen;
 
   useEffect(() => {
     if (!open) return;
     rootRef.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
-    const onDown = (e: MouseEvent) => {
-      if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
+    const onDown = (e: PointerEvent) => {
+      if (!rootRef.current?.contains(e.target as Node)) closeRef.current(false);
     };
-    document.addEventListener('mousedown', onDown);
+    document.addEventListener('pointerdown', onDown);
     return () => {
-      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('pointerdown', onDown);
     };
   }, [open]);
 
@@ -57,7 +75,7 @@ export function Menu({ label, items }: { label: string; items: MenuItem[] }) {
         aria-controls={open ? menuId : undefined}
         icon={<MoreHorizontal size={20} aria-hidden="true" />}
         onClick={() => {
-          setOpen((v) => !v);
+          setOpen(!open);
         }}
       />
       {open ? (
